@@ -91,4 +91,5 @@ await import("./patch-ai-brain-internal-auth.js");
 await import("./meta-profile-sync-worker.js");
 await import("./drive-sync-request-worker.js");
 await import("./ai-dispatch-worker.js");
+await import("./response-obligation-worker.js");
 await import("./outbound-worker.js");
