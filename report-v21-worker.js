@@ -3,7 +3,7 @@ const SUPABASE_URL = String(
 ).replace(/\/$/, "");
 const SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const POLL_MS = Math.max(30_000, Number(process.env.AIGUKA_REPORT_V21_POLL_MS || 60_000));
-const BATCH_LIMIT = Math.min(20, Math.max(1, Number(process.env.AIGUKA_REPORT_V21_BATCH_LIMIT || 5)));
+const BATCH_LIMIT = Math.min(20, Math.max(1, Number(process.env.AIGUKA_REPORT_V21_BATCH_LIMIT || 20)));
 const ENABLED = String(process.env.AIGUKA_REPORT_V21_SHADOW_ENABLED || "true").toLowerCase() !== "false";
 const WORKER_NAME = "aiguka-report-v21-shadow-worker";
 const HEARTBEAT_MS = 5 * 60_000;
