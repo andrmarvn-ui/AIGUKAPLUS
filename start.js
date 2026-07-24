@@ -93,3 +93,4 @@ await import("./drive-sync-request-worker.js");
 await import("./ai-dispatch-worker.js");
 await import("./response-obligation-worker.js");
 await import("./outbound-worker.js");
+await import("./report-v21-worker.js");
