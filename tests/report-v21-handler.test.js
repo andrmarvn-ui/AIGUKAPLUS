@@ -22,6 +22,11 @@ function makeResponse(){
   };
 }
 
+function restoreEnv(name,value){
+  if(value===undefined)delete process.env[name];
+  else process.env[name]=value;
+}
+
 test("V2.1 report requests are coalesced and cached",async()=>{
   const originalFetch=globalThis.fetch;
   const originalDefault=process.env.AIGUKA_REPORT_V21_DEFAULT;
@@ -32,7 +37,7 @@ test("V2.1 report requests are coalesced and cached",async()=>{
     assert.match(String(url),/v8_report_summary_v21$/);
     assert.equal(options.method,"POST");
     await new Promise(resolve=>setTimeout(resolve,15));
-    return new Response(JSON.stringify({ok:true,version:"2.1-shadow",data:{conversations:6}}),{
+    return new Response(JSON.stringify({ok:true,version:"2.1",data:{conversations:6}}),{
       status:200,headers:{"content-type":"application/json"}
     });
   };
@@ -41,8 +46,6 @@ test("V2.1 report requests are coalesced and cached",async()=>{
     const app=makeApp();
     installReportRoutes(app,{supabaseUrl:"https://example.supabase.co",publishableKey:"test-key"});
     const handler=app.route("/functions/v1/aiguka-v8-report-api");
-    assert.equal(typeof handler,"function");
-
     const query={action:"summary",version:"2.1",from:"2026-07-24",to:"2026-07-24"};
     const res1=makeResponse();
     const res2=makeResponse();
@@ -58,7 +61,7 @@ test("V2.1 report requests are coalesced and cached",async()=>{
       new Set([res1.headers.get("x-aiguka-cache"),res2.headers.get("x-aiguka-cache")]),
       new Set(["MISS","COALESCED"])
     );
-    assert.equal(res1.headers.get("x-aiguka-report-version"),"2.1-shadow");
+    assert.equal(res1.headers.get("x-aiguka-report-version"),"2.1");
 
     const res3=makeResponse();
     await handler({query,headers:{}},res3);
@@ -66,15 +69,37 @@ test("V2.1 report requests are coalesced and cached",async()=>{
     assert.equal(res3.headers.get("x-aiguka-cache"),"HIT");
   }finally{
     globalThis.fetch=originalFetch;
-    if(originalDefault===undefined)delete process.env.AIGUKA_REPORT_V21_DEFAULT;
-    else process.env.AIGUKA_REPORT_V21_DEFAULT=originalDefault;
+    restoreEnv("AIGUKA_REPORT_V21_DEFAULT",originalDefault);
   }
 });
 
-test("legacy remains the default until the cutover flag is enabled",async()=>{
+test("V2.1 is the default after cutover",async()=>{
   const originalFetch=globalThis.fetch;
   const originalDefault=process.env.AIGUKA_REPORT_V21_DEFAULT;
-  process.env.AIGUKA_REPORT_V21_DEFAULT="false";
+  delete process.env.AIGUKA_REPORT_V21_DEFAULT;
+  let calledUrl="";
+  globalThis.fetch=async(url)=>{
+    calledUrl=String(url);
+    return new Response(JSON.stringify({ok:true,version:"2.1",data:{}}),{status:200});
+  };
+  try{
+    const app=makeApp();
+    installReportRoutes(app,{supabaseUrl:"https://example.supabase.co",publishableKey:"test-key"});
+    const handler=app.route("/functions/v1/aiguka-v8-report-api");
+    const res=makeResponse();
+    await handler({query:{action:"summary",from:"2026-07-24",to:"2026-07-24"},headers:{}},res);
+    assert.match(calledUrl,/v8_report_summary_v21$/);
+    assert.equal(res.headers.get("x-aiguka-report-version"),"2.1");
+  }finally{
+    globalThis.fetch=originalFetch;
+    restoreEnv("AIGUKA_REPORT_V21_DEFAULT",originalDefault);
+  }
+});
+
+test("explicit legacy version remains available for instant rollback",async()=>{
+  const originalFetch=globalThis.fetch;
+  const originalDefault=process.env.AIGUKA_REPORT_V21_DEFAULT;
+  process.env.AIGUKA_REPORT_V21_DEFAULT="true";
   let calledUrl="";
   globalThis.fetch=async(url)=>{
     calledUrl=String(url);
@@ -85,12 +110,42 @@ test("legacy remains the default until the cutover flag is enabled",async()=>{
     installReportRoutes(app,{supabaseUrl:"https://example.supabase.co",publishableKey:"test-key"});
     const handler=app.route("/functions/v1/aiguka-v8-report-api");
     const res=makeResponse();
-    await handler({query:{action:"summary",from:"2026-07-24",to:"2026-07-24"},headers:{}},res);
+    await handler({query:{action:"summary",version:"1",from:"2026-07-24",to:"2026-07-24"},headers:{}},res);
     assert.match(calledUrl,/v8_report_summary_test$/);
     assert.equal(res.headers.get("x-aiguka-report-version"),"1");
   }finally{
     globalThis.fetch=originalFetch;
-    if(originalDefault===undefined)delete process.env.AIGUKA_REPORT_V21_DEFAULT;
-    else process.env.AIGUKA_REPORT_V21_DEFAULT=originalDefault;
+    restoreEnv("AIGUKA_REPORT_V21_DEFAULT",originalDefault);
+  }
+});
+
+test("V2.1 failure automatically falls back to V1",async()=>{
+  const originalFetch=globalThis.fetch;
+  const originalDefault=process.env.AIGUKA_REPORT_V21_DEFAULT;
+  delete process.env.AIGUKA_REPORT_V21_DEFAULT;
+  const urls=[];
+  globalThis.fetch=async(url)=>{
+    urls.push(String(url));
+    if(String(url).endsWith("v8_report_summary_v21")){
+      return new Response(JSON.stringify({message:"statement timeout"}),{status:500});
+    }
+    return new Response(JSON.stringify({ok:true,data:{conversations:5}}),{status:200});
+  };
+  try{
+    const app=makeApp();
+    installReportRoutes(app,{supabaseUrl:"https://example.supabase.co",publishableKey:"test-key"});
+    const handler=app.route("/functions/v1/aiguka-v8-report-api");
+    const res=makeResponse();
+    await handler({query:{action:"summary",from:"2026-07-24",to:"2026-07-24"},headers:{}},res);
+    assert.equal(urls.length,2);
+    assert.match(urls[0],/v8_report_summary_v21$/);
+    assert.match(urls[1],/v8_report_summary_test$/);
+    assert.equal(res.payload.data.conversations,5);
+    assert.equal(res.payload.fallback_from,"2.1");
+    assert.equal(res.headers.get("x-aiguka-v21-fallback"),"true");
+    assert.equal(res.headers.get("x-aiguka-report-version"),"1-fallback");
+  }finally{
+    globalThis.fetch=originalFetch;
+    restoreEnv("AIGUKA_REPORT_V21_DEFAULT",originalDefault);
   }
 });

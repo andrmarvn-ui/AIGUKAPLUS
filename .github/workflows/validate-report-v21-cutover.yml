@@ -1,0 +1,33 @@
+name: Validate Report V2.1 cutover
+
+on:
+  pull_request:
+    paths:
+      - "report-handler.js"
+      - "report-v21-worker.js"
+      - "tests/report-v21-handler.test.js"
+      - ".github/workflows/validate-report-v21-cutover.yml"
+  push:
+    branches: [main]
+    paths:
+      - "report-handler.js"
+      - "report-v21-worker.js"
+      - "tests/report-v21-handler.test.js"
+      - ".github/workflows/validate-report-v21-cutover.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Validate report handler syntax
+        run: node --check report-handler.js
+      - name: Validate report worker syntax
+        run: node --check report-v21-worker.js
+      - name: Run Report V2.1 route tests
+        run: node --test tests/report-v21-handler.test.js
