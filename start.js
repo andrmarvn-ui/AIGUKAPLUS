@@ -76,8 +76,10 @@ if (dbReadyAtStartup) {
   }
 }
 
-// Recovery must start before every dashboard patch. A slow report/UI module is
-// never allowed to delay the independent Meta Conversations fallback lane.
+// These are the two durable ingestion lanes. They start before dashboards and
+// before every polling worker, so UI/report startup can never block customer
+// messages from being persisted and recovered.
+startDetached("./webhook-inbox-worker.js");
 startDetached("./meta-recovery-loader.js");
 
 if (dbReadyAtStartup) {
@@ -144,11 +146,8 @@ await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./server-fixed.js", true);
 
-// Start every remaining worker independently. No worker's first database poll
-// may block AI or outbound from being imported.
+// AI and transport remain active. Background CRM/report/Drive workers are not
+// started while the realtime-only recovery mode is active.
 startDetached("./ai-dispatch-worker.js");
 startDetached("./outbound-worker.js");
 startDetached("./meta-profile-sync-worker.js");
-startDetached("./response-obligation-worker.js");
-startDetached("./drive-sync-request-worker.js");
-startDetached("./report-v21-worker.js");
