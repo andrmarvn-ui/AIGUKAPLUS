@@ -13,6 +13,8 @@ if (!SUPABASE_ORIGIN) {
   const ORIGIN = new URL(SUPABASE_ORIGIN).origin;
   const LOW_PRIORITY = [
     "/rest/v1/v8_worker_heartbeats",
+    "/rest/v1/v8_response_obligations",
+    "/rest/v1/v8_pages",
     "/rest/v1/rpc/v8_report_v21_tick",
     "/rest/v1/v8_slide_mapping",
     "/rest/v1/rpc/v8_create_follow_up_tasks",
@@ -20,11 +22,11 @@ if (!SUPABASE_ORIGIN) {
     "/rest/v1/rpc/v8_claim_conversation_sync_batch",
     "/rest/v1/rpc/v8_claim_ai_dispatch_batch",
     "/rest/v1/rpc/v8_claim_outbound_batch",
+    "/rest/v1/rpc/v8_claim_webhook_inbox_batch",
     "/rest/v1/rpc/v8_dispatch_drive_asset_delivery_checks",
     "/rest/v1/rpc/v8_reconcile_drive_asset_delivery_checks",
   ];
   const MEDIUM_PRIORITY = [
-    "/rest/v1/v8_response_obligations",
     "/rest/v1/rpc/v8_zero_silent_drop_tick",
     "/rest/v1/rpc/v8_retry_recoverable_ai_errors",
     "/rest/v1/rpc/v8_recover_missing_meta_webhooks_from_pancake",
@@ -123,7 +125,7 @@ if (!SUPABASE_ORIGIN) {
       return syntheticPressure(url.pathname, priority);
     }
     if (circuitOpen && priority === "medium") {
-      if (now - lastMediumProbeAt < 15_000) {
+      if (now - lastMediumProbeAt < 20_000) {
         return syntheticPressure(url.pathname, priority);
       }
       lastMediumProbeAt = now;
