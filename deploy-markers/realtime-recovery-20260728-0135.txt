@@ -1,0 +1,1 @@
+Restart AIGUKA Railway after disabling blocking watchdog cron so Meta OAuth can load at startup and direct recent-conversation recovery can run immediately.
