@@ -87,3 +87,4 @@ for (const version of [
 
 fs.writeFileSync(file, source);
 console.log("[AIGUKA] Unified Mapping Center installed");
+await import("./patch-server-degraded-health.js");
