@@ -74,7 +74,13 @@ if (dbReadyAtStartup) {
   } catch (error) {
     console.error("[AIGUKA] Could not load saved Meta OAuth connection:", error.message);
   }
+}
 
+// Recovery must start before every dashboard patch. A slow report/UI module is
+// never allowed to delay the independent Meta Conversations fallback lane.
+startDetached("./meta-recovery-loader.js");
+
+if (dbReadyAtStartup) {
   const dashboardPatches = [
     "./patch-v7-pancake-classifier.js",
     "./patch-v7-pancake-history.js",
@@ -138,9 +144,8 @@ await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./server-fixed.js", true);
 
-// Start every worker independently. No worker's first database poll may block
-// the recovery, AI or outbound lanes from being imported.
-startDetached("./meta-recovery-loader.js");
+// Start every remaining worker independently. No worker's first database poll
+// may block AI or outbound from being imported.
 startDetached("./ai-dispatch-worker.js");
 startDetached("./outbound-worker.js");
 startDetached("./meta-profile-sync-worker.js");
