@@ -88,6 +88,11 @@ await import("./patch-outbound-binary-image-upload.js");
 await import("./patch-outbound-drive-image-proxy-v2.js");
 await import("./patch-outbound-marketing-notifications.js");
 await import("./patch-ai-brain-internal-auth.js");
+
+// All Railway workers share one database-pressure circuit. When Supabase is
+// saturated, background polling is suppressed and critical AI/outbound calls
+// are serialized instead of creating a retry storm.
+await import("./patch-supabase-load-shed-fetch.js");
 await import("./meta-profile-sync-worker.js");
 await import("./drive-sync-request-worker.js");
 await import("./ai-dispatch-worker.js");
