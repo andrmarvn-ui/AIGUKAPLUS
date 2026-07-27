@@ -42,11 +42,13 @@ Deno.serve(async (req: Request) => {
     return out({
       ok: true,
       service: "aiguka-v8-webhook",
-      architecture: "bulk-ingest-fast-ack",
+      architecture: "exactly-once-bulk-ingest-fast-ack",
       mode: "PRODUCTION",
-      version: "2026-07-28-v19-realtime-priority",
+      version: "2026-07-28-v20-exactly-once",
       synchronous_profile_sync: false,
       per_event_audit: false,
+      per_post_database_audit: false,
+      duplicate_message_policy: "ignore_without_update",
     });
   }
   if (req.method !== "POST") return out({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
@@ -59,9 +61,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const client = db();
-  const postId = `post:${Date.now()}:${crypto.randomUUID()}`;
-  const first = body.entry?.[0] || {};
-  const counters: J = { saved: 0, skipped: 0, failed: 0, echoes: 0, comments: 0, optins: 0 };
+  const counters: J = { accepted: 0, skipped: 0, failed: 0, echoes: 0, comments: 0, optins: 0 };
   const eventRows: J[] = [];
   const marketingOptins: J[] = [];
   const feedChanges: Array<{ pageId: string; change: J }> = [];
@@ -118,14 +118,18 @@ Deno.serve(async (req: Request) => {
   }
 
   if (eventRows.length) {
+    // ignoreDuplicates=true maps to ON CONFLICT DO NOTHING. A Meta retry for an
+    // already persisted message must return 200 without UPDATE and without
+    // firing the ingestion pipeline again.
     const { error } = await client.from("v8_meta_events").upsert(eventRows, {
       onConflict: "page_id,message_id",
+      ignoreDuplicates: true,
     });
     if (error) {
-      console.error("META_EVENT_BULK_UPSERT_FAILED", error.message);
-      return out({ ok: false, received: false, retryable: true, error: "META_EVENT_BULK_UPSERT_FAILED" }, 503);
+      console.error("META_EVENT_EXACTLY_ONCE_INSERT_FAILED", error.message);
+      return out({ ok: false, received: false, retryable: true, error: "META_EVENT_EXACTLY_ONCE_INSERT_FAILED" }, 503);
     }
-    counters.saved = eventRows.length;
+    counters.accepted = eventRows.length;
   }
 
   const background = async () => {
@@ -145,32 +149,13 @@ Deno.serve(async (req: Request) => {
 
     for (const x of feedChanges) {
       try {
-        await processFeedChange(client, noAudit, postId, x.pageId, x.change, counters);
+        await processFeedChange(client, noAudit, "background-feed", x.pageId, x.change, counters);
       } catch (error) {
         console.error("FEED_CHANGE_BACKGROUND_FAILED", error instanceof Error ? error.message : String(error));
       }
     }
-
-    await client.from("v8_webhook_audit").insert({
-      request_id: postId,
-      page_id: txt(first.id),
-      step: "POST_BULK_INGESTED",
-      status: "ok",
-      detail: `saved=${counters.saved};skipped=${counters.skipped};comments=${counters.comments}`,
-      payload_preview: {
-        architecture: "bulk-ingest-fast-ack",
-        entry_count: Array.isArray(body.entry) ? body.entry.length : 0,
-        saved: counters.saved,
-        skipped: counters.skipped,
-        echoes: counters.echoes,
-        optins: counters.optins,
-        comments: counters.comments,
-      },
-    }).then(({ error }) => {
-      if (error) console.error("WEBHOOK_SUMMARY_AUDIT_FAILED", error.message);
-    }).catch(() => {});
   };
 
-  runInBackground(background());
-  return out({ ok: true, received: true, fast_ack: true, ...counters }, 200);
+  if (marketingOptins.length || feedChanges.length) runInBackground(background());
+  return out({ ok: true, received: true, fast_ack: true, exactly_once: true, ...counters }, 200);
 });
