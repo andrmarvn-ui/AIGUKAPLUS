@@ -18,6 +18,8 @@ if (!SUPABASE_ORIGIN) {
     "/rest/v1/rpc/v8_create_follow_up_tasks",
     "/rest/v1/rpc/v8_reconcile_meta_sync_responses",
     "/rest/v1/rpc/v8_claim_conversation_sync_batch",
+    "/rest/v1/rpc/v8_claim_ai_dispatch_batch",
+    "/rest/v1/rpc/v8_claim_outbound_batch",
     "/rest/v1/rpc/v8_dispatch_drive_asset_delivery_checks",
     "/rest/v1/rpc/v8_reconcile_drive_asset_delivery_checks",
   ];
@@ -121,7 +123,7 @@ if (!SUPABASE_ORIGIN) {
       return syntheticPressure(url.pathname, priority);
     }
     if (circuitOpen && priority === "medium") {
-      if (now - lastMediumProbeAt < 10_000) {
+      if (now - lastMediumProbeAt < 15_000) {
         return syntheticPressure(url.pathname, priority);
       }
       lastMediumProbeAt = now;
