@@ -28,6 +28,13 @@ async function safeImport(path, critical = false) {
   }
 }
 
+function startDetached(path) {
+  void import(path).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[AIGUKA startup detached] ${path} failed: ${message}`);
+  });
+}
+
 async function databaseReady() {
   if (!SUPABASE_URL || !SERVICE_KEY) return false;
   try {
@@ -131,10 +138,12 @@ await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./server-fixed.js", true);
 
-await safeImport("./meta-profile-sync-worker.js");
-await safeImport("./meta-recovery-loader.js");
-await safeImport("./drive-sync-request-worker.js");
-await safeImport("./ai-dispatch-worker.js");
-await safeImport("./response-obligation-worker.js");
-await safeImport("./outbound-worker.js");
-await safeImport("./report-v21-worker.js");
+// Start every worker independently. No worker's first database poll may block
+// the recovery, AI or outbound lanes from being imported.
+startDetached("./meta-recovery-loader.js");
+startDetached("./ai-dispatch-worker.js");
+startDetached("./outbound-worker.js");
+startDetached("./meta-profile-sync-worker.js");
+startDetached("./response-obligation-worker.js");
+startDetached("./drive-sync-request-worker.js");
+startDetached("./report-v21-worker.js");
