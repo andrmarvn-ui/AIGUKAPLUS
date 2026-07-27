@@ -122,8 +122,6 @@ if (dbReadyAtStartup) {
   for (const patch of dashboardPatches) await safeImport(patch);
 }
 
-// Server and delivery patches are local-file operations and must still start
-// even when Supabase is temporarily unavailable.
 await safeImport("./patch-server.js");
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
@@ -133,9 +131,8 @@ await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./server-fixed.js", true);
 
-// Workers are resilient loops. The shared circuit breaker suppresses
-// background polling during pressure and serializes critical AI/outbound work.
 await safeImport("./meta-profile-sync-worker.js");
+await safeImport("./meta-recent-conversation-recovery-worker.js");
 await safeImport("./drive-sync-request-worker.js");
 await safeImport("./ai-dispatch-worker.js");
 await safeImport("./response-obligation-worker.js");
