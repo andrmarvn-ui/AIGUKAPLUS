@@ -6,7 +6,7 @@ const SUPABASE_URL = String(
 const SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v23.0";
 const WORKER_NAME = "aiguka-meta-recent-conversation-recovery";
-const WORKER_VERSION = "direct_meta_history_recovery_v1";
+const WORKER_VERSION = "direct_meta_history_recovery_v2_memory_token_first";
 const PAGE_IDS = String(
   process.env.AIGUKA_META_RECOVERY_PAGE_IDS || "985632314640803,104810069068200",
 ).split(",").map((x) => x.trim()).filter(Boolean);
@@ -18,7 +18,7 @@ const HEARTBEAT_MS = 5 * 60_000;
 
 let running = false;
 let timer = null;
-let nextDelay = 30_000;
+let nextDelay = 5_000;
 let lastHeartbeatAt = 0;
 let oauthCache = { expiresAt: 0, userToken: "", pageTokens: new Map() };
 const conversationCursor = new Map();
@@ -90,8 +90,13 @@ async function loadPageTokens(force = false) {
   if (!force && oauthCache.expiresAt > Date.now() && oauthCache.pageTokens.size) {
     return oauthCache.pageTokens;
   }
-  const connection = await loadActiveMetaConnection();
-  const userToken = String(connection?.accessToken || process.env.META_ACCESS_TOKEN || "");
+
+  let userToken = String(process.env.META_ACCESS_TOKEN || "");
+  if (!userToken) {
+    const connection = await loadActiveMetaConnection();
+    userToken = String(connection?.accessToken || "");
+    if (userToken) process.env.META_ACCESS_TOKEN = userToken;
+  }
   if (!userToken) throw new Error("META_OAUTH_CONNECTION_NOT_AVAILABLE");
 
   const pageTokens = new Map();
@@ -212,6 +217,7 @@ async function heartbeat(status, lastError, details = {}) {
         direct_meta_conversations: true,
         pancake_independent: true,
         message_id_deduplication: true,
+        memory_token_first: true,
         recent_window_minutes: Math.round(LOOKBACK_MS / 60_000),
         poll_ms: POLL_MS,
         ...details,
