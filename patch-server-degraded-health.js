@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
+await import("./ensure-degraded-dashboard-stub.js");
 
 const file = "server-fixed.js";
 let source = fs.readFileSync(file, "utf8");
@@ -8,7 +9,6 @@ const marker = "AIGUKA_DEGRADED_HEALTH_V1";
 if (source.includes(marker)) {
   console.log("[AIGUKA] Degraded health fallback already installed");
 } else {
-  // Do not let a saturated Supabase hold Railway's root health request for 30s.
   source = source.replace(
     'signal: AbortSignal.timeout(30_000),',
     'signal: AbortSignal.timeout(2_500),',
