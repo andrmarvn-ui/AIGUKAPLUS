@@ -132,7 +132,7 @@ await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./server-fixed.js", true);
 
 await safeImport("./meta-profile-sync-worker.js");
-await safeImport("./meta-recent-conversation-recovery-worker.js");
+await safeImport("./meta-recovery-loader.js");
 await safeImport("./drive-sync-request-worker.js");
 await safeImport("./ai-dispatch-worker.js");
 await safeImport("./response-obligation-worker.js");
