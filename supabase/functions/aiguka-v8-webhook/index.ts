@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { syncCustomerProfile, type J } from "./profile.ts";
-import { processFeedChange } from "./feed.ts";
+import { processFeedChange, type J } from "./feed.ts";
+
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
 const H = { "content-type": "application/json", "access-control-allow-origin": "*" };
 const out = (x: J, status = 200) => new Response(JSON.stringify(x), { status, headers: H });
@@ -20,6 +21,14 @@ const kind = (item: J) =>
     : item.referral ? "referral"
     : "unknown_messaging";
 
+function runInBackground(promise: Promise<unknown>) {
+  try {
+    EdgeRuntime.waitUntil(promise);
+  } catch {
+    promise.catch(() => {});
+  }
+}
+
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   if (req.method === "GET") {
@@ -33,10 +42,11 @@ Deno.serve(async (req: Request) => {
     return out({
       ok: true,
       service: "aiguka-v8-webhook",
-      architecture: "queue-first",
+      architecture: "bulk-ingest-fast-ack",
       mode: "PRODUCTION",
-      version: "2026-07-23-v18-marketing-optin-promotion",
-      marketing_optins: true,
+      version: "2026-07-28-v19-realtime-priority",
+      synchronous_profile_sync: false,
+      per_event_audit: false,
     });
   }
   if (req.method !== "POST") return out({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
@@ -51,27 +61,10 @@ Deno.serve(async (req: Request) => {
   const client = db();
   const postId = `post:${Date.now()}:${crypto.randomUUID()}`;
   const first = body.entry?.[0] || {};
-  const audit = async (row: J) => {
-    const { error } = await client.from("v8_webhook_audit").insert(row);
-    if (error) console.error("AUDIT", error.message);
-  };
-
-  await audit({
-    request_id: postId,
-    page_id: txt(first.id),
-    step: "POST_RECEIVED",
-    status: "ok",
-    detail: txt(body.object) || "unknown",
-    payload_preview: {
-      entry_count: Array.isArray(body.entry) ? body.entry.length : 0,
-      has_messaging: Array.isArray(first.messaging),
-      has_standby: Array.isArray(first.standby),
-      has_changes: Array.isArray(first.changes),
-    },
-  });
-
   const counters: J = { saved: 0, skipped: 0, failed: 0, echoes: 0, comments: 0, optins: 0 };
-  const profiles: Promise<void>[] = [];
+  const eventRows: J[] = [];
+  const marketingOptins: J[] = [];
+  const feedChanges: Array<{ pageId: string; change: J }> = [];
 
   for (const entry of body.entry || []) {
     const pageId = txt(entry.id);
@@ -79,16 +72,6 @@ Deno.serve(async (req: Request) => {
       const eventKind = kind(item);
       if (!["message", "message_echo", "postback", "marketing_optin"].includes(eventKind)) {
         counters.skipped += 1;
-        await audit({
-          request_id: `${postId}:skip:${counters.skipped}`,
-          page_id: pageId,
-          sender_id: txt(item.sender?.id),
-          message_id: txt(item.message?.mid),
-          step: "POST_SKIPPED",
-          status: "skipped",
-          detail: eventKind,
-          payload_preview: { reason: eventKind },
-        });
         continue;
       }
 
@@ -108,7 +91,8 @@ Deno.serve(async (req: Request) => {
       );
       const messageText = txt(message.text) || txt(postback.title) || txt(postback.payload) ||
         txt(optin.title) || txt(optin.payload) || txt(optin.notification_messages_status);
-      const row = {
+
+      eventRows.push({
         meta_object: body.object,
         page_id: pageId,
         sender_id: rawSender,
@@ -122,110 +106,71 @@ Deno.serve(async (req: Request) => {
         attachments: message.attachments || [],
         raw_payload: item,
         process_status: "processed",
-      };
-
-      await audit({
-        request_id: messageId,
-        page_id: pageId,
-        sender_id: customer,
-        message_id: messageId,
-        step: eventKind === "marketing_optin" ? "MARKETING_OPTIN_RECEIVED" : (isEcho ? "ECHO_RECEIVED" : "RECEIVED"),
-        status: "ok",
-        detail: messageText || "",
-        payload_preview: { kind: eventKind },
       });
 
-      const { error } = await client.from("v8_meta_events").upsert(row, { onConflict: "page_id,message_id" });
-      if (error) {
-        counters.failed += 1;
-        await audit({
-          request_id: messageId,
-          page_id: pageId,
-          sender_id: customer,
-          message_id: messageId,
-          step: "EVENT_SAVE_FAILED",
-          status: "error",
-          error_code: "META_EVENT_UPSERT_FAILED",
-          detail: error.message,
-        });
-      } else if (eventKind === "marketing_optin") {
-        const { data: optinResult, error: optinError } = await client.rpc("v8_record_marketing_optin", {
-          p_page_id: pageId,
-          p_sender_id: customer,
-          p_optin: optin,
-          p_event_time: new Date(timestamp).toISOString(),
-          p_raw_payload: item,
-        });
-        if (optinError) {
-          counters.failed += 1;
-          await audit({
-            request_id: messageId,
-            page_id: pageId,
-            sender_id: customer,
-            message_id: messageId,
-            step: "MARKETING_OPTIN_PROCESS_FAILED",
-            status: "error",
-            error_code: "MARKETING_OPTIN_RPC_FAILED",
-            detail: optinError.message,
-          });
-        } else {
-          counters.saved += 1;
-          counters.optins += 1;
-          await audit({
-            request_id: messageId,
-            page_id: pageId,
-            sender_id: customer,
-            message_id: messageId,
-            step: "MARKETING_OPTIN_COMPLETED",
-            status: "ok",
-            detail: String(optinResult?.status || "recorded"),
-            payload_preview: { result: optinResult },
-          });
-          if (pageId && customer) profiles.push(syncCustomerProfile(client, pageId, customer));
-        }
-      } else {
-        counters.saved += 1;
-        await audit({
-          request_id: messageId,
-          page_id: pageId,
-          sender_id: customer,
-          message_id: messageId,
-          step: "WEBHOOK_COMPLETED",
-          status: "ok",
-          detail: isEcho ? "outbound_echo_saved" : "inbound_saved",
-        });
-        if (!isEcho && pageId && customer) profiles.push(syncCustomerProfile(client, pageId, customer));
+      if (eventKind === "marketing_optin") {
+        marketingOptins.push({ pageId, customer, optin, timestamp, item });
       }
     }
 
-    for (const item of entry.standby || []) {
-      counters.skipped += 1;
-      await audit({
-        request_id: `${postId}:standby:${counters.skipped}`,
-        page_id: pageId,
-        sender_id: txt(item.sender?.id),
-        step: "POST_SKIPPED",
-        status: "skipped",
-        detail: "standby",
-        payload_preview: { reason: "standby" },
-      });
-    }
-
-    for (const change of entry.changes || []) {
-      await processFeedChange(client, audit, postId, pageId, change, counters);
-    }
+    counters.skipped += Array.isArray(entry.standby) ? entry.standby.length : 0;
+    for (const change of entry.changes || []) feedChanges.push({ pageId, change });
   }
 
-  if (counters.saved === 0 && counters.skipped === 0 && counters.comments === 0) {
-    await audit({
-      request_id: `${postId}:empty`,
-      page_id: txt(first.id),
-      step: "POST_SKIPPED",
-      status: "skipped",
-      detail: "empty_or_unknown_payload",
-      payload_preview: { object: body.object || null },
+  if (eventRows.length) {
+    const { error } = await client.from("v8_meta_events").upsert(eventRows, {
+      onConflict: "page_id,message_id",
     });
+    if (error) {
+      console.error("META_EVENT_BULK_UPSERT_FAILED", error.message);
+      return out({ ok: false, received: false, retryable: true, error: "META_EVENT_BULK_UPSERT_FAILED" }, 503);
+    }
+    counters.saved = eventRows.length;
   }
-  if (profiles.length) await Promise.allSettled(profiles);
-  return out({ ok: counters.failed === 0, received: true, ...counters }, counters.failed ? 500 : 200);
+
+  const background = async () => {
+    const noAudit = async (_row: J) => {};
+
+    for (const x of marketingOptins) {
+      const { error } = await client.rpc("v8_record_marketing_optin", {
+        p_page_id: x.pageId,
+        p_sender_id: x.customer,
+        p_optin: x.optin,
+        p_event_time: new Date(x.timestamp).toISOString(),
+        p_raw_payload: x.item,
+      });
+      if (!error) counters.optins += 1;
+      else console.error("MARKETING_OPTIN_RPC_FAILED", error.message);
+    }
+
+    for (const x of feedChanges) {
+      try {
+        await processFeedChange(client, noAudit, postId, x.pageId, x.change, counters);
+      } catch (error) {
+        console.error("FEED_CHANGE_BACKGROUND_FAILED", error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    await client.from("v8_webhook_audit").insert({
+      request_id: postId,
+      page_id: txt(first.id),
+      step: "POST_BULK_INGESTED",
+      status: "ok",
+      detail: `saved=${counters.saved};skipped=${counters.skipped};comments=${counters.comments}`,
+      payload_preview: {
+        architecture: "bulk-ingest-fast-ack",
+        entry_count: Array.isArray(body.entry) ? body.entry.length : 0,
+        saved: counters.saved,
+        skipped: counters.skipped,
+        echoes: counters.echoes,
+        optins: counters.optins,
+        comments: counters.comments,
+      },
+    }).then(({ error }) => {
+      if (error) console.error("WEBHOOK_SUMMARY_AUDIT_FAILED", error.message);
+    }).catch(() => {});
+  };
+
+  runInBackground(background());
+  return out({ ok: true, received: true, fast_ack: true, ...counters }, 200);
 });
