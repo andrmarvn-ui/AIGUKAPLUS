@@ -1,0 +1,1 @@
+Deploy durable inbox v1 after Edge Function v21, scoped triggers, and removal of blocking CRM/report/watchdog workers from realtime startup.
