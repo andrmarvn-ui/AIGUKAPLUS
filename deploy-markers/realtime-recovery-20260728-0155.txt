@@ -1,0 +1,1 @@
+Clean Railway restart after disabling v8_zero_silent_drop_tick and v8_process_core_queue cron transactions. Direct Meta recovery must load OAuth and scan recent conversations immediately.
