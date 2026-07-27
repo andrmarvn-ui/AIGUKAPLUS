@@ -21,14 +21,7 @@ export async function processFeedChange(
 
   if (field !== "feed" || item !== "comment" || !commentId) {
     counters.skipped += 1;
-    await audit({
-      request_id: `${postId}:change:${counters.skipped}`,
-      page_id: pageId,
-      step: "POST_SKIPPED",
-      status: "skipped",
-      detail: `changes:${field}:${item || "unknown"}:${verb || "unknown"}`,
-      payload_preview: { reason: "unsupported_change", field, item, verb },
-    });
+    await audit({ request_id: `${postId}:change:${counters.skipped}` });
     return;
   }
 
@@ -39,31 +32,11 @@ export async function processFeedChange(
       updated_at: new Date().toISOString(),
     }).eq("page_id", pageId).eq("comment_id", commentId);
     counters.comments += 1;
-    await audit({
-      request_id: commentId,
-      page_id: pageId,
-      sender_id: txt(value.from?.id),
-      message_id: commentId,
-      step: "COMMENT_REMOVED",
-      status: "ok",
-      detail: verb,
-      payload_preview: { field, item, verb },
-    });
     return;
   }
 
   if (verb !== "add" && verb !== "edited") {
     counters.skipped += 1;
-    await audit({
-      request_id: `${postId}:comment:${counters.skipped}`,
-      page_id: pageId,
-      sender_id: txt(value.from?.id),
-      message_id: commentId,
-      step: "POST_SKIPPED",
-      status: "skipped",
-      detail: `comment:${verb || "unknown"}`,
-      payload_preview: { reason: "unsupported_comment_verb", verb },
-    });
     return;
   }
 
@@ -81,42 +54,11 @@ export async function processFeedChange(
     p_raw_payload: { field, value },
   };
 
-  await audit({
-    request_id: commentId,
-    page_id: pageId,
-    sender_id: payload.p_sender_id,
-    message_id: commentId,
-    step: "COMMENT_RECEIVED",
-    status: "ok",
-    detail: payload.p_message_text || "",
-    payload_preview: { post_id: payload.p_post_id, verb, item },
-  });
-
-  const { data, error } = await c.rpc("v8_register_comment_event", payload);
+  const { error } = await c.rpc("v8_register_comment_event", payload);
   if (error) {
     counters.failed += 1;
-    await audit({
-      request_id: commentId,
-      page_id: pageId,
-      sender_id: payload.p_sender_id,
-      message_id: commentId,
-      step: "COMMENT_SAVE_FAILED",
-      status: "error",
-      error_code: "COMMENT_REGISTER_FAILED",
-      detail: error.message,
-    });
+    console.error("COMMENT_REGISTER_FAILED", error.message);
     return;
   }
-
   counters.comments += 1;
-  await audit({
-    request_id: commentId,
-    page_id: pageId,
-    sender_id: payload.p_sender_id,
-    message_id: commentId,
-    step: "COMMENT_CLASSIFIED",
-    status: "ok",
-    detail: data?.classification?.reason || "classified",
-    payload_preview: { result: data },
-  });
 }
