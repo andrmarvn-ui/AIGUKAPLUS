@@ -3,6 +3,9 @@ await import("./patch-supabase-load-shed-fetch.js");
 const { loadActiveMetaConnection } = await import("./meta-token-store.js");
 
 process.env.META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || "AIGUKA_V8_META_VERIFY";
+// Keep operational dashboards on the verified V1 source while V2.1 drains its
+// backlog. V2.1 remains available explicitly with ?version=2.1 for validation.
+process.env.AIGUKA_REPORT_V21_DEFAULT = "false";
 
 if (
   !process.env.SUPABASE_PUBLISHABLE_KEY &&
