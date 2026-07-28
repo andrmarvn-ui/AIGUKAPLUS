@@ -157,6 +157,7 @@ await safeImport("./patch-outbound-binary-image-upload.js");
 await safeImport("./patch-outbound-drive-image-proxy-v2.js");
 await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
+await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 await safeImport("./server-fixed.js", true);
 
 // Realtime transport remains highest priority. Reporting is isolated and uses
