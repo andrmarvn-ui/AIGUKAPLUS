@@ -1,5 +1,6 @@
 const DEFAULT_CORE_URL = "https://xqcxckyrlsobdrnidtrp.supabase.co";
 const DEFAULT_CORE_PUBLISHABLE_KEY = "sb_publishable_FsKYB8CS7h6VmJhLfMAGvw_IPpvoa3W";
+const BRIDGE_FETCH_MARK = Symbol.for("aiguka.v9.core.database.bridge.fetch");
 
 function cleanBase(value) {
   return String(value || "").trim().replace(/\/$/, "");
@@ -13,6 +14,39 @@ function coreHeaders(apiKey, bridgeKey = "") {
   };
   if (bridgeKey) headers["x-aiguka-core-bridge"] = bridgeKey;
   return headers;
+}
+
+function urlFromInput(input) {
+  if (typeof input === "string" || input instanceof URL) return new URL(String(input));
+  if (typeof Request !== "undefined" && input instanceof Request) return new URL(input.url);
+  return null;
+}
+
+export function installV9CoreBridgeFetch(coreBase, bridgeKey) {
+  if (!bridgeKey) return null;
+  if (globalThis[BRIDGE_FETCH_MARK]) return globalThis[BRIDGE_FETCH_MARK];
+  const originalFetch = globalThis.fetch?.bind(globalThis);
+  if (!originalFetch) throw new Error("CORE_BRIDGE_FETCH_UNAVAILABLE");
+  const coreOrigin = new URL(cleanBase(coreBase)).origin;
+
+  globalThis.fetch = async function v9CoreDatabaseBridgeFetch(input, init = {}) {
+    const url = urlFromInput(input);
+    if (!url || url.origin !== coreOrigin) return originalFetch(input, init);
+    const baseHeaders = typeof Request !== "undefined" && input instanceof Request
+      ? input.headers
+      : init.headers;
+    const headers = new Headers(baseHeaders || {});
+    headers.set("x-aiguka-core-bridge", bridgeKey);
+    if (typeof Request !== "undefined" && input instanceof Request) {
+      const request = new Request(input, { headers });
+      return originalFetch(request, { ...init, headers });
+    }
+    return originalFetch(input, { ...init, headers });
+  };
+
+  const state = { enabled: true, coreOrigin, fetch: originalFetch };
+  globalThis[BRIDGE_FETCH_MARK] = state;
+  return state;
 }
 
 async function verifyCore(base, apiKey, bridgeKey = "") {
@@ -65,7 +99,7 @@ export async function bootstrapV9CoreBridge() {
   const serviceRoleKey = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "").trim();
 
   try {
-    if (serviceRoleKey) {
+    if (serviceRoleKey && !process.env.AIGUKA_V9_CORE_BRIDGE_KEY) {
       const runtime = await verifyCore(coreBase, serviceRoleKey);
       process.env.AIGUKA_V9_CORE_URL = coreBase;
       process.env.AIGUKA_V9_CORE_API_KEY = serviceRoleKey;
@@ -90,10 +124,14 @@ export async function bootstrapV9CoreBridge() {
     if (!resolvedBase || !publishableKey || !bridgeKey) throw new Error("CORE_BRIDGE_CONFIGURATION_INCOMPLETE");
 
     const runtime = await verifyCore(resolvedBase, publishableKey, bridgeKey);
+    installV9CoreBridgeFetch(resolvedBase, bridgeKey);
     process.env.AIGUKA_V9_CORE_URL = resolvedBase;
     process.env.AIGUKA_V9_CORE_PUBLISHABLE_KEY = publishableKey;
     process.env.AIGUKA_V9_CORE_API_KEY = publishableKey;
     process.env.AIGUKA_V9_CORE_BRIDGE_KEY = bridgeKey;
+    // Compatibility only: existing workers read this variable as their Core API key.
+    // In database_bridge mode it contains the public publishable key, never a Core service-role key.
+    process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY = publishableKey;
     process.env.AIGUKA_V9_CORE_AUTH_MODE = "database_bridge";
     Object.assign(v9CoreBridgeState, {
       ready: true,
@@ -112,4 +150,10 @@ export async function bootstrapV9CoreBridge() {
   return v9CoreBridgeState;
 }
 
-export const __private__ = { cleanBase, coreHeaders, verifyCore, fetchDatabaseBootstrap };
+export const __private__ = {
+  cleanBase,
+  coreHeaders,
+  urlFromInput,
+  verifyCore,
+  fetchDatabaseBootstrap,
+};
