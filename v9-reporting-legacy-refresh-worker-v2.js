@@ -7,7 +7,7 @@ const REPORT_KEY = String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || SO
 const HASH_SALT = String(process.env.AIGUKA_V9_REPORT_CONTACT_HASH_SALT || SOURCE_KEY);
 const INTERVAL_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V9_REPORTING_REFRESH_MS || 10 * 60_000));
 const WORKER = "aiguka-v9-reporting-legacy-refresh";
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 let cycle = 0;
 let running = false;
 
@@ -159,12 +159,29 @@ async function refreshAds() {
   })), "ad_id");
 }
 
+async function syncV21Dirty() {
+  const sync = {};
+  try {
+    sync.discover = (await source("rpc/v8_report_v21_discover_dirty", { method: "POST", body: {}, prefer: "return=representation", timeout: 30_000 })).data;
+  } catch (error) {
+    sync.discover_error = error instanceof Error ? error.message : String(error);
+  }
+  try {
+    sync.process = (await source("rpc/v8_report_v21_process_dirty", { method: "POST", body: { p_limit: 25, p_worker_name: WORKER }, prefer: "return=representation", timeout: 30_000 })).data;
+  } catch (error) {
+    sync.process_error = error instanceof Error ? error.message : String(error);
+  }
+  return sync;
+}
+
 async function refreshDaily(days = 7) {
-  const path = "v8_report_daily_runtime_detail?select=report_date,page_id,page_name,ad_account_id,ad_account_name,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,effective_status,currency,account_timezone,spend,tax_amount,spend_with_tax,impressions,reach,clicks,meta_conversations,conversations,contacts,hot_leads,message_count,meta_leads,data_match_status,contact_rate"
+  const dirty = await syncV21Dirty();
+  const path = "v8_report_v21_ad_day_fact?select=report_date,page_id,page_name,ad_account_id,ad_account_name,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,effective_status,currency,account_timezone,payment_method_last4,spend,tax_amount,spend_with_tax,impressions,reach,clicks,link_clicks,meta_conversations,meta_leads,conversations,customers,contacts,hot_leads,message_count,data_match_status,latest_source_at,fact_version,refreshed_at"
     + `&report_date=gte.${dateDaysAgo(days)}&report_date=lte.${dateDaysAgo(-1)}&order=report_date.desc`;
-  const rows = await fetchAll(source, path, 20_000);
+  const sourceRows = await fetchAll(source, path, 20_000);
+  const rows = sourceRows.filter((row) => !String(row.page_id || "").startsWith("__"));
   const now = nowIso();
-  return upsert("fact_daily_ad_performance", rows.map((row) => ({
+  const written = await upsert("fact_daily_ad_performance", rows.map((row) => ({
     report_date: row.report_date,
     page_id: clean(row.page_id) || "*",
     ad_account_id: clean(row.ad_account_id) || "*",
@@ -176,12 +193,14 @@ async function refreshDaily(days = 7) {
     reach: Number(row.reach || 0),
     clicks: Number(row.clicks || 0),
     conversations: Number(row.conversations || 0),
-    customers: Number(row.conversations || 0),
+    customers: Number(row.customers ?? row.conversations ?? 0),
     contacts: Number(row.contacts || 0),
     deliveries: 0,
-    metadata: { source: "legacy_v8_materialized", page_name: row.page_name, ad_account_name: row.ad_account_name, campaign_name: row.campaign_name, adset_name: row.adset_name, ad_name: row.ad_name, effective_status: row.effective_status, currency: row.currency, account_timezone: row.account_timezone, spend_before_tax: row.spend, tax_amount: row.tax_amount, meta_conversations: row.meta_conversations, hot_leads: row.hot_leads, message_count: row.message_count, meta_leads: row.meta_leads, data_match_status: row.data_match_status, legacy_contact_rate: row.contact_rate },
+    metadata: { source: "v8_report_v21_ad_day_fact", page_name: row.page_name, ad_account_name: row.ad_account_name, campaign_name: row.campaign_name, adset_name: row.adset_name, ad_name: row.ad_name, effective_status: row.effective_status, currency: row.currency, account_timezone: row.account_timezone, payment_method_last4: row.payment_method_last4, spend_before_tax: row.spend, tax_amount: row.tax_amount, link_clicks: row.link_clicks, meta_conversations: row.meta_conversations, hot_leads: row.hot_leads, message_count: row.message_count, meta_leads: row.meta_leads, data_match_status: row.data_match_status, source_refreshed_at: row.refreshed_at, latest_source_at: row.latest_source_at, fact_version: row.fact_version },
     updated_at: now,
   })), "report_date,page_id,ad_account_id,campaign_id,adset_id,ad_id");
+  const latestSourceRefresh = rows.reduce((latest, row) => String(row.refreshed_at || "") > latest ? String(row.refreshed_at) : latest, "");
+  return { written, source_rows: rows.length, latest_source_refresh: latestSourceRefresh || null, dirty };
 }
 
 async function step(name, task, details, warnings) {
@@ -204,26 +223,21 @@ async function refresh() {
   cycle += 1;
   const fullCustomers = cycle > 1 && cycle % 144 === 0;
   const dailyDays = cycle > 1 && cycle % 144 === 0 ? 31 : 7;
-  const details = { cycle, full_customers: fullCustomers, requested_daily_days: dailyDays, temporary_host: process.env.AIGUKA_V9_REPORTING_TEMPORARY_HOST === "true" };
+  const details = { cycle, full_customers: fullCustomers, requested_daily_days: dailyDays, daily_source: "v8_report_v21_ad_day_fact", temporary_host: process.env.AIGUKA_V9_REPORTING_TEMPORARY_HOST === "true" };
   const warnings = {};
   try {
     await heartbeat("running", details);
-    await Promise.all([
+    const results = await Promise.all([
       step("pages", refreshPages, details, warnings),
       step("customers", () => refreshCustomers(fullCustomers), details, warnings),
       step("ads", refreshAds, details, warnings),
+      step("daily", () => refreshDaily(dailyDays), details, warnings),
     ]);
-    let dailyOk = await step("daily", () => refreshDaily(dailyDays), details, warnings);
-    if (!dailyOk && dailyDays > 2) {
-      details.daily_fallback_days = 2;
-      delete warnings.daily;
-      dailyOk = await step("daily_fallback", () => refreshDaily(2), details, warnings);
-    }
     details.elapsed_ms = Date.now() - started;
     details.warnings = warnings;
-    const status = dailyOk ? "healthy" : "degraded";
-    await heartbeat(status, details, dailyOk ? null : warnings.daily_fallback || warnings.daily || "DAILY_REFRESH_FAILED");
-    console.log(`[${WORKER}] refresh ${status}`, details);
+    const dailyOk = results[3] === true;
+    await heartbeat(dailyOk ? "healthy" : "degraded", details, dailyOk ? null : warnings.daily || "DAILY_FACT_COPY_FAILED");
+    console.log(`[${WORKER}] refresh ${dailyOk ? "healthy" : "degraded"}`, details);
   } catch (error) {
     await heartbeat("degraded", { ...details, elapsed_ms: Date.now() - started, warnings }, error instanceof Error ? error.message : String(error));
     console.error(`[${WORKER}] refresh failed:`, error);
@@ -239,4 +253,4 @@ if (!ready()) {
   setInterval(() => void refresh(), INTERVAL_MS).unref();
 }
 
-export const __private__ = { hashContact, catalogKeys, clean, step };
+export const __private__ = { hashContact, catalogKeys, clean, step, syncV21Dirty };
