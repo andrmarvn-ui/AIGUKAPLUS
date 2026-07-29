@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { aggregatePerformance, parseReportRange, __private__ } from "../v9-admin-report-api-v2.js";
+import { aggregatePerformance, parseReportRange, pageMode, runtimeMode } from "../v9/core/admin-report-utils.js";
 
 const ui = fs.readFileSync(new URL("../v9-admin-ui.js", import.meta.url), "utf8");
 const patch = fs.readFileSync(new URL("../patch-server.js", import.meta.url), "utf8");
@@ -29,16 +29,16 @@ test("performance aggregation calculates totals and unit costs", () => {
 });
 
 test("migration safety prevents ACTIVE and SUPPORT at runtime", () => {
-  assert.equal(__private__.runtimeMode("shadow"), "SHADOW");
-  assert.equal(__private__.runtimeMode("canary"), "CANARY");
-  assert.throws(() => __private__.runtimeMode("support"), /RUNTIME_MODE_NOT_ALLOWED/);
-  assert.throws(() => __private__.runtimeMode("active"), /RUNTIME_MODE_NOT_ALLOWED/);
+  assert.equal(runtimeMode("shadow"), "SHADOW");
+  assert.equal(runtimeMode("canary"), "CANARY");
+  assert.throws(() => runtimeMode("support"), /RUNTIME_MODE_NOT_ALLOWED/);
+  assert.throws(() => runtimeMode("active"), /RUNTIME_MODE_NOT_ALLOWED/);
 });
 
 test("page mode keeps support but prevents premature ACTIVE", () => {
-  assert.equal(__private__.pageMode("support"), "SUPPORT");
-  assert.equal(__private__.pageMode("canary"), "CANARY");
-  assert.throws(() => __private__.pageMode("active"), /PAGE_MODE_NOT_ALLOWED/);
+  assert.equal(pageMode("support"), "SUPPORT");
+  assert.equal(pageMode("canary"), "CANARY");
+  assert.throws(() => pageMode("active"), /PAGE_MODE_NOT_ALLOWED/);
 });
 
 test("V9 UI is static, lazy-loaded and never calls V8 reporting RPCs", () => {
