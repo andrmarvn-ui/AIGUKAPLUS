@@ -9,6 +9,7 @@ on:
       - "v9-legacy-inbox-bridge.js"
       - "v9-ai-shadow-worker.js"
       - "v9-core-fetch-router.js"
+      - "v9-core-bridge-bootstrap.js"
       - "v9-reporting-publisher.js"
       - "v9-reporting-sync-worker.js"
       - "supabase/functions/aiguka-v9-webhook/**"
@@ -27,6 +28,7 @@ on:
       - "v9-legacy-inbox-bridge.js"
       - "v9-ai-shadow-worker.js"
       - "v9-core-fetch-router.js"
+      - "v9-core-bridge-bootstrap.js"
       - "v9-reporting-publisher.js"
       - "v9-reporting-sync-worker.js"
       - "supabase/functions/aiguka-v9-webhook/**"
@@ -49,6 +51,7 @@ jobs:
         run: node --test tests/v9-*.test.js
       - name: Validate V9 worker syntax
         run: |
+          node --check v9-core-bridge-bootstrap.js
           node --check v9-direct-core-worker.js
           node --check v9-legacy-inbox-bridge.js
           node --check v9-ai-shadow-worker.js
@@ -59,8 +62,10 @@ jobs:
           node --check v9/core/knowledge-selector.js
           node --check v9/core/reporting-contract.js
           node --check meta-token-store.js
+          node --check start.js
       - name: Confirm direct Core startup wiring
         run: |
+          grep -F 'await bootstrapV9CoreBridge();' start.js
           grep -F 'await safeImport("./v9-core-fetch-router.js")' start.js
           grep -F 'startDetached("./v9-legacy-inbox-bridge.js")' start.js
           grep -F 'startDetached("./v9-direct-core-worker.js")' start.js
@@ -77,6 +82,15 @@ jobs:
           grep -F 'AIGUKA_V9_CORE_SERVICE_ROLE_KEY' v9-core-fetch-router.js
           grep -F 'v9_integrations' meta-token-store.js
           ! grep -F 'graph.facebook.com' v9-ai-shadow-worker.js
+      - name: Confirm database-only Core bridge safety
+        run: |
+          grep -F 'rpc/v9_get_core_bridge_bootstrap' v9-core-bridge-bootstrap.js
+          grep -F 'x-aiguka-core-bridge' v9-core-bridge-bootstrap.js
+          grep -F 'AIGUKA_V9_CORE_AUTH_MODE = "database_bridge"' v9-core-bridge-bootstrap.js
+          grep -F 'v9CoreBridgeState.ready === true' start.js
+          grep -F 'never a Core service-role key' v9-core-bridge-bootstrap.js
+          ! grep -E '[a-f0-9]{96}' v9-core-bridge-bootstrap.js start.js
+          ! grep -F 'e3bcdfd89c3a93ffb66e30cb447569eb' v9-core-bridge-bootstrap.js start.js
       - name: Confirm signed Core webhook
         run: |
           webhook="supabase/functions/aiguka-v9-webhook/index.ts"
