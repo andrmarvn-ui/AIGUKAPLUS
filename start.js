@@ -69,6 +69,10 @@ await safeImport("./server-fixed.js", true);
 // all v9_* REST/RPC calls are guaranteed to reach the isolated Core project.
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 const v9CoreReady = v9CoreModule?.v9CoreRoutingState?.enabled === true;
+const reportingReady = Boolean(
+  String(process.env.AIGUKA_V9_REPORTING_URL || "").trim()
+  && String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || "").trim()
+);
 
 // AICAKE is customer-facing during the V9 migration. Legacy recovery/AI/outbound workers stay off
 // unless explicitly re-enabled for an emergency rollback.
@@ -87,7 +91,15 @@ if (v8BackgroundEnabled) {
 if (v9CoreReady) {
   startDetached("./v9-shadow-worker.js");
   startDetached("./v9-ai-shadow-worker.js");
-  console.log("[AIGUKA V9] isolated Core verified; SHADOW workers started");
+  startDetached("./v9-reporting-publisher.js");
+  console.log("[AIGUKA V9] isolated Core verified; SHADOW and reporting publisher workers started");
+
+  if (reportingReady) {
+    startDetached("./v9-reporting-sync-worker.js");
+    console.log("[AIGUKA V9 Reporting] isolated database verified; sync worker started");
+  } else {
+    console.warn("[AIGUKA V9 Reporting] sync disabled: Reporting URL/service-role missing; Core outbox will retain events");
+  }
 } else {
-  console.warn("[AIGUKA V9] SHADOW workers not started: isolated Core credential is missing");
+  console.warn("[AIGUKA V9] workers not started: isolated Core credential is missing");
 }

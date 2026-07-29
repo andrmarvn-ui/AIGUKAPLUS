@@ -7,6 +7,9 @@ on:
       - "v9-shadow-worker.js"
       - "v9-ai-shadow-worker.js"
       - "v9-core-fetch-router.js"
+      - "v9-reporting-publisher.js"
+      - "v9-reporting-sync-worker.js"
+      - "reporting/**"
       - "meta-token-store.js"
       - "tests/v9-*.test.js"
       - "start.js"
@@ -19,6 +22,9 @@ on:
       - "v9-shadow-worker.js"
       - "v9-ai-shadow-worker.js"
       - "v9-core-fetch-router.js"
+      - "v9-reporting-publisher.js"
+      - "v9-reporting-sync-worker.js"
+      - "reporting/**"
       - "meta-token-store.js"
       - "tests/v9-*.test.js"
       - "start.js"
@@ -40,13 +46,18 @@ jobs:
           node --check v9-shadow-worker.js
           node --check v9-ai-shadow-worker.js
           node --check v9-core-fetch-router.js
+          node --check v9-reporting-publisher.js
+          node --check v9-reporting-sync-worker.js
           node --check v9/core/knowledge-selector.js
+          node --check v9/core/reporting-contract.js
           node --check meta-token-store.js
       - name: Confirm SHADOW startup wiring
         run: |
           grep -F 'await safeImport("./v9-core-fetch-router.js")' start.js
           grep -F 'startDetached("./v9-shadow-worker.js")' start.js
           grep -F 'startDetached("./v9-ai-shadow-worker.js")' start.js
+          grep -F 'startDetached("./v9-reporting-publisher.js")' start.js
+          grep -F 'startDetached("./v9-reporting-sync-worker.js")' start.js
           grep -F 'mode !== "SHADOW"' v9-shadow-worker.js
           grep -F 'AICAKE_ACTIVE' v9-shadow-worker.js
           grep -F 'should_send: false' v9-ai-shadow-worker.js
@@ -71,3 +82,14 @@ jobs:
           ! grep -Eiq '^create trigger|pg_cron|net.http|http_post' $knowledge_schema
           grep -F "where d.status='published'" supabase/migrations/20260729171000_v9_ai_publish_only_approved_knowledge.sql
           grep -F "'draft'" supabase/migrations/20260729171500_v9_ai_archive_legacy_learning_tables.sql
+      - name: Confirm isolated Reporting constraints
+        run: |
+          reporting_schema="reporting/migrations/20260729180000_v9_reporting_clean_schema.sql"
+          test "$(grep -c '^create table public\.' $reporting_schema)" -eq 13
+          test "$(grep -c '^create or replace function' $reporting_schema || true)" -eq 0
+          ! grep -Eiq '^create trigger|pg_cron|net.http|http_post' $reporting_schema
+          ! grep -Eiq '^[[:space:]]*(message_text|contact_value|normalized_value|phone|zalo|token_cipher|api_key)[[:space:]]' $reporting_schema
+          grep -F 'v9_reporting_outbox' v9-reporting-publisher.js
+          grep -F 'dead_letter' v9-reporting-sync-worker.js
+          grep -F 'assertReportingPayloadPrivacy' v9-reporting-publisher.js
+          grep -F 'assertReportingPayloadPrivacy' v9-reporting-sync-worker.js
