@@ -151,6 +151,7 @@ const dashboardPatches = [
 for (const patch of dashboardPatches) await safeImport(patch);
 
 await safeImport("./patch-server.js");
+await safeImport("./patch-outbound-price-language.js");
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
 await safeImport("./patch-outbound-binary-image-upload.js");
