@@ -45,7 +45,8 @@ test("daily refresh is bounded and falls back instead of failing the whole cycle
 
 test("first cycle does not execute a full customer or 365-day report scan", () => {
   assert.match(worker, /const fullCustomers = cycle > 1/);
-  assert.doesNotMatch(worker, /full \? 365/);
+  assert.doesNotMatch(worker, /refreshDaily\(365\)/);
+  assert.doesNotMatch(worker, /dailyDays[^\n]*365/);
   assert.doesNotMatch(worker, /cycle === 0 \|\| cycle % 144/);
 });
 
