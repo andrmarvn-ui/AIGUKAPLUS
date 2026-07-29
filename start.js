@@ -71,3 +71,4 @@ startDetached("./ai-dispatch-worker.js");
 startDetached("./outbound-worker.js");
 startDetached("./meta-profile-sync-worker.js");
 startDetached("./v9-shadow-worker.js");
+startDetached("./v9-ai-shadow-worker.js");
