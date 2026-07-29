@@ -4,12 +4,13 @@ const REPORT_BASE = String(process.env.AIGUKA_V9_REPORTING_URL || SOURCE_BASE).r
 const REPORT_KEY = String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || SOURCE_KEY);
 const INTERVAL_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V9_CONVERSATION_REFRESH_MS || 10 * 60_000));
 const WORKER = "aiguka-v9-reporting-conversation-refresh";
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 let cycle = 0;
 let running = false;
 
 const nowIso = () => new Date().toISOString();
 const ready = () => Boolean(SOURCE_BASE && SOURCE_KEY && REPORT_BASE && REPORT_KEY);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function request(base, key, path, options = {}) {
   const response = await fetch(`${base}/rest/v1/${path}`, {
@@ -57,6 +58,31 @@ export function refreshSince(cycleNo = 1, now = Date.now()) {
   return new Date(now - lookbackMs).toISOString();
 }
 
+export function isSchemaCacheError(error) {
+  const text = String(error?.message || error || "").toLowerCase();
+  return text.includes("schema cache") || text.includes("pgrst202") || text.includes("could not find the function");
+}
+
+async function refreshFactWithRetry(since, details) {
+  let lastError;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    details.rpc_attempts = attempt;
+    try {
+      return await request(SOURCE_BASE, SOURCE_KEY, "rpc/v9_refresh_conversation_fact", {
+        method: "POST",
+        body: { p_since: since },
+        prefer: "return=representation",
+        timeout: 20_000,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!isSchemaCacheError(error) || attempt === 4) throw error;
+      await sleep(attempt * 2000);
+    }
+  }
+  throw lastError;
+}
+
 async function refresh() {
   if (running || !ready()) return;
   running = true;
@@ -73,12 +99,7 @@ async function refresh() {
   };
   try {
     await heartbeat("running", details);
-    const result = await request(SOURCE_BASE, SOURCE_KEY, "rpc/v9_refresh_conversation_fact", {
-      method: "POST",
-      body: { p_since: since },
-      prefer: "return=representation",
-      timeout: 20_000,
-    });
+    const result = await refreshFactWithRetry(since, details);
     details.rows_upserted = Number(result?.rows_upserted || 0);
     details.database_duration_ms = Number(result?.duration_ms || 0);
     details.elapsed_ms = Date.now() - started;
@@ -100,4 +121,4 @@ if (!ready()) {
   setInterval(() => void refresh(), INTERVAL_MS).unref();
 }
 
-export const __private__ = { ready, refreshSince };
+export const __private__ = { ready, refreshSince, isSchemaCacheError, refreshFactWithRetry };
