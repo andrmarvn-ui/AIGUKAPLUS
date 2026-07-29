@@ -3,6 +3,7 @@ name: Validate V9 admin and reporting
 on:
   pull_request:
     paths:
+      - "v9-admin-auth.js"
       - "v9-admin-report-api-v2.js"
       - "v9-admin-ui.js"
       - "v9/core/admin-report-utils.js"
@@ -12,6 +13,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "v9-admin-auth.js"
       - "v9-admin-report-api-v2.js"
       - "v9-admin-ui.js"
       - "v9/core/admin-report-utils.js"
@@ -29,16 +31,25 @@ jobs:
           node-version: "20"
       - name: Validate syntax
         run: |
+          node --check v9-admin-auth.js
           node --check v9-admin-report-api-v2.js
           node --check v9-admin-ui.js
           node --check v9/core/admin-report-utils.js
           node --check patch-server.js
       - name: Run focused regression tests
         run: node --test tests/v9-admin-report-priority.test.js
-      - name: Confirm V9 data isolation and performance rules
+      - name: Confirm authentication is installed before V9 routes
         run: |
+          grep -F 'installV9AdminAuth(app);' patch-server.js
           grep -F 'installV9AdminReportApiV2(app);' patch-server.js
           grep -F 'installV9AdminUi(app);' patch-server.js
+          grep -F 'AIGUKA_V9_ADMIN_SECRET' v9-admin-auth.js
+          grep -F 'timingSafeEqual' v9-admin-auth.js
+          grep -F 'V9_ADMIN_SECRET_NOT_CONFIGURED' v9-admin-auth.js
+          grep -F 'www-authenticate' v9-admin-auth.js
+          grep -F 'installV9AdminAuth(app);' patch-server.js | head -1
+      - name: Confirm V9 data isolation and performance rules
+        run: |
           grep -F 'REPORTING_NOT_CONFIGURED' v9-admin-report-api-v2.js
           grep -F 'stale-while-revalidate' v9-admin-report-api-v2.js
           grep -F 'fact_daily_ad_performance' v9-admin-report-api-v2.js
