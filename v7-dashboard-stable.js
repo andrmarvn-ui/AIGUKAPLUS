@@ -2,7 +2,6 @@ import express from "express";
 import { pathToFileURL } from "node:url";
 
 const REPORT_PATHS = new Set([
-  "/",
   "/dashboard",
   "/dashboard-today",
   "/dashboard-yesterday",
@@ -57,18 +56,12 @@ let lastError = null;
 
 async function loadExactPreV21ReportUi() {
   const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-  // Fetch and verify the exact embedded V7.5 source only when reporting is used.
-  // This keeps Railway startup independent from temporary Supabase pressure.
   await import(`./materialize-v7-dashboard-resilient.js?lazy=${token}`);
 
-  // Reapply the complete pre-Report-V2.1 report patch chain in its original order.
   for (let index = 0; index < REPORT_PATCHES.length; index += 1) {
     await import(`${REPORT_PATCHES[index]}?lazy=${token}-${index}`);
   }
 
-  // materialize-v7-dashboard-resilient.js replaces this source file on disk with
-  // the verified legacy implementation. Import that generated module separately.
   const generatedUrl = `${pathToFileURL(`${process.cwd()}/v7-dashboard-stable.js`).href}?generated=${token}`;
   const generated = await import(generatedUrl);
   if (typeof generated.installStableV7Dashboard !== "function") {
@@ -94,6 +87,14 @@ export async function ensureStableV7DashboardReady() {
 }
 
 export function installStableV7Dashboard(app) {
+  // Railway probes the root URL. Return immediately so deployment health does
+  // not depend on loading the report source. Browsers continue to Dashboard.
+  app.get("/", (_req, res) => {
+    res.status(200).type("text/html; charset=utf-8").send(
+      '<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="1;url=/dashboard"><title>AIGUKA</title></head><body style="font-family:Arial,sans-serif;padding:24px">Đang mở Dashboard…<script>setTimeout(()=>location.replace("/dashboard"),250)</script></body></html>',
+    );
+  });
+
   app.use(async (req, res, next) => {
     if (!REPORT_PATHS.has(req.path)) return next();
 
@@ -110,7 +111,7 @@ export function installStableV7Dashboard(app) {
       return reportRouter(req, res, next);
     } catch (error) {
       return res.status(503).type("text/html; charset=utf-8").send(
-        `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Đang khôi phục Báo cáo</title></head><body style="font-family:Arial,sans-serif;padding:24px"><h2>Đang khôi phục giao diện Báo cáo trước Report V2.1</h2><p>Nguồn giao diện đang được tải lại. Hãy thử lại sau ít phút.</p><pre>${String(error instanceof Error ? error.message : error).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</pre></body></html>`,
+        `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="8"><title>Đang khôi phục Báo cáo</title></head><body style="font-family:Arial,sans-serif;padding:24px"><h2>Đang khôi phục giao diện Báo cáo trước Report V2.1</h2><p>Nguồn giao diện đang được tải lại. Trang sẽ tự thử lại.</p><pre>${String(error instanceof Error ? error.message : error).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</pre></body></html>`,
       );
     }
   });
