@@ -25,7 +25,7 @@ jobs:
       - name: Fetch and validate embedded dashboard
         shell: bash
         run: |
-          node <<'NODE'
+          node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import crypto from 'node:crypto';
 
