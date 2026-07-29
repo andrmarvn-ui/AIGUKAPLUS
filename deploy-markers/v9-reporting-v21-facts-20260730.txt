@@ -1,0 +1,4 @@
+Deploy merge 760045fa78c23c9e8a0c60b031bed25a21f6873a.
+Expected worker version 1.2.0.
+Expected daily source v8_report_v21_ad_day_fact.
+Expected dirty discovery/process followed by fact copy without dynamic report view.
