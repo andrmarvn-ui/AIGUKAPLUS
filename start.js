@@ -68,10 +68,19 @@ await safeImport("./server-fixed.js", true);
 // V8 continues reading the legacy database. Only v9_* REST/RPC calls are routed to the isolated Core project.
 await safeImport("./v9-core-fetch-router.js");
 
-startDetached("./webhook-inbox-worker.js");
-startDetached("./meta-recovery-loader.js");
-startDetached("./ai-dispatch-worker.js");
-startDetached("./outbound-worker.js");
-startDetached("./meta-profile-sync-worker.js");
+// AICAKE is customer-facing during the V9 migration. Legacy recovery/AI/outbound workers stay off
+// unless explicitly re-enabled for an emergency rollback.
+const v8BackgroundEnabled = String(process.env.AIGUKA_V8_BACKGROUND_WORKERS || "false").trim().toLowerCase() === "true";
+if (v8BackgroundEnabled) {
+  startDetached("./webhook-inbox-worker.js");
+  startDetached("./meta-recovery-loader.js");
+  startDetached("./ai-dispatch-worker.js");
+  startDetached("./outbound-worker.js");
+  startDetached("./meta-profile-sync-worker.js");
+  console.warn("[AIGUKA V8] legacy background workers explicitly enabled");
+} else {
+  console.warn("[AIGUKA V8] legacy background workers disabled for V9 migration");
+}
+
 startDetached("./v9-shadow-worker.js");
 startDetached("./v9-ai-shadow-worker.js");
