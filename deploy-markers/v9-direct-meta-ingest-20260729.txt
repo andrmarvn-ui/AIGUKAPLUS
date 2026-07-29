@@ -1,0 +1,3 @@
+Deploy V9 direct Meta ingest migration.
+Start legacy inbox bridge, Core-only shadow worker, AI shadow and reporting publisher only when isolated Core credential is present.
+Do not start legacy v9-shadow-worker. AICAKE remains customer-facing and V9 outbound remains locked.
