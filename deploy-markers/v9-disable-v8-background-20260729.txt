@@ -1,0 +1,3 @@
+Deploy V9 migration runtime with legacy V8 background workers disabled by default.
+AICAKE remains customer-facing. V9 remains SHADOW and transport locked.
+Merged source commit: e5af235990041def140881417d931e3862abba14
