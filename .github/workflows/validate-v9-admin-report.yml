@@ -6,6 +6,7 @@ on:
       - "v9-admin-auth.js"
       - "v9-admin-report-api-v2.js"
       - "v9-admin-ui.js"
+      - "v9-admin-ui-v2.js"
       - "v9-reporting-legacy-refresh-worker.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
@@ -19,6 +20,7 @@ on:
       - "v9-admin-auth.js"
       - "v9-admin-report-api-v2.js"
       - "v9-admin-ui.js"
+      - "v9-admin-ui-v2.js"
       - "v9-reporting-legacy-refresh-worker.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
@@ -40,6 +42,7 @@ jobs:
           node --check v9-admin-auth.js
           node --check v9-admin-report-api-v2.js
           node --check v9-admin-ui.js
+          node --check v9-admin-ui-v2.js
           node --check v9-reporting-legacy-refresh-worker.js
           node --check v9/core/admin-report-utils.js
           node --check patch-server.js
@@ -50,7 +53,7 @@ jobs:
         run: |
           grep -F 'installV9AdminAuth(app);' patch-server.js
           grep -F 'installV9AdminReportApiV2(app);' patch-server.js
-          grep -F 'installV9AdminUi(app);' patch-server.js
+          grep -F 'installV9AdminUiV2(app);' patch-server.js
           grep -F 'AIGUKA_V9_ADMIN_SECRET' v9-admin-auth.js
           grep -F 'timingSafeEqual' v9-admin-auth.js
           grep -F 'V9_ADMIN_SECRET_NOT_CONFIGURED' v9-admin-auth.js
@@ -62,6 +65,7 @@ jobs:
           grep -F 'fact_daily_ad_performance' v9-admin-report-api-v2.js
           grep -F 'dim_customers' v9-admin-report-api-v2.js
           grep -F 'dim_ads' v9-admin-report-api-v2.js
+          grep -F 'reportedContact' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test|v8_messages_raw|v8_meta_events' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test' v9-admin-ui.js
       - name: Confirm temporary host and refresh safety
