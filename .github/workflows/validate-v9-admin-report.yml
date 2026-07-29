@@ -7,7 +7,7 @@ on:
       - "v9-admin-report-api-v2.js"
       - "v9-admin-ui.js"
       - "v9-admin-ui-v2.js"
-      - "v9-reporting-legacy-refresh-worker.js"
+      - "v9-reporting-legacy-refresh-worker-v2.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
       - "start.js"
@@ -21,7 +21,7 @@ on:
       - "v9-admin-report-api-v2.js"
       - "v9-admin-ui.js"
       - "v9-admin-ui-v2.js"
-      - "v9-reporting-legacy-refresh-worker.js"
+      - "v9-reporting-legacy-refresh-worker-v2.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
       - "start.js"
@@ -43,7 +43,7 @@ jobs:
           node --check v9-admin-report-api-v2.js
           node --check v9-admin-ui.js
           node --check v9-admin-ui-v2.js
-          node --check v9-reporting-legacy-refresh-worker.js
+          node --check v9-reporting-legacy-refresh-worker-v2.js
           node --check v9/core/admin-report-utils.js
           node --check patch-server.js
           node --check start.js
@@ -68,13 +68,17 @@ jobs:
           grep -F 'reportedContact' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test|v8_messages_raw|v8_meta_events' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test' v9-admin-ui.js
-      - name: Confirm temporary host and refresh safety
+      - name: Confirm temporary host and resilient refresh safety
         run: |
           grep -F 'temporaryReportingHost' start.js
-          grep -F 'startDetached("./v9-reporting-legacy-refresh-worker.js")' start.js
-          grep -F 'fact_daily_ad_performance' v9-reporting-legacy-refresh-worker.js
-          grep -F 'contact_hash' v9-reporting-legacy-refresh-worker.js
-          ! grep -E 'graph.facebook.com|META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value' v9-reporting-legacy-refresh-worker.js
+          grep -F 'startDetached("./v9-reporting-legacy-refresh-worker-v2.js")' start.js
+          ! grep -F 'startDetached("./v9-reporting-legacy-refresh-worker.js")' start.js
+          grep -F 'const VERSION = "1.1.0"' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'daily_fallback_days = 2' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'refreshDaily(2)' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'fact_daily_ad_performance' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'contact_hash' v9-reporting-legacy-refresh-worker-v2.js
+          ! grep -E 'graph.facebook.com|META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value' v9-reporting-legacy-refresh-worker-v2.js
       - name: Confirm migration safety controls
         run: |
           grep -F '["OFF", "SUPPORT", "SHADOW", "CANARY"]' v9/core/admin-report-utils.js
