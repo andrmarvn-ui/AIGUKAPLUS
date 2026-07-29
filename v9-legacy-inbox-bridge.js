@@ -5,9 +5,12 @@ const LEGACY_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v9-legacy-inbox-bridge";
-const VERSION = "v9_legacy_inbox_bridge_v1";
+const VERSION = "v9_legacy_inbox_bridge_v2_cutover";
 const POLL_MS = Math.max(3000, Number(process.env.AIGUKA_V9_BRIDGE_POLL_MS || 5000));
 const BATCH_SIZE = Math.max(1, Math.min(50, Number(process.env.AIGUKA_V9_BRIDGE_BATCH || 20)));
+const CUTOVER_AT = Number.isFinite(Date.parse(String(process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT || "")))
+  ? new Date(Date.parse(process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT)).toISOString()
+  : new Date().toISOString();
 let running = false;
 let timer;
 
@@ -41,7 +44,7 @@ function core(path, options = {}) {
 
 async function recoverStaleClaims() {
   const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  await legacy(`v8_webhook_inbox?status=eq.processing&locked_at=lt.${encodeURIComponent(cutoff)}`, {
+  await legacy(`v8_webhook_inbox?status=eq.processing&locked_at=lt.${encodeURIComponent(cutoff)}&created_at=gte.${encodeURIComponent(CUTOVER_AT)}`, {
     method: "PATCH",
     prefer: "return=minimal",
     body: {
@@ -58,12 +61,12 @@ async function recoverStaleClaims() {
 async function candidates() {
   const now = encodeURIComponent(new Date().toISOString());
   return legacy(
-    `v8_webhook_inbox?select=id,page_id,sender_id,recipient_id,message_id,event_time,payload,status,attempts,next_attempt_at,locked_at,locked_by,created_at,updated_at&status=in.(pending,error,dead)&or=(next_attempt_at.is.null,next_attempt_at.lte.${now})&order=created_at.asc,id.asc&limit=${BATCH_SIZE}`,
+    `v8_webhook_inbox?select=id,page_id,sender_id,recipient_id,message_id,event_time,payload,status,attempts,next_attempt_at,locked_at,locked_by,created_at,updated_at&status=in.(pending,error,dead)&created_at=gte.${encodeURIComponent(CUTOVER_AT)}&or=(next_attempt_at.is.null,next_attempt_at.lte.${now})&order=created_at.asc,id.asc&limit=${BATCH_SIZE}`,
   );
 }
 
 async function claim(candidate) {
-  const rows = await legacy(`v8_webhook_inbox?id=eq.${candidate.id}&status=eq.${candidate.status}`, {
+  const rows = await legacy(`v8_webhook_inbox?id=eq.${candidate.id}&status=eq.${candidate.status}&created_at=gte.${encodeURIComponent(CUTOVER_AT)}`, {
     method: "PATCH",
     prefer: "return=representation",
     body: {
@@ -101,7 +104,7 @@ async function complete(row, result, ignored = false) {
       locked_by: null,
       last_error: ignored ? "v9_bridge_ignored_unsupported_payload" : null,
       updated_at: new Date().toISOString(),
-      payload: ignored ? row.payload : row.payload,
+      payload: row.payload,
     },
   });
   return result;
@@ -133,7 +136,7 @@ async function heartbeat(status, details = {}, error = null) {
       worker_version: VERSION,
       status,
       mode: "SHADOW",
-      details,
+      details: { ...details, cutover_at: CUTOVER_AT },
       last_error: error ? String(error).slice(0, 800) : null,
       last_seen_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -179,6 +182,7 @@ async function tick() {
       batch_size: BATCH_SIZE,
       source: "v8_webhook_inbox",
       outbound_enabled: false,
+      historical_replay_enabled: false,
     }, failed ? `${failed} legacy inbox row(s) failed` : null);
   } catch (error) {
     await heartbeat("degraded", {
@@ -188,6 +192,7 @@ async function tick() {
       failed_last_tick: failed,
       source: "v8_webhook_inbox",
       outbound_enabled: false,
+      historical_replay_enabled: false,
     }, error?.message || error).catch(() => {});
   } finally {
     running = false;
@@ -200,6 +205,8 @@ async function tick() {
 if (!LEGACY_BASE || !LEGACY_KEY || !CORE_BASE || !CORE_KEY) {
   console.warn("[AIGUKA V9 bridge] legacy or Core configuration missing; disabled");
 } else {
-  console.log("[AIGUKA V9 bridge] started; replaying durable legacy inbox to isolated Core");
+  console.log(`[AIGUKA V9 bridge] started; accepting durable inbox rows from cutover ${CUTOVER_AT}`);
   tick().catch(() => {});
 }
+
+export const __private__ = { CUTOVER_AT };
