@@ -15,10 +15,12 @@ on:
       - "supabase/migrations/20260730203000_v9_report_compat_source_view.sql"
       - "supabase/migrations/20260730210000_v9_report_filters_compat.sql"
       - "supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql"
+      - "supabase/migrations/20260730212000_v9_conversation_fact_ownership_fix.sql"
       - "tests/v9-admin-report-priority.test.js"
       - "tests/v9-reporting-live-refresh.test.js"
       - "tests/v9-report-compat-rpcs.test.js"
       - "tests/v9-conversation-fact-reporting.test.js"
+      - "tests/v9-conversation-fact-ownership.test.js"
       - ".github/workflows/validate-v9-admin-report.yml"
   push:
     branches: [main]
@@ -35,10 +37,12 @@ on:
       - "supabase/migrations/20260730203000_v9_report_compat_source_view.sql"
       - "supabase/migrations/20260730210000_v9_report_filters_compat.sql"
       - "supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql"
+      - "supabase/migrations/20260730212000_v9_conversation_fact_ownership_fix.sql"
       - "tests/v9-admin-report-priority.test.js"
       - "tests/v9-reporting-live-refresh.test.js"
       - "tests/v9-report-compat-rpcs.test.js"
       - "tests/v9-conversation-fact-reporting.test.js"
+      - "tests/v9-conversation-fact-ownership.test.js"
       - ".github/workflows/validate-v9-admin-report.yml"
 
 jobs:
@@ -62,7 +66,7 @@ jobs:
           node --check patch-server.js
           node --check start.js
       - name: Run focused regression tests
-        run: node --test tests/v9-admin-report-priority.test.js tests/v9-reporting-live-refresh.test.js tests/v9-report-compat-rpcs.test.js tests/v9-conversation-fact-reporting.test.js
+        run: node --test tests/v9-admin-report-priority.test.js tests/v9-reporting-live-refresh.test.js tests/v9-report-compat-rpcs.test.js tests/v9-conversation-fact-reporting.test.js tests/v9-conversation-fact-ownership.test.js
       - name: Confirm authentication is installed before V9 routes
         run: |
           grep -F 'installV9AdminAuth(app);' patch-server.js
@@ -115,6 +119,9 @@ jobs:
           grep -F 'from public.v8_report_v21_conversation_fact r' supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql
           grep -F "'source','v9_conversation_fact'" supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql
           grep -F 'grant execute on function public.v9_refresh_conversation_fact' supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql
+          grep -F 'Conversation grain is owned by v9_refresh_conversation_fact' supabase/migrations/20260730212000_v9_conversation_fact_ownership_fix.sql
+          grep -F 'daily_refresh_delete_disabled' supabase/migrations/20260730212000_v9_conversation_fact_ownership_fix.sql
+          grep -F "notify pgrst,'reload schema'" supabase/migrations/20260730212000_v9_conversation_fact_ownership_fix.sql
       - name: Confirm migration safety controls
         run: |
           grep -F '["OFF", "SUPPORT", "SHADOW", "CANARY"]' v9/core/admin-report-utils.js
