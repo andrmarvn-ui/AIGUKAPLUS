@@ -1,0 +1,5 @@
+AIGUKA V9 admin/report priority deployment marker
+Date: 2026-07-29
+Routes: /v9, /v9-admin, /v9-dashboard
+API: /api/v9/admin/* and /api/v9/report/*
+V8 dashboard retained as fallback.

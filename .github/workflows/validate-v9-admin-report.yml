@@ -1,0 +1,65 @@
+name: Validate V9 admin and reporting
+
+on:
+  pull_request:
+    paths:
+      - "v9-admin-auth.js"
+      - "v9-admin-report-api-v2.js"
+      - "v9-admin-ui.js"
+      - "v9/core/admin-report-utils.js"
+      - "patch-server.js"
+      - "tests/v9-admin-report-priority.test.js"
+      - ".github/workflows/validate-v9-admin-report.yml"
+  push:
+    branches: [main]
+    paths:
+      - "v9-admin-auth.js"
+      - "v9-admin-report-api-v2.js"
+      - "v9-admin-ui.js"
+      - "v9/core/admin-report-utils.js"
+      - "patch-server.js"
+      - "tests/v9-admin-report-priority.test.js"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate syntax
+        run: |
+          node --check v9-admin-auth.js
+          node --check v9-admin-report-api-v2.js
+          node --check v9-admin-ui.js
+          node --check v9/core/admin-report-utils.js
+          node --check patch-server.js
+      - name: Run focused regression tests
+        run: node --test tests/v9-admin-report-priority.test.js
+      - name: Confirm authentication is installed before V9 routes
+        run: |
+          grep -F 'installV9AdminAuth(app);' patch-server.js
+          grep -F 'installV9AdminReportApiV2(app);' patch-server.js
+          grep -F 'installV9AdminUi(app);' patch-server.js
+          grep -F 'AIGUKA_V9_ADMIN_SECRET' v9-admin-auth.js
+          grep -F 'timingSafeEqual' v9-admin-auth.js
+          grep -F 'V9_ADMIN_SECRET_NOT_CONFIGURED' v9-admin-auth.js
+          grep -F 'www-authenticate' v9-admin-auth.js
+          grep -F 'installV9AdminAuth(app);' patch-server.js | head -1
+      - name: Confirm V9 data isolation and performance rules
+        run: |
+          grep -F 'REPORTING_NOT_CONFIGURED' v9-admin-report-api-v2.js
+          grep -F 'stale-while-revalidate' v9-admin-report-api-v2.js
+          grep -F 'fact_daily_ad_performance' v9-admin-report-api-v2.js
+          grep -F 'dim_customers' v9-admin-report-api-v2.js
+          grep -F 'dim_ads' v9-admin-report-api-v2.js
+          ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test|v8_messages_raw|v8_meta_events' v9-admin-report-api-v2.js
+          ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test' v9-admin-ui.js
+      - name: Confirm migration safety controls
+        run: |
+          grep -F '["OFF", "SUPPORT", "SHADOW", "CANARY"]' v9/core/admin-report-utils.js
+          grep -F '["OFF", "SHADOW", "CANARY"]' v9/core/admin-report-utils.js
+          ! grep -F '"ACTIVE"' v9/core/admin-report-utils.js
+          grep -F 'AICAKE V9' v9-admin-ui.js || grep -F 'AICAKE customer-facing' v9-admin-ui.js
