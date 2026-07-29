@@ -1,5 +1,6 @@
 // Install database-pressure protection before any module can call Supabase.
 await import("./patch-supabase-load-shed-fetch.js");
+await import("./patch-meta-price-language-fetch.js");
 const { loadActiveMetaConnection } = await import("./meta-token-store.js");
 
 process.env.META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || "AIGUKA_V8_META_VERIFY";
@@ -151,7 +152,6 @@ const dashboardPatches = [
 for (const patch of dashboardPatches) await safeImport(patch);
 
 await safeImport("./patch-server.js");
-await safeImport("./patch-outbound-price-language.js");
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
 await safeImport("./patch-outbound-binary-image-upload.js");
