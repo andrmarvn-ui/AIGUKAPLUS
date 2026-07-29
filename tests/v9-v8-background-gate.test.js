@@ -23,8 +23,12 @@ test("all five legacy workers are inside the rollback gate", () => {
   ]) assert.match(gated, new RegExp(worker.replaceAll(".", "\\.")));
 });
 
-test("V9 shadow workers remain outside the V8 rollback gate", () => {
+test("direct V9 workers remain outside the V8 rollback gate", () => {
   const gateEnd = start.indexOf("} else {", start.indexOf("if (v8BackgroundEnabled) {"));
-  assert.ok(start.indexOf('startDetached("./v9-shadow-worker.js")') > gateEnd);
-  assert.ok(start.indexOf('startDetached("./v9-ai-shadow-worker.js")') > gateEnd);
+  for (const worker of [
+    'startDetached("./v9-legacy-inbox-bridge.js")',
+    'startDetached("./v9-direct-core-worker.js")',
+    'startDetached("./v9-ai-shadow-worker.js")',
+  ]) assert.ok(start.indexOf(worker) > gateEnd);
+  assert.doesNotMatch(start, /startDetached\("\.\/v9-shadow-worker\.js"\)/);
 });

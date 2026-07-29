@@ -65,8 +65,8 @@ await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 await safeImport("./server-fixed.js", true);
 
-// V8 continues reading the legacy database. V9 is allowed to start only when
-// all v9_* REST/RPC calls are guaranteed to reach the isolated Core project.
+// V8 remains a temporary durable webhook source. All V9 state, jobs and decisions
+// must use the isolated Core project; missing Core credentials stop V9 completely.
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 const v9CoreReady = v9CoreModule?.v9CoreRoutingState?.enabled === true;
 const reportingReady = Boolean(
@@ -89,10 +89,11 @@ if (v8BackgroundEnabled) {
 }
 
 if (v9CoreReady) {
-  startDetached("./v9-shadow-worker.js");
+  startDetached("./v9-legacy-inbox-bridge.js");
+  startDetached("./v9-direct-core-worker.js");
   startDetached("./v9-ai-shadow-worker.js");
   startDetached("./v9-reporting-publisher.js");
-  console.log("[AIGUKA V9] isolated Core verified; SHADOW and reporting publisher workers started");
+  console.log("[AIGUKA V9] bridge, Core-only SHADOW, AI and reporting publisher workers started");
 
   if (reportingReady) {
     startDetached("./v9-reporting-sync-worker.js");

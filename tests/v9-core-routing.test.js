@@ -24,10 +24,11 @@ test("routes V9 REST tables to isolated Core", () => {
 
 test("routes V9 RPC calls to isolated Core", () => {
   assert.equal(isV9CoreRequest(`${legacy}/rest/v1/rpc/v9_claim_jobs`, legacy), true);
+  assert.equal(isV9CoreRequest(`${legacy}/rest/v1/rpc/v9_ingest_meta_batch`, legacy), true);
 });
 
 test("never routes V8 source tables", () => {
-  assert.equal(isV9CoreRequest(`${legacy}/rest/v1/v8_meta_events?select=*`, legacy), false);
+  assert.equal(isV9CoreRequest(`${legacy}/rest/v1/v8_webhook_inbox?select=*`, legacy), false);
   assert.equal(buildV9CoreTarget(`${legacy}/rest/v1/v8_customers?select=*`, {
     legacyBase: legacy,
     coreBase: core,
@@ -65,13 +66,26 @@ test("missing Core credential blocks legacy V9 access", () => {
   assert.equal(decision.reason, "V9_CORE_CREDENTIAL_REQUIRED");
 });
 
-test("startup gates both V9 workers behind verified Core routing", () => {
+test("startup gates bridge, Core-only, AI and reporting publisher behind Core", () => {
   const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
   const gateStart = start.indexOf("if (v9CoreReady) {");
   const gateEnd = start.indexOf("} else {", gateStart);
   assert.ok(gateStart >= 0 && gateEnd > gateStart);
   const gated = start.slice(gateStart, gateEnd);
-  assert.match(gated, /v9-shadow-worker\.js/);
-  assert.match(gated, /v9-ai-shadow-worker\.js/);
+  for (const worker of [
+    "v9-legacy-inbox-bridge.js",
+    "v9-direct-core-worker.js",
+    "v9-ai-shadow-worker.js",
+    "v9-reporting-publisher.js",
+  ]) assert.match(gated, new RegExp(worker.replaceAll(".", "\\.")));
+  assert.doesNotMatch(start, /startDetached\("\.\/v9-shadow-worker\.js"\)/);
   assert.match(start, /v9CoreRoutingState\?\.enabled === true/);
+});
+
+test("Core-only worker never reads legacy V8 tables", () => {
+  const direct = fs.readFileSync(new URL("../v9-direct-core-worker.js", import.meta.url), "utf8");
+  assert.doesNotMatch(direct, /v8_meta_events|v8_messages_raw|v8_customers|v8_message_actor_registry/);
+  assert.match(direct, /v9_events/);
+  assert.match(direct, /v9_customers/);
+  assert.match(direct, /rpc\/v9_claim_jobs/);
 });

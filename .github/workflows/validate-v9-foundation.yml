@@ -5,10 +5,13 @@ on:
     paths:
       - "v9/**"
       - "v9-shadow-worker.js"
+      - "v9-direct-core-worker.js"
+      - "v9-legacy-inbox-bridge.js"
       - "v9-ai-shadow-worker.js"
       - "v9-core-fetch-router.js"
       - "v9-reporting-publisher.js"
       - "v9-reporting-sync-worker.js"
+      - "supabase/functions/aiguka-v9-webhook/**"
       - "reporting/**"
       - "meta-token-store.js"
       - "tests/v9-*.test.js"
@@ -20,10 +23,13 @@ on:
     paths:
       - "v9/**"
       - "v9-shadow-worker.js"
+      - "v9-direct-core-worker.js"
+      - "v9-legacy-inbox-bridge.js"
       - "v9-ai-shadow-worker.js"
       - "v9-core-fetch-router.js"
       - "v9-reporting-publisher.js"
       - "v9-reporting-sync-worker.js"
+      - "supabase/functions/aiguka-v9-webhook/**"
       - "reporting/**"
       - "meta-token-store.js"
       - "tests/v9-*.test.js"
@@ -43,37 +49,53 @@ jobs:
         run: node --test tests/v9-*.test.js
       - name: Validate V9 worker syntax
         run: |
-          node --check v9-shadow-worker.js
+          node --check v9-direct-core-worker.js
+          node --check v9-legacy-inbox-bridge.js
           node --check v9-ai-shadow-worker.js
           node --check v9-core-fetch-router.js
           node --check v9-reporting-publisher.js
           node --check v9-reporting-sync-worker.js
+          node --check v9/core/legacy-inbox-normalizer.js
           node --check v9/core/knowledge-selector.js
           node --check v9/core/reporting-contract.js
           node --check meta-token-store.js
-      - name: Confirm SHADOW startup wiring
+      - name: Confirm direct Core startup wiring
         run: |
           grep -F 'await safeImport("./v9-core-fetch-router.js")' start.js
-          grep -F 'startDetached("./v9-shadow-worker.js")' start.js
+          grep -F 'startDetached("./v9-legacy-inbox-bridge.js")' start.js
+          grep -F 'startDetached("./v9-direct-core-worker.js")' start.js
           grep -F 'startDetached("./v9-ai-shadow-worker.js")' start.js
           grep -F 'startDetached("./v9-reporting-publisher.js")' start.js
           grep -F 'startDetached("./v9-reporting-sync-worker.js")' start.js
-          grep -F 'mode !== "SHADOW"' v9-shadow-worker.js
-          grep -F 'AICAKE_ACTIVE' v9-shadow-worker.js
+          ! grep -F 'startDetached("./v9-shadow-worker.js")' start.js
+          grep -F 'legacy_reads: 0' v9-direct-core-worker.js
+          ! grep -E 'v8_meta_events|v8_messages_raw|v8_customers|v8_message_actor_registry' v9-direct-core-worker.js
+          grep -F 'rpc/v9_ingest_meta_batch' v9-legacy-inbox-bridge.js
+          grep -F 'outbound_enabled: false' v9-legacy-inbox-bridge.js
           grep -F 'should_send: false' v9-ai-shadow-worker.js
           grep -F 'transport_locked: true' v9-ai-shadow-worker.js
-          grep -F 'ai_published_snapshots' v9-ai-shadow-worker.js
-          grep -F 'selectKnowledgeContext' v9-ai-shadow-worker.js
-          ! grep -F 'v8_ai_providers' v9-ai-shadow-worker.js
           grep -F 'AIGUKA_V9_CORE_SERVICE_ROLE_KEY' v9-core-fetch-router.js
           grep -F 'v9_integrations' meta-token-store.js
           ! grep -F 'graph.facebook.com' v9-ai-shadow-worker.js
+      - name: Confirm signed Core webhook
+        run: |
+          webhook="supabase/functions/aiguka-v9-webhook/index.ts"
+          grep -F 'META_APP_SECRET' $webhook
+          grep -F 'x-hub-signature-256' $webhook
+          grep -F 'HMAC' $webhook
+          grep -F 'INVALID_META_SIGNATURE' $webhook
+          grep -F 'rpc/v9_ingest_meta_batch' $webhook
+          grep -F 'decision_eligible' $webhook
+          ! grep -F 'graph.facebook.com' $webhook
       - name: Confirm clean Core constraints
         run: |
-          core_files="supabase/migrations/20260729151500_v9_core_clean_foundation.sql supabase/migrations/20260729164000_v9_core_integrations.sql"
+          core_files="supabase/migrations/20260729151500_v9_core_clean_foundation.sql supabase/migrations/20260729164000_v9_core_integrations.sql supabase/migrations/20260729190000_v9_direct_meta_ingest.sql"
           test "$(cat $core_files | grep -c '^create table.*public.v9_')" -eq 18
-          test "$(cat $core_files | grep -c '^create or replace function public.v9_')" -eq 1
+          test "$(cat $core_files | grep -c '^create or replace function public.v9_')" -eq 2
           ! grep -Eiq '^create trigger|pg_cron|net.http|http_post' $core_files
+          grep -F 'security definer' supabase/migrations/20260729190000_v9_direct_meta_ingest.sql
+          grep -F 'on conflict(source_system,source_event_id) do nothing' supabase/migrations/20260729190000_v9_direct_meta_ingest.sql
+          grep -F 'revoke all on function public.v9_ingest_meta_batch(jsonb)' supabase/migrations/20260729190000_v9_direct_meta_ingest.sql
       - name: Confirm clean AI Knowledge constraints
         run: |
           knowledge_schema="supabase/migrations/20260729170000_v9_ai_knowledge_clean_schema.sql"
