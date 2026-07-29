@@ -1,12 +1,14 @@
 import express from "express";
+import { pageMode, runtimeMode } from "./v9/core/admin-report-utils.js";
 
 const ENV = {
   coreBase: String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, ""),
   coreKey: String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || ""),
   knowledgeBase: String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, ""),
   knowledgeKey: String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ""),
-  reportingBase: String(process.env.AIGUKA_V9_REPORTING_URL || "").replace(/\/$/, ""),
-  reportingKey: String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || ""),
+  reportingBase: String(process.env.AIGUKA_V9_REPORTING_URL || process.env.SUPABASE_URL || "").replace(/\/$/, ""),
+  reportingKey: String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ""),
+  reportingTemporaryHost: !String(process.env.AIGUKA_V9_REPORTING_URL || "").trim() || process.env.AIGUKA_V9_REPORTING_TEMPORARY_HOST === "true",
 };
 
 const CACHE = new Map();
@@ -16,10 +18,12 @@ const MAX_DAYS = Math.max(7, Math.min(366, Number(process.env.AIGUKA_V9_REPORT_M
 const MAX_ROWS = Math.max(500, Math.min(20_000, Number(process.env.AIGUKA_V9_REPORT_MAX_ROWS || 8_000)));
 
 function ready(base, key) { return Boolean(base && key); }
+function enc(value) { return encodeURIComponent(String(value)); }
+function number(value) { const parsed = Number(value || 0); return Number.isFinite(parsed) ? parsed : 0; }
+function dateOnly(value, fallback) { return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? String(value) : fallback; }
 function core(path, options) { return db(ENV.coreBase, ENV.coreKey, path, options); }
 function knowledge(path, options) { return db(ENV.knowledgeBase, ENV.knowledgeKey, path, options); }
 function reporting(path, options) { return db(ENV.reportingBase, ENV.reportingKey, path, options); }
-function enc(value) { return encodeURIComponent(String(value)); }
 
 async function db(base, key, path, options = {}) {
   if (!ready(base, key)) throw Object.assign(new Error("DATA_SOURCE_NOT_CONFIGURED"), { status: 503 });
@@ -64,9 +68,9 @@ async function memo(key, ttl, loader) {
   return promise;
 }
 
-function clearCache(prefix = "") { for (const key of CACHE.keys()) if (!prefix || key.startsWith(prefix)) CACHE.delete(key); }
-function number(value) { const parsed = Number(value || 0); return Number.isFinite(parsed) ? parsed : 0; }
-function dateOnly(value, fallback) { return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? String(value) : fallback; }
+function clearCache(prefix = "") {
+  for (const key of CACHE.keys()) if (!prefix || key.startsWith(prefix)) CACHE.delete(key);
+}
 
 export function parseReportRange(query = {}, now = new Date()) {
   const today = now.toISOString().slice(0, 10);
@@ -74,7 +78,9 @@ export function parseReportRange(query = {}, now = new Date()) {
   const from = dateOnly(query.from, fallbackFrom);
   const to = dateOnly(query.to, today);
   const days = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
-  if (!Number.isFinite(days) || days < 1 || days > MAX_DAYS) throw Object.assign(new Error("REPORT_RANGE_INVALID"), { status: 400, details: { from, to, max_days: MAX_DAYS } });
+  if (!Number.isFinite(days) || days < 1 || days > MAX_DAYS) {
+    throw Object.assign(new Error("REPORT_RANGE_INVALID"), { status: 400, details: { from, to, max_days: MAX_DAYS } });
+  }
   return { from, to, days };
 }
 
@@ -85,6 +91,21 @@ export function aggregatePerformance(rows = []) {
   result.cost_per_conversation = result.conversations ? Math.round(result.spend * 100 / result.conversations) / 100 : 0;
   result.cost_per_contact = result.contacts ? Math.round(result.spend * 100 / result.contacts) / 100 : 0;
   return result;
+}
+
+function enrichPerformanceRow(row) {
+  const metadata = row?.metadata && typeof row.metadata === "object" ? row.metadata : {};
+  return {
+    ...row,
+    page_name: metadata.page_name || null,
+    ad_account_name: metadata.ad_account_name || null,
+    campaign_name: metadata.campaign_name || null,
+    adset_name: metadata.adset_name || null,
+    ad_name: metadata.ad_name || null,
+    effective_status: metadata.effective_status || null,
+    currency: metadata.currency || "VND",
+    data_match_status: metadata.data_match_status || null,
+  };
 }
 
 function group(rows, keyOf, fields) {
@@ -117,25 +138,51 @@ async function knowledgeStatus() {
     const config = runtime.data?.[0] || null;
     const current = (snapshots.data || []).find((row) => row.id === config?.published_snapshot_id) || snapshots.data?.[0] || null;
     return { configured: true, status: "ready", runtime: config, current_snapshot: current, published_documents: published, draft_documents: drafts, assets };
-  } catch (error) { return { configured: true, status: "degraded", error: String(error.message || error) }; }
+  } catch (error) {
+    return { configured: true, status: "degraded", error: String(error.message || error) };
+  }
 }
 
 async function reportingStatus() {
   if (!ready(ENV.reportingBase, ENV.reportingKey)) return { configured: false, status: "not_configured" };
   try {
-    const [runtime, heartbeats, ingestEvents] = await Promise.all([
-      reporting("reporting_runtime_config?select=mode,retention_days,timezone,updated_at&id=eq.1&limit=1"),
+    const [runtime, heartbeats, ingestEvents, dailyRows, customers] = await Promise.all([
+      reporting("reporting_runtime_config?select=mode,retention_days,timezone,settings,updated_at&id=eq.1&limit=1"),
       reporting("reporting_worker_heartbeats?select=worker_name,worker_version,status,details,last_error,last_seen_at,updated_at&order=worker_name.asc"),
       countRows(reporting, "reporting_ingest_events", "event_key"),
+      countRows(reporting, "fact_daily_ad_performance", "report_date"),
+      countRows(reporting, "dim_customers", "customer_id"),
     ]);
-    return { configured: true, status: "ready", runtime: runtime.data?.[0] || null, heartbeats: heartbeats.data || [], ingest_events: ingestEvents };
-  } catch (error) { return { configured: true, status: "degraded", error: String(error.message || error) }; }
+    return {
+      configured: true,
+      status: "ready",
+      temporary_host: ENV.reportingTemporaryHost,
+      runtime: runtime.data?.[0] || null,
+      heartbeats: heartbeats.data || [],
+      ingest_events: ingestEvents,
+      daily_rows: dailyRows,
+      customers,
+    };
+  } catch (error) {
+    return { configured: true, status: "degraded", temporary_host: ENV.reportingTemporaryHost, error: String(error.message || error) };
+  }
 }
 
 async function adminOverview() {
   const started = Date.now();
-  if (!ready(ENV.coreBase, ENV.coreKey)) return { ok: true, configured: false, generated_at: new Date().toISOString(), core: { status: "missing_credentials" }, knowledge: await knowledgeStatus(), reporting: await reportingStatus() };
-  const [runtime, pages, heartbeats, queued, processing, dead, outbox, knowledgeState, reportingState] = await Promise.all([
+  const [knowledgeState, reportingState] = await Promise.all([knowledgeStatus(), reportingStatus()]);
+  if (!ready(ENV.coreBase, ENV.coreKey)) {
+    return {
+      ok: true,
+      configured: false,
+      generated_at: new Date().toISOString(),
+      elapsed_ms: Date.now() - started,
+      core: { status: "missing_credentials", pages: [], jobs: { queued: 0, processing: 0, dead_letter: 0 }, workers: [], reporting_outbox_pending: 0 },
+      knowledge: knowledgeState,
+      reporting: reportingState,
+    };
+  }
+  const [runtime, pages, heartbeats, queued, processing, dead, outbox] = await Promise.all([
     core("v9_runtime_config?select=*&id=eq.1&limit=1"),
     core("v9_pages?select=page_id,page_name,operating_mode,coexistence_mode,canary_percent,is_active,timezone,updated_at&order=page_name.asc"),
     core("v9_worker_heartbeats?select=worker_name,worker_version,status,mode,details,last_error,last_seen_at,updated_at&order=worker_name.asc"),
@@ -143,8 +190,6 @@ async function adminOverview() {
     countRows(core, "v9_jobs", "id", "&status=eq.processing"),
     countRows(core, "v9_jobs", "id", "&status=eq.dead_letter"),
     countRows(core, "v9_reporting_outbox", "id", "&status=eq.pending"),
-    knowledgeStatus(),
-    reportingStatus(),
   ]);
   const heartbeatRows = heartbeats.data || [];
   return {
@@ -187,7 +232,7 @@ async function performanceRows(range, query) {
     + filter("adset_id", query.adset_id)
     + filter("ad_id", query.ad_id)
     + `&order=report_date.desc&limit=${MAX_ROWS}`;
-  return (await reporting(path, { timeout: 10_000 })).data || [];
+  return ((await reporting(path, { timeout: 10_000 })).data || []).map(enrichPerformanceRow);
 }
 
 async function reportFilters() {
@@ -197,15 +242,21 @@ async function reportFilters() {
     reporting("dim_ads?select=ad_id,ad_name,page_id,ad_account_id,ad_account_name,campaign_id,campaign_name,adset_id,adset_name,effective_status&order=campaign_name.asc,adset_name.asc,ad_name.asc&limit=5000"),
   ]);
   const accounts = new Map();
-  for (const ad of ads.data || []) if (ad.ad_account_id) accounts.set(ad.ad_account_id, { ad_account_id: ad.ad_account_id, ad_account_name: ad.ad_account_name || ad.ad_account_id });
+  for (const ad of ads.data || []) {
+    if (ad.ad_account_id) accounts.set(ad.ad_account_id, { ad_account_id: ad.ad_account_id, ad_account_name: ad.ad_account_name || ad.ad_account_id });
+  }
   return { ok: true, data: { pages: pages.data || [], ad_accounts: [...accounts.values()], ads: ads.data || [] } };
+}
+
+function reportedContact(row) {
+  return row?.attributes?.has_contact === true || String(row?.attributes?.has_contact || "").toLowerCase() === "true";
 }
 
 async function reportLeads(range, query) {
   if (!ready(ENV.reportingBase, ENV.reportingKey)) throw Object.assign(new Error("REPORTING_NOT_CONFIGURED"), { status: 503 });
   const limit = Math.max(10, Math.min(200, Number(query.limit || 50)));
   const offset = Math.max(0, Number(query.offset || 0));
-  let path = "dim_customers?select=page_id,customer_id,display_name,gender,preferred_salutation,first_seen_at,last_seen_at,attributes,updated_at"
+  const path = "dim_customers?select=page_id,customer_id,display_name,gender,preferred_salutation,first_seen_at,last_seen_at,attributes,updated_at"
     + `&last_seen_at=gte.${range.from}T00:00:00Z&last_seen_at=lte.${range.to}T23:59:59Z`
     + filter("page_id", query.page_id)
     + `&order=last_seen_at.desc&limit=${limit}&offset=${offset}`;
@@ -214,7 +265,7 @@ async function reportLeads(range, query) {
   let contacts = [];
   if (ready(ENV.coreBase, ENV.coreKey) && ids.length) {
     try {
-      const inList = ids.map((id) => `\"${String(id).replaceAll("\"", "")}\"`).join(",");
+      const inList = ids.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
       contacts = (await core(`v9_contacts?select=page_id,customer_id,contact_type,contact_value,normalized_value,captured_at&customer_id=in.(${enc(inList)})&limit=500`)).data || [];
     } catch { contacts = []; }
   }
@@ -225,8 +276,22 @@ async function reportLeads(range, query) {
     current[item.contact_type] = item.normalized_value || item.contact_value;
     contactMap.set(key, current);
   }
-  const data = customers.map((row) => ({ ...row, ...(contactMap.get(`${row.page_id}|${row.customer_id}`) || {}), has_contact: contactMap.has(`${row.page_id}|${row.customer_id}`) }));
-  return { ok: true, data, count: data.length, range, pagination: { limit, offset }, contact_enriched_from_core: true };
+  const data = customers.map((row) => {
+    const actual = contactMap.get(`${row.page_id}|${row.customer_id}`) || {};
+    return {
+      ...row,
+      ...actual,
+      has_contact: Boolean(actual.phone || actual.zalo || reportedContact(row)),
+    };
+  });
+  return {
+    ok: true,
+    data,
+    count: data.length,
+    range,
+    pagination: { limit, offset },
+    contact_enriched_from_core: ready(ENV.coreBase, ENV.coreKey),
+  };
 }
 
 async function loadReport(action, query) {
@@ -237,32 +302,29 @@ async function loadReport(action, query) {
   const rows = await performanceRows(range, query);
   if (action === "summary") return { ok: true, data: aggregatePerformance(rows), range, source_rows: rows.length };
   if (action === "daily") {
-    const data = group(rows, (row) => `${row.report_date}|${row.page_id}|${row.ad_account_id}`, ["report_date", "page_id", "ad_account_id"]).sort((a, b) => String(b.report_date).localeCompare(String(a.report_date)));
+    const fields = ["report_date", "page_id", "page_name", "ad_account_id", "ad_account_name"];
+    const data = group(rows, (row) => `${row.report_date}|${row.page_id}|${row.ad_account_id}`, fields)
+      .sort((a, b) => String(b.report_date).localeCompare(String(a.report_date)));
     return { ok: true, data, count: data.length, range, source_rows: rows.length };
   }
-  const data = group(rows, (row) => `${row.page_id}|${row.ad_account_id}|${row.ad_id}`, ["page_id", "ad_account_id", "campaign_id", "adset_id", "ad_id"]).sort((a, b) => b.spend - a.spend);
+  const fields = ["page_id", "page_name", "ad_account_id", "ad_account_name", "campaign_id", "campaign_name", "adset_id", "adset_name", "ad_id", "ad_name", "effective_status"];
+  const data = group(rows, (row) => `${row.page_id}|${row.ad_account_id}|${row.ad_id}`, fields).sort((a, b) => b.spend - a.spend);
   return { ok: true, data, count: data.length, range, source_rows: rows.length };
 }
 
-function pageMode(value) {
-  const mode = String(value || "").toUpperCase();
-  if (!["OFF", "SUPPORT", "SHADOW", "CANARY"].includes(mode)) throw Object.assign(new Error("PAGE_MODE_NOT_ALLOWED"), { status: 400 });
-  return mode;
+function fail(res, error, fallback) {
+  res.status(error.status || 502).json({ ok: false, error: error.message || fallback, details: error.details || error.data || null });
 }
-function runtimeMode(value) {
-  const mode = String(value || "").toUpperCase();
-  if (!["OFF", "SHADOW", "CANARY"].includes(mode)) throw Object.assign(new Error("RUNTIME_MODE_NOT_ALLOWED"), { status: 400 });
-  return mode;
-}
-function fail(res, error, fallback) { res.status(error.status || 502).json({ ok: false, error: error.message || fallback, details: error.details || error.data || null }); }
 
 export function installV9AdminReportApiV2(app) {
   const router = express.Router();
   router.use(express.json({ limit: "256kb" }));
 
   router.get("/admin/overview", async (_req, res) => {
-    try { res.setHeader("cache-control", "private, max-age=2, stale-while-revalidate=10"); res.json(await memo("admin:overview", ADMIN_TTL, adminOverview)); }
-    catch (error) { fail(res, error, "ADMIN_OVERVIEW_FAILED"); }
+    try {
+      res.setHeader("cache-control", "private, max-age=2, stale-while-revalidate=10");
+      res.json(await memo("admin:overview", ADMIN_TTL, adminOverview));
+    } catch (error) { fail(res, error, "ADMIN_OVERVIEW_FAILED"); }
   });
 
   router.patch("/admin/pages/:pageId", async (req, res) => {
@@ -294,7 +356,10 @@ export function installV9AdminReportApiV2(app) {
     } catch (error) { fail(res, error, "RUNTIME_UPDATE_FAILED"); }
   });
 
-  router.post("/admin/cache/clear", (_req, res) => { clearCache(); res.json({ ok: true, cleared_at: new Date().toISOString() }); });
+  router.post("/admin/cache/clear", (_req, res) => {
+    clearCache();
+    res.json({ ok: true, cleared_at: new Date().toISOString() });
+  });
 
   router.get("/report/:action", async (req, res) => {
     const action = String(req.params.action || "summary").toLowerCase();
@@ -303,7 +368,7 @@ export function installV9AdminReportApiV2(app) {
       res.setHeader("cache-control", "private, max-age=10, stale-while-revalidate=60");
       const result = await memo(cacheKey, action === "filters" ? 300_000 : REPORT_TTL, async () => {
         const started = Date.now();
-        return { ...(await loadReport(action, req.query)), elapsed_ms: Date.now() - started, source: "v9_reporting" };
+        return { ...(await loadReport(action, req.query)), elapsed_ms: Date.now() - started, source: "v9_reporting", temporary_host: ENV.reportingTemporaryHost };
       });
       res.json(result);
     } catch (error) { fail(res, error, "REPORT_QUERY_FAILED"); }
@@ -313,4 +378,4 @@ export function installV9AdminReportApiV2(app) {
   return { clearCache };
 }
 
-export const __private__ = { pageMode, runtimeMode, group, countRows };
+export const __private__ = { group, countRows, reportedContact, enrichPerformanceRow };
