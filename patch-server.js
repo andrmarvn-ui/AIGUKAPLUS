@@ -14,7 +14,6 @@ import { installMetaFacebookLogin } from "./meta-facebook-login.js";
 import { patchLearningUi } from "./learning-ui-patch.js";
 import { patchDashboardUi } from "./dashboard-ui-patch.js";
 import { repairExtraUiHtml } from "./repair-ui.js";
-import { installStableV7Dashboard } from "./v7-dashboard-stable.js";
 import { installAiProviderManager } from "./ai-provider-manager.js";
 import { installAiContextCenterV3 } from "./ai-context-center-v3.js";
 import { installAiContextRestoreRoute } from "./ai-context-restore-route.js";
@@ -22,10 +21,16 @@ import { installAiContextManagerV2 } from "./ai-context-manager-v2.js";
 import { installDriveSlideManagerV4 } from "./drive-slide-manager-v4.js";
 import { installMappingCenter } from "./src/routes/mappingCenterRoutes.js";`;
 
-if (!source.includes('from "./v7-dashboard-stable.js"')) {
+if (!source.includes('from "./report-handler.js"')) {
   if (source.includes(importAnchor)) source = source.replace(importAnchor, imports);
   else throw new Error("SERVER_IMPORT_ANCHOR_NOT_FOUND");
 }
+
+// Remove the temporary bundled-dashboard override. Dashboard routes must fall
+// through to the original aiguka-v8-admin page served by Supabase.
+source = source
+  .replace(/^import \{ installStableV7Dashboard \} from "\.\/v7-dashboard-stable\.js";\n/m, "")
+  .replace(/\n?installStableV7Dashboard\(app\);/g, "");
 
 const routeInstall = `installReportRoutes(app,{supabaseUrl:SUPABASE_URL,publishableKey:SUPABASE_PUBLIC_KEY});
 app.json = express.json;
@@ -47,17 +52,12 @@ app.get("/control-center",(_req,res)=>res.redirect(302,"/bot-control"));
 app.get("/v8-control-center",(_req,res)=>res.redirect(302,"/bot-control"));
 pageRoutes.set("/v8-dashboard","aiguka-v8-admin");
 pageRoutes.set("/ai-providers","aiguka-v8-ai-provider-ui");
-pageRoutes.set("/tich-hop-ai","aiguka-v8-ai-provider-ui");
-installStableV7Dashboard(app);`;
+pageRoutes.set("/tich-hop-ai","aiguka-v8-ai-provider-ui");`;
 
-if (!source.includes("installStableV7Dashboard(app)")) {
+if (!source.includes("installReportRoutes(app")) {
   const routeAnchor = "const proxyCommon = {";
   if (!source.includes(routeAnchor)) throw new Error("SERVER_ROUTE_ANCHOR_NOT_FOUND");
   source = source.replace(routeAnchor, `${routeInstall}\n\n${routeAnchor}`);
-} else {
-  const oldBlock = /installReportRoutes\(app,[\s\S]*?installStableV7Dashboard\(app\);/;
-  if (oldBlock.test(source)) source = source.replace(oldBlock, routeInstall);
-  else throw new Error("SERVER_EXISTING_ROUTE_BLOCK_NOT_FOUND");
 }
 
 if (!source.includes("repairExtraUiHtml(html)")) {
@@ -83,8 +83,8 @@ for (const version of [
   "1.3.2-v7-all-account-filter-fixed","1.3.3-card-and-column-filters","1.3.4-practical-lead-filters",
   "1.3.5-filter-card-fixed","1.4.0-learning-bot-control-restored","1.4.1-learning-data-complete",
   "1.5.0-ai-context-manager","1.6.0-drive-context-lead-stable","1.6.1-lead-v4-drive-recursive","1.6.2-context-restore-drive-sync","1.6.3-all-actions-verified","1.6.4-aiguka-context-center","1.6.5-drive-v4-meta-messaging","1.6.6-valid-meta-scopes","1.6.7-messenger-carousel"
-]) source = source.replaceAll(version, "1.7.0-unified-mapping-center");
+]) source = source.replaceAll(version, "1.7.1-original-admin-dashboard");
 
 fs.writeFileSync(file, source);
-console.log("[AIGUKA] Unified Mapping Center installed");
+console.log("[AIGUKA] Original Supabase admin dashboard routes restored");
 await import("./patch-server-degraded-health.js");
