@@ -103,8 +103,8 @@ if (v8BackgroundEnabled) {
 // It never sends Messenger messages and does not require V9 Core credentials.
 const reportingRefreshEnabled = String(process.env.AIGUKA_V9_REPORTING_LEGACY_REFRESH || "true").trim().toLowerCase() !== "false";
 if (reportingReady && reportingRefreshEnabled && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  startDetached("./v9-reporting-legacy-refresh-worker.js");
-  console.log(`[AIGUKA V9 Reporting] legacy read-model refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
+  startDetached("./v9-reporting-legacy-refresh-worker-v2.js");
+  console.log(`[AIGUKA V9 Reporting] resilient legacy read-model refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
 }
 
 if (v9CoreReady) {
