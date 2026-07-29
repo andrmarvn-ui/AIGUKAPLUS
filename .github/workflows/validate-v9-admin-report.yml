@@ -6,9 +6,12 @@ on:
       - "v9-admin-auth.js"
       - "v9-admin-report-api-v2.js"
       - "v9-admin-ui.js"
+      - "v9-reporting-legacy-refresh-worker.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
+      - "start.js"
       - "tests/v9-admin-report-priority.test.js"
+      - "tests/v9-reporting-live-refresh.test.js"
       - ".github/workflows/validate-v9-admin-report.yml"
   push:
     branches: [main]
@@ -16,9 +19,12 @@ on:
       - "v9-admin-auth.js"
       - "v9-admin-report-api-v2.js"
       - "v9-admin-ui.js"
+      - "v9-reporting-legacy-refresh-worker.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
+      - "start.js"
       - "tests/v9-admin-report-priority.test.js"
+      - "tests/v9-reporting-live-refresh.test.js"
 
 jobs:
   validate:
@@ -34,10 +40,12 @@ jobs:
           node --check v9-admin-auth.js
           node --check v9-admin-report-api-v2.js
           node --check v9-admin-ui.js
+          node --check v9-reporting-legacy-refresh-worker.js
           node --check v9/core/admin-report-utils.js
           node --check patch-server.js
+          node --check start.js
       - name: Run focused regression tests
-        run: node --test tests/v9-admin-report-priority.test.js
+        run: node --test tests/v9-admin-report-priority.test.js tests/v9-reporting-live-refresh.test.js
       - name: Confirm authentication is installed before V9 routes
         run: |
           grep -F 'installV9AdminAuth(app);' patch-server.js
@@ -47,7 +55,6 @@ jobs:
           grep -F 'timingSafeEqual' v9-admin-auth.js
           grep -F 'V9_ADMIN_SECRET_NOT_CONFIGURED' v9-admin-auth.js
           grep -F 'www-authenticate' v9-admin-auth.js
-          grep -F 'installV9AdminAuth(app);' patch-server.js | head -1
       - name: Confirm V9 data isolation and performance rules
         run: |
           grep -F 'REPORTING_NOT_CONFIGURED' v9-admin-report-api-v2.js
@@ -57,6 +64,13 @@ jobs:
           grep -F 'dim_ads' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test|v8_messages_raw|v8_meta_events' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test' v9-admin-ui.js
+      - name: Confirm temporary host and refresh safety
+        run: |
+          grep -F 'temporaryReportingHost' start.js
+          grep -F 'startDetached("./v9-reporting-legacy-refresh-worker.js")' start.js
+          grep -F 'fact_daily_ad_performance' v9-reporting-legacy-refresh-worker.js
+          grep -F 'contact_hash' v9-reporting-legacy-refresh-worker.js
+          ! grep -E 'graph.facebook.com|META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value' v9-reporting-legacy-refresh-worker.js
       - name: Confirm migration safety controls
         run: |
           grep -F '["OFF", "SUPPORT", "SHADOW", "CANARY"]' v9/core/admin-report-utils.js
