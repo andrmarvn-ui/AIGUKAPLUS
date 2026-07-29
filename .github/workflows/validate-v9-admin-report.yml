@@ -8,13 +8,17 @@ on:
       - "v9-admin-ui.js"
       - "v9-admin-ui-v2.js"
       - "v9-reporting-legacy-refresh-worker-v2.js"
+      - "v9-reporting-conversation-refresh-worker.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
       - "start.js"
       - "supabase/migrations/20260730203000_v9_report_compat_source_view.sql"
+      - "supabase/migrations/20260730210000_v9_report_filters_compat.sql"
+      - "supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql"
       - "tests/v9-admin-report-priority.test.js"
       - "tests/v9-reporting-live-refresh.test.js"
       - "tests/v9-report-compat-rpcs.test.js"
+      - "tests/v9-conversation-fact-reporting.test.js"
       - ".github/workflows/validate-v9-admin-report.yml"
   push:
     branches: [main]
@@ -24,13 +28,17 @@ on:
       - "v9-admin-ui.js"
       - "v9-admin-ui-v2.js"
       - "v9-reporting-legacy-refresh-worker-v2.js"
+      - "v9-reporting-conversation-refresh-worker.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
       - "start.js"
       - "supabase/migrations/20260730203000_v9_report_compat_source_view.sql"
+      - "supabase/migrations/20260730210000_v9_report_filters_compat.sql"
+      - "supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql"
       - "tests/v9-admin-report-priority.test.js"
       - "tests/v9-reporting-live-refresh.test.js"
       - "tests/v9-report-compat-rpcs.test.js"
+      - "tests/v9-conversation-fact-reporting.test.js"
       - ".github/workflows/validate-v9-admin-report.yml"
 
 jobs:
@@ -49,11 +57,12 @@ jobs:
           node --check v9-admin-ui.js
           node --check v9-admin-ui-v2.js
           node --check v9-reporting-legacy-refresh-worker-v2.js
+          node --check v9-reporting-conversation-refresh-worker.js
           node --check v9/core/admin-report-utils.js
           node --check patch-server.js
           node --check start.js
       - name: Run focused regression tests
-        run: node --test tests/v9-admin-report-priority.test.js tests/v9-reporting-live-refresh.test.js tests/v9-report-compat-rpcs.test.js
+        run: node --test tests/v9-admin-report-priority.test.js tests/v9-reporting-live-refresh.test.js tests/v9-report-compat-rpcs.test.js tests/v9-conversation-fact-reporting.test.js
       - name: Confirm authentication is installed before V9 routes
         run: |
           grep -F 'installV9AdminAuth(app);' patch-server.js
@@ -77,6 +86,7 @@ jobs:
         run: |
           grep -F 'temporaryReportingHost' start.js
           grep -F 'startDetached("./v9-reporting-legacy-refresh-worker-v2.js")' start.js
+          grep -F 'startDetached("./v9-reporting-conversation-refresh-worker.js")' start.js
           ! grep -F 'startDetached("./v9-reporting-legacy-refresh-worker.js")' start.js
           grep -F 'const VERSION = "1.2.0"' v9-reporting-legacy-refresh-worker-v2.js
           grep -F 'rpc/v8_report_v21_discover_dirty' v9-reporting-legacy-refresh-worker-v2.js
@@ -86,6 +96,9 @@ jobs:
           grep -F 'fact_daily_ad_performance' v9-reporting-legacy-refresh-worker-v2.js
           grep -F 'contact_hash' v9-reporting-legacy-refresh-worker-v2.js
           ! grep -E 'graph.facebook.com|META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'rpc/v9_refresh_conversation_fact' v9-reporting-conversation-refresh-worker.js
+          grep -F 'raw_contact_logging: false' v9-reporting-conversation-refresh-worker.js
+          ! grep -E 'graph.facebook.com|META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value|\.phone|\.zalo' v9-reporting-conversation-refresh-worker.js
       - name: Confirm stable dashboard RPCs use only V9 Reporting facts
         run: |
           grep -F 'create or replace view public.v9_report_compat_performance' supabase/migrations/20260730203000_v9_report_compat_source_view.sql
@@ -93,6 +106,15 @@ jobs:
           grep -F "'source','v9_reporting_fact'" supabase/migrations/20260730203000_v9_report_compat_source_view.sql
           grep -F "set_config('statement_timeout','3000',true)" supabase/migrations/20260730203000_v9_report_compat_source_view.sql
           ! grep -E 'v8_report_ad_performance_daily|v8_report_daily_runtime_detail|v8_messages_raw' supabase/migrations/20260730203000_v9_report_compat_source_view.sql
+      - name: Confirm filters and Lead use V9 dimensions and conversation fact
+        run: |
+          grep -F 'from public.dim_pages' supabase/migrations/20260730210000_v9_report_filters_compat.sql
+          grep -F 'from public.dim_ads' supabase/migrations/20260730210000_v9_report_filters_compat.sql
+          grep -F "'source','v9_reporting_dimensions'" supabase/migrations/20260730210000_v9_report_filters_compat.sql
+          ! grep -E 'v8_meta_page_registry|v8_meta_ad_account_registry|ad_mappings' supabase/migrations/20260730210000_v9_report_filters_compat.sql
+          grep -F 'from public.v8_report_v21_conversation_fact r' supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql
+          grep -F "'source','v9_conversation_fact'" supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql
+          grep -F 'grant execute on function public.v9_refresh_conversation_fact' supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql
       - name: Confirm migration safety controls
         run: |
           grep -F '["OFF", "SUPPORT", "SHADOW", "CANARY"]' v9/core/admin-report-utils.js
