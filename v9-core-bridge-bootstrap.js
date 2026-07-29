@@ -22,6 +22,11 @@ function urlFromInput(input) {
   return null;
 }
 
+function validIso(value, fallback = new Date().toISOString()) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
+}
+
 export function installV9CoreBridgeFetch(coreBase, bridgeKey) {
   if (!bridgeKey) return null;
   if (globalThis[BRIDGE_FETCH_MARK]) return globalThis[BRIDGE_FETCH_MARK];
@@ -90,6 +95,7 @@ export const v9CoreBridgeState = {
   mode: "missing",
   coreBase: "",
   keyVersion: null,
+  cutoverAt: null,
   runtime: null,
   error: null,
 };
@@ -101,11 +107,13 @@ export async function bootstrapV9CoreBridge() {
   try {
     if (serviceRoleKey && !process.env.AIGUKA_V9_CORE_BRIDGE_KEY) {
       const runtime = await verifyCore(coreBase, serviceRoleKey);
+      const cutoverAt = validIso(process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT);
       process.env.AIGUKA_V9_CORE_URL = coreBase;
       process.env.AIGUKA_V9_CORE_API_KEY = serviceRoleKey;
       process.env.AIGUKA_V9_CORE_AUTH_MODE = "service_role";
-      Object.assign(v9CoreBridgeState, { ready: true, mode: "service_role", coreBase, runtime, error: null });
-      console.log(`[AIGUKA V9 Core] service-role connection verified: ${new URL(coreBase).host}`);
+      process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT = cutoverAt;
+      Object.assign(v9CoreBridgeState, { ready: true, mode: "service_role", coreBase, cutoverAt, runtime, error: null });
+      console.log(`[AIGUKA V9 Core] service-role connection verified: ${new URL(coreBase).host}; cutover ${cutoverAt}`);
       return v9CoreBridgeState;
     }
 
@@ -121,6 +129,7 @@ export async function bootstrapV9CoreBridge() {
       || DEFAULT_CORE_PUBLISHABLE_KEY,
     ).trim();
     const bridgeKey = String(bootstrap.bridge_key || "").trim();
+    const cutoverAt = validIso(bootstrap.cutover_at || process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT);
     if (!resolvedBase || !publishableKey || !bridgeKey) throw new Error("CORE_BRIDGE_CONFIGURATION_INCOMPLETE");
 
     const runtime = await verifyCore(resolvedBase, publishableKey, bridgeKey);
@@ -129,6 +138,7 @@ export async function bootstrapV9CoreBridge() {
     process.env.AIGUKA_V9_CORE_PUBLISHABLE_KEY = publishableKey;
     process.env.AIGUKA_V9_CORE_API_KEY = publishableKey;
     process.env.AIGUKA_V9_CORE_BRIDGE_KEY = bridgeKey;
+    process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT = cutoverAt;
     // Compatibility only: existing workers read this variable as their Core API key.
     // In database_bridge mode it contains the public publishable key, never a Core service-role key.
     process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY = publishableKey;
@@ -138,13 +148,14 @@ export async function bootstrapV9CoreBridge() {
       mode: "database_bridge",
       coreBase: resolvedBase,
       keyVersion: Number(bootstrap.key_version || 1),
+      cutoverAt,
       runtime,
       error: null,
     });
-    console.log(`[AIGUKA V9 Core] database bridge verified: ${new URL(resolvedBase).host}; key v${v9CoreBridgeState.keyVersion}`);
+    console.log(`[AIGUKA V9 Core] database bridge verified: ${new URL(resolvedBase).host}; key v${v9CoreBridgeState.keyVersion}; cutover ${cutoverAt}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    Object.assign(v9CoreBridgeState, { ready: false, mode: "blocked", coreBase, runtime: null, error: message });
+    Object.assign(v9CoreBridgeState, { ready: false, mode: "blocked", coreBase, cutoverAt: null, runtime: null, error: message });
     console.error(`[AIGUKA V9 Core] bridge bootstrap failed: ${message}`);
   }
   return v9CoreBridgeState;
@@ -154,6 +165,7 @@ export const __private__ = {
   cleanBase,
   coreHeaders,
   urlFromInput,
+  validIso,
   verifyCore,
   fetchDatabaseBootstrap,
 };
