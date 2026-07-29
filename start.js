@@ -112,7 +112,8 @@ if (v8BackgroundEnabled) {
 const reportingRefreshEnabled = String(process.env.AIGUKA_V9_REPORTING_LEGACY_REFRESH || "true").trim().toLowerCase() !== "false";
 if (reportingReady && reportingRefreshEnabled && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   startDetached("./v9-reporting-legacy-refresh-worker-v2.js");
-  console.log(`[AIGUKA V9 Reporting] resilient legacy read-model refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
+  startDetached("./v9-reporting-conversation-refresh-worker.js");
+  console.log(`[AIGUKA V9 Reporting] resilient legacy read-model and conversation refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
 }
 const metaInsightsEnabled = String(process.env.AIGUKA_V9_META_INSIGHTS_ENABLED || "true").trim().toLowerCase() !== "false";
 if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
