@@ -43,44 +43,18 @@ try {
   console.error("[AIGUKA] Could not load saved Meta OAuth connection:", error.message);
 }
 
-// Restore the complete V7 dashboard startup chain used before Report V2.1.
-// The source is loaded through direct HTTPS so the reporting UI cannot be
-// skipped by the Supabase pressure circuit or the patched global fetch.
-const dashboardPatches = [
+// Pancake service compatibility is safe to prepare at startup. The report UI
+// itself is materialized lazily so Supabase pressure cannot block Railway boot.
+for (const patch of [
   "./patch-v7-pancake-classifier.js",
   "./patch-v7-pancake-history.js",
   "./patch-v7-pancake-tag-parser.js",
-  "./materialize-v7-dashboard-resilient.js",
-  "./patch-v7-report-accuracy.js",
-  "./patch-v7-product-detection.js",
-  "./patch-v7-navigation.js",
-  "./patch-v7-pancake-toggle.js",
-  "./patch-v7-lead-filters.js",
-  "./patch-v7-daily-grouped.js",
-  "./patch-v7-daily-staff-history.js",
-  "./patch-v7-daily-layout-sample.js",
-  "./patch-v7-filter-final.js",
-  "./patch-v7-daily-staff-aligned.js",
-  "./patch-v7-daily-runtime-self-contained.js",
-  "./patch-v7-leads-meta-primary.js",
-  "./patch-v7-leads-referral-source.js",
-  "./patch-v7-pancake-tag-completeness.js",
-  "./patch-v7-pancake-tag-final.js",
-  "./patch-v7-daily-final-anchor-fix.js",
-  "./patch-v7-daily-final.js",
-  "./patch-v7-daily-runtime-fallback.js",
-  "./patch-v7-lead-table-v4.js",
-  "./patch-v7-lead-filter-logical.js",
-  "./patch-v7-lead-contact-ui.js",
-  "./patch-v7-null-safety.js",
-  "./patch-v7-runtime-integrity.js",
-  "./patch-v7-lead-meta-insights-truth.js",
-  "./patch-v7-lead-reel-old-ad-attribution.js",
-  "./patch-v7-lead-reel-reply-guard.js",
-  "./patch-v7-split-leads-compat.js",
-  "./patch-v7-split-leads-ad-performance.js",
-  "./patch-v7-lead-filter-status-fix.js",
-  "./patch-v7-lead-account-reconcile.js",
+]) {
+  await safeImport(patch);
+}
+
+// Non-report management patches remain available immediately.
+for (const patch of [
   "./patch-learning-client.js",
   "./patch-bot-page-mode-save.js",
   "./patch-bot-page-support-mode.js",
@@ -96,8 +70,9 @@ const dashboardPatches = [
   "./patch-slide-generic-carousel.js",
   "./seed-tong-hop-context.js",
   "./patch-mapping-meta-midnight-delivery.js",
-];
-for (const patch of dashboardPatches) await safeImport(patch);
+]) {
+  await safeImport(patch);
+}
 
 await safeImport("./patch-server.js");
 await safeImport("./patch-outbound-human-takeover.js");
@@ -108,6 +83,9 @@ await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 await safeImport("./server-fixed.js", true);
+
+// Warm the exact legacy report UI after the HTTP server is already healthy.
+startDetached("./prewarm-v7-report-ui.js");
 
 // Keep current customer-message workers; Report V2.1 is deliberately disabled.
 startDetached("./webhook-inbox-worker.js");
