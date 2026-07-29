@@ -1,0 +1,2 @@
+Deploy merge c1afbb0a83dfa8e4e9dd65d7da73c01549428739.
+Expected UI: Reporting readiness shown independently from Core, worker 1.2.0 heartbeat, temporary host, fact/customer counts and refresh time.
