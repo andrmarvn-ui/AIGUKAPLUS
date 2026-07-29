@@ -107,12 +107,17 @@ if (v8BackgroundEnabled) {
   console.warn("[AIGUKA V8] legacy background workers disabled for V9 migration");
 }
 
-// This worker only materializes V8 source data into the Reporting read model.
-// It never sends Messenger messages and does not require V9 Core credentials.
+// These workers only materialize advertising/CRM source data into the Reporting read model.
+// They never send Messenger messages and do not require V9 Core credentials.
 const reportingRefreshEnabled = String(process.env.AIGUKA_V9_REPORTING_LEGACY_REFRESH || "true").trim().toLowerCase() !== "false";
 if (reportingReady && reportingRefreshEnabled && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   startDetached("./v9-reporting-legacy-refresh-worker-v2.js");
   console.log(`[AIGUKA V9 Reporting] resilient legacy read-model refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
+}
+const metaInsightsEnabled = String(process.env.AIGUKA_V9_META_INSIGHTS_ENABLED || "true").trim().toLowerCase() !== "false";
+if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  startDetached("./v9-meta-ads-insights-worker.js");
+  console.log("[AIGUKA V9 Reporting] Meta Ads Insights worker started for mapped Page accounts");
 }
 
 if (v9CoreReady) {
