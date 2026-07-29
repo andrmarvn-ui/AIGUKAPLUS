@@ -40,6 +40,7 @@ jobs:
           node --check v9-shadow-worker.js
           node --check v9-ai-shadow-worker.js
           node --check v9-core-fetch-router.js
+          node --check v9/core/knowledge-selector.js
           node --check meta-token-store.js
       - name: Confirm SHADOW startup wiring
         run: |
@@ -49,6 +50,10 @@ jobs:
           grep -F 'mode !== "SHADOW"' v9-shadow-worker.js
           grep -F 'AICAKE_ACTIVE' v9-shadow-worker.js
           grep -F 'should_send: false' v9-ai-shadow-worker.js
+          grep -F 'transport_locked: true' v9-ai-shadow-worker.js
+          grep -F 'ai_published_snapshots' v9-ai-shadow-worker.js
+          grep -F 'selectKnowledgeContext' v9-ai-shadow-worker.js
+          ! grep -F 'v8_ai_providers' v9-ai-shadow-worker.js
           grep -F 'AIGUKA_V9_CORE_SERVICE_ROLE_KEY' v9-core-fetch-router.js
           grep -F 'v9_integrations' meta-token-store.js
           ! grep -F 'graph.facebook.com' v9-ai-shadow-worker.js
@@ -58,3 +63,11 @@ jobs:
           test "$(cat $core_files | grep -c '^create table.*public.v9_')" -eq 18
           test "$(cat $core_files | grep -c '^create or replace function public.v9_')" -eq 1
           ! grep -Eiq '^create trigger|pg_cron|net.http|http_post' $core_files
+      - name: Confirm clean AI Knowledge constraints
+        run: |
+          knowledge_schema="supabase/migrations/20260729170000_v9_ai_knowledge_clean_schema.sql"
+          test "$(grep -c '^create table.*public.ai_' $knowledge_schema)" -eq 9
+          test "$(grep -c '^create or replace function public.ai_' $knowledge_schema || true)" -eq 0
+          ! grep -Eiq '^create trigger|pg_cron|net.http|http_post' $knowledge_schema
+          grep -F "where d.status='published'" supabase/migrations/20260729171000_v9_ai_publish_only_approved_knowledge.sql
+          grep -F "'draft'" supabase/migrations/20260729171500_v9_ai_archive_legacy_learning_tables.sql

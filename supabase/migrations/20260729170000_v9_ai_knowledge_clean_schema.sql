@@ -1,0 +1,177 @@
+create extension if not exists pgcrypto;
+
+create table if not exists public.ai_runtime_config (
+  id smallint primary key default 1 check (id = 1),
+  mode text not null default 'SHADOW' check (mode in ('OFF','SHADOW','ACTIVE')),
+  published_snapshot_id uuid,
+  cache_ttl_seconds integer not null default 300 check (cache_ttl_seconds between 30 and 86400),
+  settings jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+insert into public.ai_runtime_config(id) values (1) on conflict(id) do nothing;
+
+create table if not exists public.ai_providers (
+  provider_key text primary key,
+  provider_name text not null,
+  provider_type text not null default 'openai_compatible',
+  base_url text,
+  model_name text,
+  api_key_ciphertext text,
+  api_key_hint text,
+  is_enabled boolean not null default false,
+  connection_status text not null default 'unknown',
+  settings jsonb not null default '{}'::jsonb,
+  last_verified_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.ai_drive_connections (
+  connection_key text primary key,
+  client_id text,
+  client_secret_ciphertext text,
+  client_secret_hint text,
+  access_token_ciphertext text,
+  refresh_token_ciphertext text,
+  token_type text,
+  scope text,
+  token_expires_at timestamptz,
+  root_folder_id text,
+  account_email text,
+  account_name text,
+  is_enabled boolean not null default false,
+  connection_status text not null default 'unknown',
+  metadata jsonb not null default '{}'::jsonb,
+  last_verified_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.ai_documents (
+  id uuid primary key default gen_random_uuid(),
+  document_key text not null,
+  version_no integer not null check (version_no > 0),
+  document_type text not null check (document_type in ('system_prompt','business_policy','location','promotion','approved_example','context','other')),
+  page_id text,
+  title text not null,
+  content text not null,
+  status text not null default 'draft' check (status in ('draft','published','archived')),
+  priority integer not null default 100,
+  metadata jsonb not null default '{}'::jsonb,
+  created_by text,
+  created_at timestamptz not null default now(),
+  unique(document_key,version_no)
+);
+
+create table if not exists public.ai_catalog_nodes (
+  catalog_key text primary key,
+  parent_key text references public.ai_catalog_nodes(catalog_key) on delete set null,
+  root_key text,
+  display_name text not null,
+  node_type text not null default 'product_group' check (node_type in ('root','product_group','product','scope')),
+  aliases text[] not null default '{}'::text[],
+  intents text[] not null default '{}'::text[],
+  rules jsonb not null default '[]'::jsonb,
+  asset_policy jsonb not null default '{}'::jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.ai_assets (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null default 'google_drive',
+  external_id text not null,
+  folder_id text,
+  file_name text,
+  mime_type text,
+  source_url text,
+  thumbnail_url text,
+  width integer,
+  height integer,
+  file_size bigint,
+  checksum text,
+  metadata jsonb not null default '{}'::jsonb,
+  is_active boolean not null default true,
+  last_synced_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(provider,external_id)
+);
+
+create table if not exists public.ai_catalog_assets (
+  catalog_key text not null references public.ai_catalog_nodes(catalog_key) on delete cascade,
+  asset_id uuid not null references public.ai_assets(id) on delete cascade,
+  asset_role text not null default 'slide' check (asset_role in ('slide','thumbnail','document','other')),
+  sort_order integer not null default 0,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  primary key(catalog_key,asset_id,asset_role)
+);
+
+create table if not exists public.ai_ad_mappings (
+  id uuid primary key default gen_random_uuid(),
+  page_id text,
+  ad_account_id text,
+  campaign_id text,
+  adset_id text,
+  ad_id text,
+  catalog_keys text[] not null default '{}'::text[],
+  confidence numeric(5,4) not null default 1 check (confidence between 0 and 1),
+  source text not null default 'manual',
+  is_active boolean not null default true,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(page_id,ad_id)
+);
+
+create table if not exists public.ai_published_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  version_no bigint generated by default as identity unique,
+  checksum text not null unique,
+  content jsonb not null,
+  status text not null default 'published' check (status in ('published','retired')),
+  source_versions jsonb not null default '{}'::jsonb,
+  built_at timestamptz not null default now(),
+  created_by text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.ai_runtime_config
+  drop constraint if exists ai_runtime_config_published_snapshot_id_fkey;
+alter table public.ai_runtime_config
+  add constraint ai_runtime_config_published_snapshot_id_fkey
+  foreign key(published_snapshot_id) references public.ai_published_snapshots(id) on delete set null;
+
+create index if not exists idx_ai_documents_publish on public.ai_documents(status,document_type,priority,created_at desc);
+create index if not exists idx_ai_catalog_parent on public.ai_catalog_nodes(parent_key,is_active);
+create index if not exists idx_ai_assets_folder on public.ai_assets(folder_id,is_active);
+create index if not exists idx_ai_catalog_assets_order on public.ai_catalog_assets(catalog_key,sort_order);
+create index if not exists idx_ai_ad_mappings_lookup on public.ai_ad_mappings(page_id,ad_id,is_active);
+create index if not exists idx_ai_snapshots_status on public.ai_published_snapshots(status,version_no desc);
+
+alter table public.ai_runtime_config enable row level security;
+alter table public.ai_providers enable row level security;
+alter table public.ai_drive_connections enable row level security;
+alter table public.ai_documents enable row level security;
+alter table public.ai_catalog_nodes enable row level security;
+alter table public.ai_assets enable row level security;
+alter table public.ai_catalog_assets enable row level security;
+alter table public.ai_ad_mappings enable row level security;
+alter table public.ai_published_snapshots enable row level security;
+
+revoke all on table public.ai_runtime_config from anon,authenticated;
+revoke all on table public.ai_providers from anon,authenticated;
+revoke all on table public.ai_drive_connections from anon,authenticated;
+revoke all on table public.ai_documents from anon,authenticated;
+revoke all on table public.ai_catalog_nodes from anon,authenticated;
+revoke all on table public.ai_assets from anon,authenticated;
+revoke all on table public.ai_catalog_assets from anon,authenticated;
+revoke all on table public.ai_ad_mappings from anon,authenticated;
+revoke all on table public.ai_published_snapshots from anon,authenticated;
+
+comment on table public.ai_published_snapshots is 'Compiled immutable knowledge snapshots loaded and cached by V9 AI workers.';
