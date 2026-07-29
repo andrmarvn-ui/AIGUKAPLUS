@@ -119,7 +119,8 @@ if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && pr
   await safeImport("./v9-postgrest-uniform-batch.js");
   startDetached("./v9-meta-ads-insights-worker.js");
   startDetached("./v9-meta-ad-page-resolver-worker.js");
-  console.log("[AIGUKA V9 Reporting] Meta Ads Insights and creative Page resolver workers started for mapped Page accounts");
+  startDetached("./v9-meta-orphan-ad-resolver-worker.js");
+  console.log("[AIGUKA V9 Reporting] Meta Ads Insights, creative Page and orphan Ad resolver workers started for mapped Page accounts");
 }
 
 if (v9CoreReady) {
