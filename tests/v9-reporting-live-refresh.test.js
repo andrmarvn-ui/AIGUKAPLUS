@@ -35,19 +35,19 @@ test("refresh worker only materializes reporting data and never performs outboun
   assert.doesNotMatch(worker, /graph\.facebook\.com|sendMessage|META_ACCESS_TOKEN|contact_value|normalized_value/);
 });
 
-test("daily refresh is bounded and falls back instead of failing the whole cycle", () => {
-  assert.match(worker, /cycle > 1 && cycle % 144 === 0 \? 31 : 7/);
-  assert.match(worker, /daily_fallback_days = 2/);
-  assert.match(worker, /refreshDaily\(2\)/);
-  assert.match(worker, /async function step/);
-  assert.match(worker, /Promise\.all/);
+test("daily refresh uses incremental dirty processing and the materialized V21 fact table", () => {
+  assert.match(worker, /rpc\/v8_report_v21_discover_dirty/);
+  assert.match(worker, /rpc\/v8_report_v21_process_dirty/);
+  assert.match(worker, /v8_report_v21_ad_day_fact\?select=/);
+  assert.match(worker, /daily_source: "v8_report_v21_ad_day_fact"/);
+  assert.doesNotMatch(worker, /v8_report_daily_runtime_detail/);
 });
 
-test("first cycle does not execute a full customer or 365-day report scan", () => {
-  assert.match(worker, /const fullCustomers = cycle > 1/);
+test("daily copy is bounded and excludes internal test pages", () => {
+  assert.match(worker, /cycle > 1 && cycle % 144 === 0 \? 31 : 7/);
+  assert.match(worker, /startsWith\("__"\)/);
   assert.doesNotMatch(worker, /refreshDaily\(365\)/);
   assert.doesNotMatch(worker, /dailyDays[^\n]*365/);
-  assert.doesNotMatch(worker, /cycle === 0 \|\| cycle % 144/);
 });
 
 test("V9 report API remains isolated from raw V8 message and report RPC paths", () => {

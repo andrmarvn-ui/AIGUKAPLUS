@@ -68,14 +68,16 @@ jobs:
           grep -F 'reportedContact' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test|v8_messages_raw|v8_meta_events' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test' v9-admin-ui.js
-      - name: Confirm temporary host and resilient refresh safety
+      - name: Confirm temporary host and incremental fact refresh safety
         run: |
           grep -F 'temporaryReportingHost' start.js
           grep -F 'startDetached("./v9-reporting-legacy-refresh-worker-v2.js")' start.js
           ! grep -F 'startDetached("./v9-reporting-legacy-refresh-worker.js")' start.js
-          grep -F 'const VERSION = "1.1.0"' v9-reporting-legacy-refresh-worker-v2.js
-          grep -F 'daily_fallback_days = 2' v9-reporting-legacy-refresh-worker-v2.js
-          grep -F 'refreshDaily(2)' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'const VERSION = "1.2.0"' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'rpc/v8_report_v21_discover_dirty' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'rpc/v8_report_v21_process_dirty' v9-reporting-legacy-refresh-worker-v2.js
+          grep -F 'v8_report_v21_ad_day_fact?select=' v9-reporting-legacy-refresh-worker-v2.js
+          ! grep -F 'v8_report_daily_runtime_detail' v9-reporting-legacy-refresh-worker-v2.js
           grep -F 'fact_daily_ad_performance' v9-reporting-legacy-refresh-worker-v2.js
           grep -F 'contact_hash' v9-reporting-legacy-refresh-worker-v2.js
           ! grep -E 'graph.facebook.com|META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value' v9-reporting-legacy-refresh-worker-v2.js
