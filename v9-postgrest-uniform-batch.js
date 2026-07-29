@@ -10,6 +10,16 @@ function keySignature(row) {
   return Object.keys(row || {}).sort().join("\u001f");
 }
 
+export function filterScopedDimAds(rows = []) {
+  return rows.filter((row) => {
+    const pageId = String(row?.page_id || "").trim();
+    const source = String(row?.attributes?.source || "").trim();
+    // The legacy mapping source has no reliable Page column. It may only update an
+    // existing Page-resolved dimension row; unresolved rows must wait for Meta evidence.
+    return !(source === "legacy_v8_refresh" && !pageId);
+  });
+}
+
 export function splitUniformBatches(rows = []) {
   const groups = new Map();
   for (const row of rows) {
@@ -39,10 +49,11 @@ export function installV9PostgrestUniformBatch() {
 
     let rows;
     try { rows = JSON.parse(init.body); } catch { return originalFetch(input, init); }
-    if (!Array.isArray(rows) || rows.length < 2) return originalFetch(input, init);
-    const batches = splitUniformBatches(rows);
-    if (batches.length < 2) return originalFetch(input, init);
+    if (!Array.isArray(rows)) return originalFetch(input, init);
+    const scopedRows = filterScopedDimAds(rows);
+    if (!scopedRows.length) return new Response(null, { status: 204 });
 
+    const batches = splitUniformBatches(scopedRows);
     let lastResponse = null;
     for (const batch of batches) {
       lastResponse = await originalFetch(input, { ...init, body: JSON.stringify(batch) });
