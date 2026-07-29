@@ -10,6 +10,17 @@ if (!process.env.SUPABASE_PUBLISHABLE_KEY && !process.env.SUPABASE_ANON_KEY && p
   process.env.SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 }
 
+// Until a dedicated Reporting project is provisioned, use the Knowledge/legacy project
+// only as a materialized read-model host. Explicit Reporting credentials always win.
+const temporaryReportingHost = !String(process.env.AIGUKA_V9_REPORTING_URL || "").trim()
+  && Boolean(String(process.env.SUPABASE_URL || "").trim())
+  && Boolean(String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim());
+if (temporaryReportingHost) {
+  process.env.AIGUKA_V9_REPORTING_URL = process.env.SUPABASE_URL;
+  process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  process.env.AIGUKA_V9_REPORTING_TEMPORARY_HOST = "true";
+}
+
 async function safeImport(path, critical = false) {
   try { return await import(path); }
   catch (error) {
@@ -88,6 +99,14 @@ if (v8BackgroundEnabled) {
   console.warn("[AIGUKA V8] legacy background workers disabled for V9 migration");
 }
 
+// This worker only materializes V8 source data into the Reporting read model.
+// It never sends Messenger messages and does not require V9 Core credentials.
+const reportingRefreshEnabled = String(process.env.AIGUKA_V9_REPORTING_LEGACY_REFRESH || "true").trim().toLowerCase() !== "false";
+if (reportingReady && reportingRefreshEnabled && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  startDetached("./v9-reporting-legacy-refresh-worker.js");
+  console.log(`[AIGUKA V9 Reporting] legacy read-model refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
+}
+
 if (v9CoreReady) {
   startDetached("./v9-legacy-inbox-bridge.js");
   startDetached("./v9-direct-core-worker.js");
@@ -97,7 +116,7 @@ if (v9CoreReady) {
 
   if (reportingReady) {
     startDetached("./v9-reporting-sync-worker.js");
-    console.log("[AIGUKA V9 Reporting] isolated database verified; sync worker started");
+    console.log("[AIGUKA V9 Reporting] reporting sync worker started");
   } else {
     console.warn("[AIGUKA V9 Reporting] sync disabled: Reporting URL/service-role missing; Core outbox will retain events");
   }
