@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { __private__ as bridgePrivate } from "../v9-core-bridge-bootstrap.js";
 
 const bootstrapSource = fs.readFileSync(new URL("../v9-core-bridge-bootstrap.js", import.meta.url), "utf8");
+const inboxBridgeSource = fs.readFileSync(new URL("../v9-legacy-inbox-bridge.js", import.meta.url), "utf8");
 const startSource = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
 const routerSource = fs.readFileSync(new URL("../v9-core-fetch-router.js", import.meta.url), "utf8");
 
@@ -55,4 +56,22 @@ test("router remains fail-closed when bootstrap does not provide a usable key", 
   assert.match(routerSource, /V9_CORE_CREDENTIAL_REQUIRED/);
   assert.match(routerSource, /refusing legacy v9_\* access/);
   assert.match(startSource, /v9CoreBridgeState\.ready === true/);
+});
+
+
+test("cutover timestamp is normalized and propagated to the inbox bridge", () => {
+  const iso = "2026-07-29T18:55:08.230Z";
+  assert.equal(bridgePrivate.validIso(iso), iso);
+  assert.equal(bridgePrivate.validIso("invalid", iso), iso);
+  assert.match(bootstrapSource, /bootstrap\.cutover_at/);
+  assert.match(bootstrapSource, /AIGUKA_V9_BRIDGE_CUTOVER_AT = cutoverAt/);
+});
+
+
+test("legacy inbox bridge accepts only rows created after the durable cutover", () => {
+  assert.match(inboxBridgeSource, /v9_legacy_inbox_bridge_v2_cutover/);
+  assert.match(inboxBridgeSource, /created_at=gte\.\$\{encodeURIComponent\(CUTOVER_AT\)\}/);
+  assert.match(inboxBridgeSource, /historical_replay_enabled: false/);
+  assert.match(inboxBridgeSource, /cutover_at: CUTOVER_AT/);
+  assert.doesNotMatch(inboxBridgeSource, /replaying durable legacy inbox/);
 });
