@@ -1,6 +1,13 @@
 // Protect database pressure and customer-facing Meta transport before any worker.
 await import("./patch-supabase-load-shed-fetch.js");
 await import("./patch-meta-price-language-fetch.js");
+
+// Establish the isolated V9 Core connection before importing any module that captures
+// Core environment variables at module load time. A real Core service-role key wins;
+// otherwise Railway obtains a database-only bridge credential from the legacy project.
+const { bootstrapV9CoreBridge, v9CoreBridgeState } = await import("./v9-core-bridge-bootstrap.js");
+await bootstrapV9CoreBridge();
+
 const { loadActiveMetaConnection } = await import("./meta-token-store.js");
 
 process.env.META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || "AIGUKA_V8_META_VERIFY";
@@ -77,9 +84,10 @@ await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 await safeImport("./server-fixed.js", true);
 
 // V8 remains a temporary durable webhook source. All V9 state, jobs and decisions
-// must use the isolated Core project; missing Core credentials stop V9 completely.
+// use the isolated Core project. The router remains fail-closed if bootstrap fails.
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
-const v9CoreReady = v9CoreModule?.v9CoreRoutingState?.enabled === true;
+const v9CoreReady = v9CoreBridgeState.ready === true
+  && v9CoreModule?.v9CoreRoutingState?.enabled === true;
 const reportingReady = Boolean(
   String(process.env.AIGUKA_V9_REPORTING_URL || "").trim()
   && String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || "").trim()
@@ -112,7 +120,7 @@ if (v9CoreReady) {
   startDetached("./v9-direct-core-worker.js");
   startDetached("./v9-ai-shadow-worker.js");
   startDetached("./v9-reporting-publisher.js");
-  console.log("[AIGUKA V9] bridge, Core-only SHADOW, AI and reporting publisher workers started");
+  console.log(`[AIGUKA V9] Core workers started via ${v9CoreBridgeState.mode}; outbound remains locked`);
 
   if (reportingReady) {
     startDetached("./v9-reporting-sync-worker.js");
@@ -121,5 +129,5 @@ if (v9CoreReady) {
     console.warn("[AIGUKA V9 Reporting] sync disabled: Reporting URL/service-role missing; Core outbox will retain events");
   }
 } else {
-  console.warn("[AIGUKA V9] workers not started: isolated Core credential is missing");
+  console.warn(`[AIGUKA V9] workers not started: isolated Core connection blocked (${v9CoreBridgeState.error || "unknown"})`);
 }
