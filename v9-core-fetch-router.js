@@ -32,6 +32,16 @@ export function buildV9CoreTarget(input, options = {}) {
   };
 }
 
+export function classifyV9CoreRequest(input, options = {}) {
+  const legacyBase = cleanBase(options.legacyBase);
+  const coreBase = cleanBase(options.coreBase || DEFAULT_CORE_URL);
+  const coreKey = String(options.coreKey || "").trim();
+  if (!isV9CoreRequest(input, legacyBase)) return { action: "passthrough" };
+  if (!coreBase || !coreKey) return { action: "block", reason: "V9_CORE_CREDENTIAL_REQUIRED" };
+  const target = buildV9CoreTarget(input, { legacyBase, coreBase, coreKey });
+  return { action: "route", ...target };
+}
+
 function routedHeaders(input, init, coreKey) {
   const baseHeaders = typeof Request !== "undefined" && input instanceof Request ? input.headers : init?.headers;
   const headers = new Headers(baseHeaders || {});
@@ -51,32 +61,34 @@ export function installV9CoreFetchRouter(options = {}) {
 
   const state = {
     enabled: Boolean(legacyBase && coreBase && coreKey),
+    blocked: Boolean(legacyBase && (!coreBase || !coreKey)),
     legacyBase,
     coreBase,
     fetch: originalFetch,
   };
 
-  if (!state.enabled) {
-    console.warn("[AIGUKA V9 Core] isolated database routing disabled: AIGUKA_V9_CORE_SERVICE_ROLE_KEY is missing");
-    globalThis[ROUTER_MARK] = state;
-    return state;
-  }
-
   globalThis.fetch = async function v9CoreRoutedFetch(input, init = {}) {
-    const target = buildV9CoreTarget(input, { legacyBase, coreBase, coreKey });
-    if (!target) return originalFetch(input, init);
+    const decision = classifyV9CoreRequest(input, { legacyBase, coreBase, coreKey });
+    if (decision.action === "passthrough") return originalFetch(input, init);
+    if (decision.action === "block") {
+      throw new Error("V9_CORE_CREDENTIAL_REQUIRED: refusing legacy v9_* access");
+    }
 
-    const headers = routedHeaders(input, init, target.coreKey);
+    const headers = routedHeaders(input, init, decision.coreKey);
     if (typeof Request !== "undefined" && input instanceof Request) {
-      const request = new Request(target.url, input);
+      const request = new Request(decision.url, input);
       return originalFetch(request, { ...init, headers });
     }
-    return originalFetch(target.url, { ...init, headers });
+    return originalFetch(decision.url, { ...init, headers });
   };
 
   globalThis[ROUTER_MARK] = state;
-  console.log(`[AIGUKA V9 Core] isolated routing enabled: ${new URL(coreBase).host}`);
+  if (state.enabled) {
+    console.log(`[AIGUKA V9 Core] isolated routing enabled: ${new URL(coreBase).host}`);
+  } else {
+    console.warn("[AIGUKA V9 Core] routing blocked: AIGUKA_V9_CORE_SERVICE_ROLE_KEY is missing; legacy v9_* access denied");
+  }
   return state;
 }
 
-installV9CoreFetchRouter();
+export const v9CoreRoutingState = installV9CoreFetchRouter();

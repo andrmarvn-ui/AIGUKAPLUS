@@ -65,8 +65,10 @@ await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 await safeImport("./server-fixed.js", true);
 
-// V8 continues reading the legacy database. Only v9_* REST/RPC calls are routed to the isolated Core project.
-await safeImport("./v9-core-fetch-router.js");
+// V8 continues reading the legacy database. V9 is allowed to start only when
+// all v9_* REST/RPC calls are guaranteed to reach the isolated Core project.
+const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
+const v9CoreReady = v9CoreModule?.v9CoreRoutingState?.enabled === true;
 
 // AICAKE is customer-facing during the V9 migration. Legacy recovery/AI/outbound workers stay off
 // unless explicitly re-enabled for an emergency rollback.
@@ -82,5 +84,10 @@ if (v8BackgroundEnabled) {
   console.warn("[AIGUKA V8] legacy background workers disabled for V9 migration");
 }
 
-startDetached("./v9-shadow-worker.js");
-startDetached("./v9-ai-shadow-worker.js");
+if (v9CoreReady) {
+  startDetached("./v9-shadow-worker.js");
+  startDetached("./v9-ai-shadow-worker.js");
+  console.log("[AIGUKA V9] isolated Core verified; SHADOW workers started");
+} else {
+  console.warn("[AIGUKA V9] SHADOW workers not started: isolated Core credential is missing");
+}
