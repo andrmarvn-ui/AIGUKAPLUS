@@ -1,0 +1,37 @@
+name: Validate V9 foundation
+
+on:
+  pull_request:
+    paths:
+      - "v9/**"
+      - "v9-shadow-worker.js"
+      - "tests/v9-core.test.js"
+      - "start.js"
+      - "supabase/migrations/20260729133*.sql"
+      - ".github/workflows/validate-v9-foundation.yml"
+  push:
+    branches: [main]
+    paths:
+      - "v9/**"
+      - "v9-shadow-worker.js"
+      - "tests/v9-core.test.js"
+      - "start.js"
+      - "supabase/migrations/20260729133*.sql"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run V9 core regression tests
+        run: node --test tests/v9-core.test.js
+      - name: Validate V9 worker syntax
+        run: node --check v9-shadow-worker.js
+      - name: Confirm SHADOW startup wiring
+        run: |
+          grep -F 'startDetached("./v9-shadow-worker.js")' start.js
+          grep -F 'mode !== "SHADOW"' v9-shadow-worker.js

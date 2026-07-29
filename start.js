@@ -114,3 +114,6 @@ startDetached("./meta-recovery-loader.js");
 startDetached("./ai-dispatch-worker.js");
 startDetached("./outbound-worker.js");
 startDetached("./meta-profile-sync-worker.js");
+
+// V9 is isolated and SHADOW-only in this release. It never calls Meta outbound.
+startDetached("./v9-shadow-worker.js");
