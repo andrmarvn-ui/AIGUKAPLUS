@@ -1,0 +1,4 @@
+Deploy V9 privacy-safe Reporting publisher and optional sync worker.
+Publisher requires isolated Core. Sync additionally requires isolated Reporting URL/service-role.
+Missing Reporting credentials keep events in Core outbox and do not affect chatbot.
+Merged source commit: 2375777f5323f83e050daa80453497c0e80408c8
