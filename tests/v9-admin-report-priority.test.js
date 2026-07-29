@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { aggregatePerformance, parseReportRange, pageMode, runtimeMode } from "../v9/core/admin-report-utils.js";
+import { __private__ as authPrivate } from "../v9-admin-auth.js";
 
 const ui = fs.readFileSync(new URL("../v9-admin-ui.js", import.meta.url), "utf8");
 const patch = fs.readFileSync(new URL("../patch-server.js", import.meta.url), "utf8");
+const auth = fs.readFileSync(new URL("../v9-admin-auth.js", import.meta.url), "utf8");
 
 test("report range defaults to seven days and rejects oversized scans", () => {
   const range = parseReportRange({}, new Date("2026-07-29T12:00:00Z"));
@@ -41,6 +43,15 @@ test("page mode keeps support but prevents premature ACTIVE", () => {
   assert.throws(() => pageMode("active"), /PAGE_MODE_NOT_ALLOWED/);
 });
 
+test("basic auth parser accepts valid credentials and rejects malformed values", () => {
+  const header = `Basic ${Buffer.from("admin:secret-value").toString("base64")}`;
+  assert.deepEqual(authPrivate.parseBasic(header), { username: "admin", password: "secret-value" });
+  assert.equal(authPrivate.parseBasic("Bearer abc"), null);
+  assert.equal(authPrivate.parseBasic("Basic !!!"), null);
+  assert.equal(authPrivate.safeEqual("same", "same"), true);
+  assert.equal(authPrivate.safeEqual("same", "other"), false);
+});
+
 test("V9 UI is static, lazy-loaded and never calls V8 reporting RPCs", () => {
   assert.match(ui, /installV9AdminUi/);
   assert.match(ui, /\/api\/v9\/admin\/overview/);
@@ -51,8 +62,15 @@ test("V9 UI is static, lazy-loaded and never calls V8 reporting RPCs", () => {
   assert.doesNotMatch(ui, /v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test/);
 });
 
-test("Railway installs V9 admin before legacy routes and preserves V8 fallback", () => {
-  assert.match(patch, /installV9AdminReportApiV2\(app\);\ninstallV9AdminUi\(app\);\ninstallReportRoutes/);
+test("V9 admin secret is required and middleware is installed first", () => {
+  assert.match(auth, /AIGUKA_V9_ADMIN_SECRET/);
+  assert.match(auth, /timingSafeEqual/);
+  assert.match(auth, /V9_ADMIN_SECRET_NOT_CONFIGURED/);
+  assert.match(auth, /www-authenticate/);
+  assert.match(patch, /installV9AdminAuth\(app\);\ninstallV9AdminReportApiV2\(app\);\ninstallV9AdminUi\(app\);\ninstallReportRoutes/);
+});
+
+test("Railway preserves the V8 dashboard only as fallback", () => {
   assert.match(patch, /V8 dashboard retained as fallback/);
   assert.match(patch, /\/api\/v9\/admin\/overview/);
 });
