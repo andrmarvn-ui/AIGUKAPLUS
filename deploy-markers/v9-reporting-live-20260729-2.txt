@@ -1,0 +1,4 @@
+Deploy V9 live Reporting/Admin after merge c19bb91dd37336d33331c285cf2b8daaf916cbd8.
+Expected worker: aiguka-v9-reporting-legacy-refresh version 1.0.0.
+Expected UI: /v9-admin protected by AIGUKA_ADMIN_SECRET or AIGUKA_V9_ADMIN_SECRET.
+Expected reporting host fallback: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY.
