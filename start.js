@@ -1,11 +1,9 @@
-// Install database-pressure protection before any module can call Supabase.
+// Protect database pressure and customer-facing Meta transport before any worker.
 await import("./patch-supabase-load-shed-fetch.js");
 await import("./patch-meta-price-language-fetch.js");
 const { loadActiveMetaConnection } = await import("./meta-token-store.js");
 
 process.env.META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || "AIGUKA_V8_META_VERIFY";
-// Keep operational dashboards on the verified V1 source while V2.1 drains its
-// backlog. V2.1 remains available explicitly with ?version=2.1 for validation.
 process.env.AIGUKA_REPORT_V21_DEFAULT = "false";
 
 if (
@@ -39,10 +37,6 @@ function startDetached(path) {
   });
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function databaseReady() {
   if (!SUPABASE_URL || !SERVICE_KEY) return false;
   try {
@@ -60,97 +54,77 @@ async function databaseReady() {
   }
 }
 
-async function waitForDatabaseReady(attempts = 6) {
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    if (await databaseReady()) return true;
-    if (attempt < attempts) await sleep(2_000);
-  }
-  return false;
-}
-
-const dbReadyAtStartup = await waitForDatabaseReady();
-if (!dbReadyAtStartup) {
-  console.error(
-    "[AIGUKA startup] Supabase is temporarily unavailable. Dashboard materialization will still be attempted; realtime ingestion remains prioritized.",
-  );
-}
-
+const dbReadyAtStartup = await databaseReady();
 if (dbReadyAtStartup) {
   try {
     const connection = await loadActiveMetaConnection();
     if (connection?.accessToken) {
       process.env.META_ACCESS_TOKEN = connection.accessToken;
       process.env.META_AUTO_AD_ACCOUNTS = process.env.META_AUTO_AD_ACCOUNTS || "true";
-      console.log(
-        `[AIGUKA] Loaded Meta OAuth connection for ${connection.facebookUserName || connection.facebookUserId}`,
-      );
-    } else {
-      console.log("[AIGUKA] No saved Meta OAuth connection; using Railway variables");
+      console.log(`[AIGUKA] Loaded Meta OAuth connection for ${connection.facebookUserName || connection.facebookUserId}`);
     }
   } catch (error) {
     console.error("[AIGUKA] Could not load saved Meta OAuth connection:", error.message);
   }
+
+  const dashboardPatches = [
+    "./patch-v7-pancake-classifier.js",
+    "./patch-v7-pancake-history.js",
+    "./patch-v7-pancake-tag-parser.js",
+    "./materialize-v7-dashboard.js",
+    "./patch-v7-report-accuracy.js",
+    "./patch-v7-product-detection.js",
+    "./patch-v7-navigation.js",
+    "./patch-v7-pancake-toggle.js",
+    "./patch-v7-lead-filters.js",
+    "./patch-v7-daily-grouped.js",
+    "./patch-v7-daily-staff-history.js",
+    "./patch-v7-daily-layout-sample.js",
+    "./patch-v7-filter-final.js",
+    "./patch-v7-daily-staff-aligned.js",
+    "./patch-v7-daily-runtime-self-contained.js",
+    "./patch-v7-leads-meta-primary.js",
+    "./patch-v7-leads-referral-source.js",
+    "./patch-v7-pancake-tag-completeness.js",
+    "./patch-v7-pancake-tag-final.js",
+    "./patch-v7-daily-final-anchor-fix.js",
+    "./patch-v7-daily-final.js",
+    "./patch-v7-daily-runtime-fallback.js",
+    "./patch-v7-lead-table-v4.js",
+    "./patch-v7-lead-filter-logical.js",
+    "./patch-v7-lead-contact-ui.js",
+    "./patch-v7-null-safety.js",
+    "./patch-v7-runtime-integrity.js",
+    "./patch-v7-lead-meta-insights-truth.js",
+    "./patch-v7-lead-reel-old-ad-attribution.js",
+    "./patch-v7-lead-reel-reply-guard.js",
+    "./patch-v7-split-leads-compat.js",
+    "./patch-v7-split-leads-ad-performance.js",
+    "./patch-v7-lead-filter-status-fix.js",
+    "./patch-v7-lead-account-reconcile.js",
+    "./patch-learning-client.js",
+    "./patch-bot-page-mode-save.js",
+    "./patch-bot-page-support-mode.js",
+    "./patch-bot-clock-24h.js",
+    "./patch-ai-context-nav.js",
+    "./patch-ai-context-card-selection.js",
+    "./patch-ai-context-center-validation.js",
+    "./patch-meta-pages-messaging-scope.js",
+    "./patch-drive-v4-key-compat.js",
+    "./patch-drive-v4-api-key-folder-action.js",
+    "./patch-drive-folder-tree-hierarchy.js",
+    "./patch-catalog-key-rename.js",
+    "./patch-slide-generic-carousel.js",
+    "./seed-tong-hop-context.js",
+    "./patch-mapping-meta-midnight-delivery.js",
+  ];
+  for (const patch of dashboardPatches) await safeImport(patch);
+} else {
+  console.error("[AIGUKA startup] Supabase unavailable; skipping dashboard/report materialization and prioritizing realtime transport.");
+  await safeImport("./ensure-degraded-dashboard-stub.js");
 }
 
-// Durable ingestion starts first so dashboard startup can never block customer messages.
-startDetached("./webhook-inbox-worker.js");
-startDetached("./meta-recovery-loader.js");
-
-// Always attempt to build the full dashboard. Individual patches are isolated,
-// so one transient Supabase failure cannot silently replace the UI with an old stub.
-const dashboardPatches = [
-  "./patch-v7-pancake-classifier.js",
-  "./patch-v7-pancake-history.js",
-  "./patch-v7-pancake-tag-parser.js",
-  "./materialize-v7-dashboard.js",
-  "./patch-v7-report-accuracy.js",
-  "./patch-v7-product-detection.js",
-  "./patch-v7-navigation.js",
-  "./patch-v7-pancake-toggle.js",
-  "./patch-v7-lead-filters.js",
-  "./patch-v7-daily-grouped.js",
-  "./patch-v7-daily-staff-history.js",
-  "./patch-v7-daily-layout-sample.js",
-  "./patch-v7-filter-final.js",
-  "./patch-v7-daily-staff-aligned.js",
-  "./patch-v7-daily-runtime-self-contained.js",
-  "./patch-v7-leads-meta-primary.js",
-  "./patch-v7-leads-referral-source.js",
-  "./patch-v7-pancake-tag-completeness.js",
-  "./patch-v7-pancake-tag-final.js",
-  "./patch-v7-daily-final-anchor-fix.js",
-  "./patch-v7-daily-final.js",
-  "./patch-v7-daily-runtime-fallback.js",
-  "./patch-v7-lead-table-v4.js",
-  "./patch-v7-lead-filter-logical.js",
-  "./patch-v7-lead-contact-ui.js",
-  "./patch-v7-null-safety.js",
-  "./patch-v7-runtime-integrity.js",
-  "./patch-v7-lead-meta-insights-truth.js",
-  "./patch-v7-lead-reel-old-ad-attribution.js",
-  "./patch-v7-lead-reel-reply-guard.js",
-  "./patch-v7-split-leads-compat.js",
-  "./patch-v7-split-leads-ad-performance.js",
-  "./patch-v7-lead-filter-status-fix.js",
-  "./patch-v7-lead-account-reconcile.js",
-  "./patch-learning-client.js",
-  "./patch-bot-page-mode-save.js",
-  "./patch-bot-page-support-mode.js",
-  "./patch-bot-clock-24h.js",
-  "./patch-ai-context-nav.js",
-  "./patch-ai-context-card-selection.js",
-  "./patch-ai-context-center-validation.js",
-  "./patch-meta-pages-messaging-scope.js",
-  "./patch-drive-v4-key-compat.js",
-  "./patch-drive-v4-api-key-folder-action.js",
-  "./patch-drive-folder-tree-hierarchy.js",
-  "./patch-catalog-key-rename.js",
-  "./patch-slide-generic-carousel.js",
-  "./seed-tong-hop-context.js",
-  "./patch-mapping-meta-midnight-delivery.js",
-];
-for (const patch of dashboardPatches) await safeImport(patch);
-
+// Local source patches do not require a healthy database.
 await safeImport("./patch-server.js");
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
@@ -161,9 +135,12 @@ await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 await safeImport("./server-fixed.js", true);
 
-// Realtime transport remains highest priority. Reporting is isolated and uses
-// its own bounded batch/backoff controls, so it can recover without blocking AI.
+// Realtime lanes start independently. One slow database poll cannot block the others.
+startDetached("./webhook-inbox-worker.js");
+startDetached("./meta-recovery-loader.js");
 startDetached("./ai-dispatch-worker.js");
 startDetached("./outbound-worker.js");
 startDetached("./meta-profile-sync-worker.js");
-startDetached("./report-v21-worker.js");
+
+// Reporting is optional and must never compete with customer messages during pressure.
+if (dbReadyAtStartup) startDetached("./report-v21-worker.js");
