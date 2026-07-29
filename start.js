@@ -117,7 +117,8 @@ if (reportingReady && reportingRefreshEnabled && process.env.SUPABASE_URL && pro
 const metaInsightsEnabled = String(process.env.AIGUKA_V9_META_INSIGHTS_ENABLED || "true").trim().toLowerCase() !== "false";
 if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   startDetached("./v9-meta-ads-insights-worker.js");
-  console.log("[AIGUKA V9 Reporting] Meta Ads Insights worker started for mapped Page accounts");
+  startDetached("./v9-meta-ad-page-resolver-worker.js");
+  console.log("[AIGUKA V9 Reporting] Meta Ads Insights and creative Page resolver workers started for mapped Page accounts");
 }
 
 if (v9CoreReady) {
