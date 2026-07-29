@@ -5,18 +5,18 @@ on:
     paths:
       - "v9/**"
       - "v9-shadow-worker.js"
-      - "tests/v9-core.test.js"
+      - "tests/v9-*.test.js"
       - "start.js"
-      - "supabase/migrations/20260729133*.sql"
+      - "supabase/migrations/2026072913*.sql"
       - ".github/workflows/validate-v9-foundation.yml"
   push:
     branches: [main]
     paths:
       - "v9/**"
       - "v9-shadow-worker.js"
-      - "tests/v9-core.test.js"
+      - "tests/v9-*.test.js"
       - "start.js"
-      - "supabase/migrations/20260729133*.sql"
+      - "supabase/migrations/2026072913*.sql"
 
 jobs:
   validate:
@@ -27,11 +27,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Run V9 core regression tests
-        run: node --test tests/v9-core.test.js
+      - name: Run V9 regression tests
+        run: node --test tests/v9-*.test.js
       - name: Validate V9 worker syntax
         run: node --check v9-shadow-worker.js
       - name: Confirm SHADOW startup wiring
         run: |
           grep -F 'startDetached("./v9-shadow-worker.js")' start.js
           grep -F 'mode !== "SHADOW"' v9-shadow-worker.js
+          grep -F 'AICAKE_ACTIVE' v9-shadow-worker.js
