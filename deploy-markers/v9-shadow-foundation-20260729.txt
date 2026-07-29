@@ -1,0 +1,2 @@
+Deploy AIGUKA V9 shadow foundation from merge commit 02af77bb7945037f140881cff7c077368300c77f.
+V9 remains SHADOW-only; V8 remains the sole customer-facing responder.
