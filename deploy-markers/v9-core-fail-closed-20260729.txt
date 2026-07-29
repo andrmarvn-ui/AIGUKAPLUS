@@ -1,0 +1,4 @@
+Deploy V9 runtime with isolated Core fail-closed routing.
+Without AIGUKA_V9_CORE_SERVICE_ROLE_KEY, V9 workers do not start and legacy v9_* access is blocked.
+AICAKE remains customer-facing. V8 background workers remain disabled by default.
+Merged source commit: 0094c56bf58b67ef435878612f2b395f9cc20c3b
