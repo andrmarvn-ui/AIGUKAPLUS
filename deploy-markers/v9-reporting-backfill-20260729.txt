@@ -1,0 +1,4 @@
+AIGUKA V9 reporting temporary host and initial legacy backfill completed at 2026-07-29T16:57:55Z.
+Reporting read model: 13 tables on Knowledge host.
+Initial counts: pages=2, customers=1174, ads=72, staff=2, contact facts=269, daily fact rows=270.
+API/UI follow-up must use existing SUPABASE_URL/SERVICE_ROLE_KEY as temporary reporting host until dedicated reporting credentials are configured.
