@@ -1,0 +1,4 @@
+Force Railway deployment for pre-Report-V2.1 dashboard rollback.
+Dashboard routing: 42d8cb3eec6d419a250ef7827d46663ef0727693
+Report API V1: 592f696e8e752a761c6b89184308810bec8fc245
+Startup without Report V2.1 worker: 93767e94d9205b00babd31fce0909891c94b29ec
