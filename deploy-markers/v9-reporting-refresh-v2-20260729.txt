@@ -1,0 +1,4 @@
+Deploy merge 31ae351706a0dd4abfef8e993b2c0bfb4ce6ea09.
+Expected worker: aiguka-v9-reporting-legacy-refresh version 1.1.0.
+Expected first-cycle daily window: 7 days; fallback: 2 days.
+Expected result: heartbeat healthy and fact_daily_ad_performance updated_at advances.
