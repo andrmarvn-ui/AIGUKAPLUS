@@ -44,12 +44,13 @@ try {
 }
 
 // Restore the complete V7 dashboard startup chain used before Report V2.1.
-// Each patch is isolated so messaging workers still start if one UI patch fails.
+// The source is loaded through direct HTTPS so the reporting UI cannot be
+// skipped by the Supabase pressure circuit or the patched global fetch.
 const dashboardPatches = [
   "./patch-v7-pancake-classifier.js",
   "./patch-v7-pancake-history.js",
   "./patch-v7-pancake-tag-parser.js",
-  "./materialize-v7-dashboard.js",
+  "./materialize-v7-dashboard-resilient.js",
   "./patch-v7-report-accuracy.js",
   "./patch-v7-product-detection.js",
   "./patch-v7-navigation.js",
