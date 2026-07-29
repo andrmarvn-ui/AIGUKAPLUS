@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import vm from "node:vm";
 import { aggregatePerformance, parseReportRange, pageMode, runtimeMode } from "../v9/core/admin-report-utils.js";
 import { __private__ as authPrivate } from "../v9-admin-auth.js";
 import { __private__ as uiV2Private } from "../v9-admin-ui-v2.js";
@@ -9,7 +10,7 @@ const ui = fs.readFileSync(new URL("../v9-admin-ui.js", import.meta.url), "utf8"
 const patch = fs.readFileSync(new URL("../patch-server.js", import.meta.url), "utf8");
 const auth = fs.readFileSync(new URL("../v9-admin-auth.js", import.meta.url), "utf8");
 
- test("report range defaults to seven days and rejects oversized scans", () => {
+test("report range defaults to seven days and rejects oversized scans", () => {
   const range = parseReportRange({}, new Date("2026-07-29T12:00:00Z"));
   assert.deepEqual(range, { from: "2026-07-23", to: "2026-07-29", days: 7 });
   assert.throws(
@@ -64,10 +65,20 @@ test("V9 UI is static, lazy-loaded and never calls V8 reporting RPCs", () => {
 });
 
 test("UI v2 displays Page and ad account names returned by the live API", () => {
-  const source = `<td class="mono">'+esc(r.page_id||'-')+'</td><td class="mono">'+esc(r.ad_account_id||'-')+'</td>`;
+  const source = `<td class="mono">'+esc(r.page_id||'-')+'</td><td class="mono">'+esc(r.ad_account_id||'-')+'</td></body>`;
   const enhanced = uiV2Private.enhance(source);
   assert.match(enhanced, /r\.page_name\|\|r\.page_id/);
   assert.match(enhanced, /r\.ad_account_name\|\|r\.ad_account_id/);
+});
+
+test("UI v2 reports Reporting readiness independently from Core", () => {
+  const script = uiV2Private.REPORTING_STATUS_SCRIPT.replace(/^<script[^>]*>|<\/script>$/g, "");
+  assert.doesNotThrow(() => new vm.Script(script));
+  assert.match(script, /Báo cáo V9 sẵn sàng/);
+  assert.match(script, /aiguka-v9-reporting-legacy-refresh/);
+  assert.match(script, /Reporting host/);
+  assert.match(script, /daily_rows/);
+  assert.match(script, /r\.temporary_host/);
 });
 
 test("V9 admin secret is required and middleware is installed first", () => {
