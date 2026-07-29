@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { __private__ as refreshPrivate } from "../v9-reporting-legacy-refresh-worker.js";
+import { __private__ as refreshPrivate } from "../v9-reporting-legacy-refresh-worker-v2.js";
 
 const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
-const worker = fs.readFileSync(new URL("../v9-reporting-legacy-refresh-worker.js", import.meta.url), "utf8");
+const worker = fs.readFileSync(new URL("../v9-reporting-legacy-refresh-worker-v2.js", import.meta.url), "utf8");
 const api = fs.readFileSync(new URL("../v9-admin-report-api-v2.js", import.meta.url), "utf8");
 
 test("contact hashes are deterministic and never expose the original value", () => {
@@ -23,7 +23,8 @@ test("startup uses an explicit Reporting project first and a temporary host only
   assert.match(start, /temporaryReportingHost/);
   assert.match(start, /!String\(process\.env\.AIGUKA_V9_REPORTING_URL/);
   assert.match(start, /process\.env\.AIGUKA_V9_REPORTING_URL = process\.env\.SUPABASE_URL/);
-  assert.match(start, /startDetached\("\.\/v9-reporting-legacy-refresh-worker\.js"\)/);
+  assert.match(start, /startDetached\("\.\/v9-reporting-legacy-refresh-worker-v2\.js"\)/);
+  assert.doesNotMatch(start, /startDetached\("\.\/v9-reporting-legacy-refresh-worker\.js"\)/);
 });
 
 test("refresh worker only materializes reporting data and never performs outbound transport", () => {
@@ -32,6 +33,20 @@ test("refresh worker only materializes reporting data and never performs outboun
   assert.match(worker, /fact_contacts/);
   assert.match(worker, /contact_hash/);
   assert.doesNotMatch(worker, /graph\.facebook\.com|sendMessage|META_ACCESS_TOKEN|contact_value|normalized_value/);
+});
+
+test("daily refresh is bounded and falls back instead of failing the whole cycle", () => {
+  assert.match(worker, /cycle > 1 && cycle % 144 === 0 \? 31 : 7/);
+  assert.match(worker, /daily_fallback_days = 2/);
+  assert.match(worker, /refreshDaily\(2\)/);
+  assert.match(worker, /async function step/);
+  assert.match(worker, /Promise\.all/);
+});
+
+test("first cycle does not execute a full customer or 365-day report scan", () => {
+  assert.match(worker, /const fullCustomers = cycle > 1/);
+  assert.doesNotMatch(worker, /full \? 365/);
+  assert.doesNotMatch(worker, /cycle === 0 \|\| cycle % 144/);
 });
 
 test("V9 report API remains isolated from raw V8 message and report RPC paths", () => {
