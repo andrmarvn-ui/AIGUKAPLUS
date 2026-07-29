@@ -8,6 +8,8 @@ const ENV = {
   knowledgeKey: String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ""),
   reportingBase: String(process.env.AIGUKA_V9_REPORTING_URL || process.env.SUPABASE_URL || "").replace(/\/$/, ""),
   reportingKey: String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ""),
+  legacyBase: String(process.env.SUPABASE_URL || process.env.SUPABASE_PROJECT_URL || "").replace(/\/$/, ""),
+  legacyKey: String(process.env.SUPABASE_SERVICE_ROLE_KEY || ""),
   reportingTemporaryHost: !String(process.env.AIGUKA_V9_REPORTING_URL || "").trim() || process.env.AIGUKA_V9_REPORTING_TEMPORARY_HOST === "true",
 };
 
@@ -24,6 +26,7 @@ function dateOnly(value, fallback) { return /^\d{4}-\d{2}-\d{2}$/.test(String(va
 function core(path, options) { return db(ENV.coreBase, ENV.coreKey, path, options); }
 function knowledge(path, options) { return db(ENV.knowledgeBase, ENV.knowledgeKey, path, options); }
 function reporting(path, options) { return db(ENV.reportingBase, ENV.reportingKey, path, options); }
+function legacy(path, options) { return db(ENV.legacyBase, ENV.legacyKey, path, options); }
 
 async function db(base, key, path, options = {}) {
   if (!ready(base, key)) throw Object.assign(new Error("DATA_SOURCE_NOT_CONFIGURED"), { status: 503 });
@@ -115,14 +118,14 @@ function group(rows, keyOf, fields) {
     if (!map.has(key)) map.set(key, { dimensions: Object.fromEntries(fields.map((field) => [field, row[field] ?? null])), rows: [] });
     map.get(key).rows.push(row);
   }
-  return [...map.values()].map(({ dimensions, rows: groupRows }) => ({ ...dimensions, ...aggregatePerformance(groupRows) }));
+  return [...map.values()].map(({ dimensions, rows: grouped }) => ({ ...dimensions, ...aggregatePerformance(grouped) }));
 }
 
-function worker(rows, name) {
+function worker(rows, name, staleSeconds = 90) {
   const row = rows.find((item) => item.worker_name === name);
   if (!row) return { worker_name: name, status: "missing", age_seconds: null, stale: true };
   const age = Math.max(0, Math.round((Date.now() - Date.parse(row.last_seen_at || 0)) / 1000));
-  return { ...row, age_seconds: age, stale: age > 90 };
+  return { ...row, age_seconds: age, stale: age > staleSeconds };
 }
 
 async function knowledgeStatus() {
@@ -153,12 +156,15 @@ async function reportingStatus() {
       countRows(reporting, "fact_daily_ad_performance", "report_date"),
       countRows(reporting, "dim_customers", "customer_id"),
     ]);
+    const rows = heartbeats.data || [];
     return {
       configured: true,
       status: "ready",
       temporary_host: ENV.reportingTemporaryHost,
       runtime: runtime.data?.[0] || null,
-      heartbeats: heartbeats.data || [],
+      heartbeats: rows,
+      meta_insights_worker: worker(rows, "aiguka-v9-meta-ads-insights", 30 * 60),
+      legacy_refresh_worker: worker(rows, "aiguka-v9-reporting-legacy-refresh", 20 * 60),
       ingest_events: ingestEvents,
       daily_rows: dailyRows,
       customers,
@@ -242,14 +248,44 @@ async function reportFilters() {
     reporting("dim_ads?select=ad_id,ad_name,page_id,ad_account_id,ad_account_name,campaign_id,campaign_name,adset_id,adset_name,effective_status&order=campaign_name.asc,adset_name.asc,ad_name.asc&limit=5000"),
   ]);
   const accounts = new Map();
-  for (const ad of ads.data || []) {
-    if (ad.ad_account_id) accounts.set(ad.ad_account_id, { ad_account_id: ad.ad_account_id, ad_account_name: ad.ad_account_name || ad.ad_account_id });
-  }
+  for (const ad of ads.data || []) if (ad.ad_account_id) accounts.set(ad.ad_account_id, { ad_account_id: ad.ad_account_id, ad_account_name: ad.ad_account_name || ad.ad_account_id });
   return { ok: true, data: { pages: pages.data || [], ad_accounts: [...accounts.values()], ads: ads.data || [] } };
 }
 
 function reportedContact(row) {
   return row?.attributes?.has_contact === true || String(row?.attributes?.has_contact || "").toLowerCase() === "true";
+}
+
+async function secureHistoricalContacts(customers) {
+  const result = new Map();
+  if (!customers.length) return result;
+
+  if (ready(ENV.legacyBase, ENV.legacyKey)) {
+    const ids = [...new Set(customers.map((row) => String(row.customer_id || "")).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))];
+    if (ids.length) {
+      try {
+        const rows = (await legacy(`v8_customers?select=id,page_id,phone,zalo&id=in.(${enc(ids.join(","))})&limit=500`)).data || [];
+        for (const item of rows) result.set(`${item.page_id}|${item.id}`, { phone: item.phone || null, zalo: item.zalo || null, source: "legacy_secure" });
+      } catch {}
+    }
+  }
+
+  if (ready(ENV.coreBase, ENV.coreKey)) {
+    const senderIds = [...new Set(customers.map((row) => String(row?.attributes?.sender_id || "")).filter(Boolean))];
+    if (senderIds.length) {
+      try {
+        const inList = senderIds.map((id) => `"${id.replaceAll('"', "")}"`).join(",");
+        const rows = (await core(`v9_contacts?select=page_id,customer_id,contact_type,contact_value,normalized_value,captured_at&customer_id=in.(${enc(inList)})&limit=500`)).data || [];
+        for (const item of rows) {
+          const key = `${item.page_id}|sender:${item.customer_id}`;
+          const current = result.get(key) || { source: "core" };
+          current[item.contact_type] = item.normalized_value || item.contact_value;
+          result.set(key, current);
+        }
+      } catch {}
+    }
+  }
+  return result;
 }
 
 async function reportLeads(range, query) {
@@ -261,27 +297,18 @@ async function reportLeads(range, query) {
     + filter("page_id", query.page_id)
     + `&order=last_seen_at.desc&limit=${limit}&offset=${offset}`;
   const customers = (await reporting(path)).data || [];
-  const ids = [...new Set(customers.map((row) => row.customer_id).filter(Boolean))];
-  let contacts = [];
-  if (ready(ENV.coreBase, ENV.coreKey) && ids.length) {
-    try {
-      const inList = ids.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
-      contacts = (await core(`v9_contacts?select=page_id,customer_id,contact_type,contact_value,normalized_value,captured_at&customer_id=in.(${enc(inList)})&limit=500`)).data || [];
-    } catch { contacts = []; }
-  }
-  const contactMap = new Map();
-  for (const item of contacts) {
-    const key = `${item.page_id}|${item.customer_id}`;
-    const current = contactMap.get(key) || {};
-    current[item.contact_type] = item.normalized_value || item.contact_value;
-    contactMap.set(key, current);
-  }
+  const contacts = await secureHistoricalContacts(customers);
   const data = customers.map((row) => {
-    const actual = contactMap.get(`${row.page_id}|${row.customer_id}`) || {};
+    const legacyValue = contacts.get(`${row.page_id}|${row.customer_id}`) || {};
+    const coreValue = contacts.get(`${row.page_id}|sender:${row?.attributes?.sender_id || ""}`) || {};
+    const phone = coreValue.phone || legacyValue.phone || null;
+    const zalo = coreValue.zalo || legacyValue.zalo || null;
     return {
       ...row,
-      ...actual,
-      has_contact: Boolean(actual.phone || actual.zalo || reportedContact(row)),
+      phone,
+      zalo,
+      has_contact: Boolean(phone || zalo || reportedContact(row)),
+      contact_source: coreValue.phone || coreValue.zalo ? "core" : (legacyValue.phone || legacyValue.zalo ? "legacy_secure" : "hash_only"),
     };
   });
   return {
@@ -291,6 +318,7 @@ async function reportLeads(range, query) {
     range,
     pagination: { limit, offset },
     contact_enriched_from_core: ready(ENV.coreBase, ENV.coreKey),
+    contact_enriched_from_legacy_secure_store: ready(ENV.legacyBase, ENV.legacyKey),
   };
 }
 
@@ -378,4 +406,4 @@ export function installV9AdminReportApiV2(app) {
   return { clearCache };
 }
 
-export const __private__ = { group, countRows, reportedContact, enrichPerformanceRow };
+export const __private__ = { group, countRows, reportedContact, enrichPerformanceRow, secureHistoricalContacts };
