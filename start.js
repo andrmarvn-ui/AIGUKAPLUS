@@ -116,6 +116,7 @@ if (reportingReady && reportingRefreshEnabled && process.env.SUPABASE_URL && pro
 }
 const metaInsightsEnabled = String(process.env.AIGUKA_V9_META_INSIGHTS_ENABLED || "true").trim().toLowerCase() !== "false";
 if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  await safeImport("./v9-postgrest-uniform-batch.js");
   startDetached("./v9-meta-ads-insights-worker.js");
   startDetached("./v9-meta-ad-page-resolver-worker.js");
   console.log("[AIGUKA V9 Reporting] Meta Ads Insights and creative Page resolver workers started for mapped Page accounts");
