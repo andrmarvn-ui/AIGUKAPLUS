@@ -8,18 +8,18 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   materialize:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       SUPABASE_URL: https://ezygfpeeqbbirdeazene.supabase.co
       SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6eWdmcGVlcWJiaXJkZWF6ZW5lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2MzQ0OTIsImV4cCI6MjA5ODIxMDQ5Mn0.It59DasF0zAsEPmq3IvHZqm7sxp6lcZJ6rRaaJ7UDtI
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Fetch and validate embedded dashboard
@@ -29,50 +29,54 @@ jobs:
           import fs from 'node:fs';
           import crypto from 'node:crypto';
 
-          const response = await fetch(
-            `${process.env.SUPABASE_URL}/rest/v1/rpc/v8_get_embedded_code_test`,
-            {
-              method: 'POST',
-              headers: {
-                apikey: process.env.SUPABASE_ANON_KEY,
-                authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
-                'content-type': 'application/json',
-                'x-aiguka-railway-test': 'enabled',
-                'x-aiguka-admin-secret': 'AIGUKA_RAILWAY_TEST_MODE',
-              },
-              body: JSON.stringify({ p_code_key: 'v7_dashboard_stable' }),
-            },
-          );
-          const payload = await response.json();
-          if (!response.ok || !payload?.ok || !Array.isArray(payload?.chunks)) {
-            throw new Error(payload?.message || payload?.error || `HTTP_${response.status}`);
+          let lastError;
+          for (let attempt = 1; attempt <= 4; attempt += 1) {
+            try {
+              const response = await fetch(
+                `${process.env.SUPABASE_URL}/rest/v1/rpc/v8_get_embedded_code_test`,
+                {
+                  method: 'POST',
+                  headers: {
+                    apikey: process.env.SUPABASE_ANON_KEY,
+                    authorization: `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+                    'content-type': 'application/json',
+                    'x-aiguka-railway-test': 'enabled',
+                    'x-aiguka-admin-secret': 'AIGUKA_RAILWAY_TEST_MODE',
+                  },
+                  body: JSON.stringify({ p_code_key: 'v7_dashboard_stable' }),
+                  signal: AbortSignal.timeout(120000),
+                },
+              );
+              const payload = await response.json();
+              if (!response.ok || !payload?.ok || !Array.isArray(payload?.chunks)) {
+                throw new Error(payload?.message || payload?.error || `HTTP_${response.status}`);
+              }
+              const source = Buffer.from(payload.chunks.join(''), 'base64');
+              const md5 = crypto.createHash('md5').update(source).digest('hex');
+              if (source.length !== 23115 || md5 !== '971b141fedd159796a7d57a1467aaf69') {
+                throw new Error(`DASHBOARD_INTEGRITY_ERROR bytes=${source.length} md5=${md5}`);
+              }
+              fs.writeFileSync('v7-dashboard-stable.js', source);
+              console.log(`Materialized ${source.length} bytes, md5=${md5}, attempt=${attempt}`);
+              process.exit(0);
+            } catch (error) {
+              lastError = error;
+              console.error(`Attempt ${attempt} failed: ${error.message}`);
+              if (attempt < 4) await new Promise(resolve => setTimeout(resolve, attempt * 5000));
+            }
           }
-          const source = Buffer.from(payload.chunks.join(''), 'base64');
-          const md5 = crypto.createHash('md5').update(source).digest('hex');
-          if (source.length !== 23115 || md5 !== '971b141fedd159796a7d57a1467aaf69') {
-            throw new Error(`DASHBOARD_INTEGRITY_ERROR bytes=${source.length} md5=${md5}`);
-          }
-          fs.writeFileSync('v7-dashboard-stable.js', source);
-          console.log(`Materialized ${source.length} bytes, md5=${md5}`);
+          throw lastError;
           NODE
 
-      - name: Commit through a merged PR
+      - name: Commit exact dashboard to main
         shell: bash
         run: |
           if git diff --quiet -- v7-dashboard-stable.js && git ls-files --error-unmatch v7-dashboard-stable.js >/dev/null 2>&1; then
             echo "Dashboard source is already current."
             exit 0
           fi
-          BRANCH="generated/pre-v21-dashboard-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
           git add v7-dashboard-stable.js
           git commit -m "Materialize stable dashboard before Report V2.1"
-          git push origin "$BRANCH"
-          PR_URL=$(gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "Materialize dashboard ổn định trước Report V2.1" \
-            --body "Đóng gói nguyên bản Dashboard V7.5 từ nguồn nhúng đã xác thực checksum để các route /dashboard, /daily-report và /leads không còn phụ thuộc Supabase lúc Railway khởi động.")
-          gh pr merge "$PR_URL" --merge --admin --delete-branch
+          git push origin HEAD:main
