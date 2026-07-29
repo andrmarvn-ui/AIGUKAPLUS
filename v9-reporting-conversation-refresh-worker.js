@@ -4,7 +4,7 @@ const REPORT_BASE = String(process.env.AIGUKA_V9_REPORTING_URL || SOURCE_BASE).r
 const REPORT_KEY = String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || SOURCE_KEY);
 const INTERVAL_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V9_CONVERSATION_REFRESH_MS || 10 * 60_000));
 const WORKER = "aiguka-v9-reporting-conversation-refresh";
-const VERSION = "1.0.1";
+const VERSION = "1.0.2";
 let cycle = 0;
 let running = false;
 
