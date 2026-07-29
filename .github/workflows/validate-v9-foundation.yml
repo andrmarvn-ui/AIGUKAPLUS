@@ -6,9 +6,10 @@ on:
       - "v9/**"
       - "v9-shadow-worker.js"
       - "v9-ai-shadow-worker.js"
+      - "v9-core-fetch-router.js"
       - "tests/v9-*.test.js"
       - "start.js"
-      - "supabase/migrations/2026072913*.sql"
+      - "supabase/migrations/20260729*.sql"
       - ".github/workflows/validate-v9-foundation.yml"
   push:
     branches: [main]
@@ -16,9 +17,10 @@ on:
       - "v9/**"
       - "v9-shadow-worker.js"
       - "v9-ai-shadow-worker.js"
+      - "v9-core-fetch-router.js"
       - "tests/v9-*.test.js"
       - "start.js"
-      - "supabase/migrations/2026072913*.sql"
+      - "supabase/migrations/20260729*.sql"
 
 jobs:
   validate:
@@ -35,11 +37,19 @@ jobs:
         run: |
           node --check v9-shadow-worker.js
           node --check v9-ai-shadow-worker.js
+          node --check v9-core-fetch-router.js
       - name: Confirm SHADOW startup wiring
         run: |
+          grep -F 'await safeImport("./v9-core-fetch-router.js")' start.js
           grep -F 'startDetached("./v9-shadow-worker.js")' start.js
           grep -F 'startDetached("./v9-ai-shadow-worker.js")' start.js
           grep -F 'mode !== "SHADOW"' v9-shadow-worker.js
           grep -F 'AICAKE_ACTIVE' v9-shadow-worker.js
           grep -F 'should_send: false' v9-ai-shadow-worker.js
+          grep -F 'AIGUKA_V9_CORE_SERVICE_ROLE_KEY' v9-core-fetch-router.js
           ! grep -F 'graph.facebook.com' v9-ai-shadow-worker.js
+      - name: Confirm clean Core constraints
+        run: |
+          test "$(grep -c '^create table public.v9_' supabase/migrations/20260729151500_v9_core_clean_foundation.sql)" -eq 17
+          test "$(grep -c '^create or replace function public.v9_' supabase/migrations/20260729151500_v9_core_clean_foundation.sql)" -eq 1
+          ! grep -Eiq '^create trigger|pg_cron|net.http|http_post' supabase/migrations/20260729151500_v9_core_clean_foundation.sql

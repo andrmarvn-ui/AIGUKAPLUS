@@ -65,6 +65,9 @@ await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 await safeImport("./server-fixed.js", true);
 
+// V8 continues reading the legacy database. Only v9_* REST/RPC calls are routed to the isolated Core project.
+await safeImport("./v9-core-fetch-router.js");
+
 startDetached("./webhook-inbox-worker.js");
 startDetached("./meta-recovery-loader.js");
 startDetached("./ai-dispatch-worker.js");
