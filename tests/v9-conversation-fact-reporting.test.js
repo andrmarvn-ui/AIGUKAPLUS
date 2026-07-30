@@ -7,7 +7,7 @@ const filters = fs.readFileSync("supabase/migrations/20260730210000_v9_report_fi
 const worker = fs.readFileSync("v9-reporting-conversation-refresh-worker.js", "utf8");
 const start = fs.readFileSync("start.js", "utf8");
 
- test("Lead RPC reads only the materialized conversation fact at request time", () => {
+test("Lead RPC reads only the materialized conversation fact at request time", () => {
   assert.match(migration, /create or replace function public\.v8_report_leads_test/i);
   assert.match(migration, /from public\.v8_report_v21_conversation_fact r/i);
   assert.match(migration, /'source','v9_conversation_fact'/i);
@@ -29,7 +29,7 @@ test("conversation refresh migration remains idempotent and service-role only", 
 });
 
 test("conversation worker directly upserts a bounded window and never depends on RPC schema cache", () => {
-  assert.match(worker, /const VERSION = "1\.2\.0"/);
+  assert.match(worker, /const VERSION = "1\.2\.1"/);
   assert.match(worker, /cycleNo === 1 \? 3 \* 86_400_000 : 30 \* 60_000/);
   assert.match(worker, /v8_report_conversation_attribution\?select=/);
   assert.match(worker, /v8_report_v21_conversation_fact\?on_conflict=source_channel,conversation_id/);
@@ -40,11 +40,13 @@ test("conversation worker directly upserts a bounded window and never depends on
   assert.match(start, /startDetached\("\.\/v9-reporting-conversation-refresh-worker\.js"\)/);
 });
 
-test("shadow benchmark observes AICAKE via Pancake but keeps AIGUKA transport locked", () => {
+test("shadow benchmark distinguishes verified AICAKE from sale/admin replies", () => {
   assert.match(worker, /fetchPancakeConversationDetails/);
   assert.match(worker, /v9_shadow_benchmark_runs/);
   assert.match(worker, /v9_shadow_benchmark_conversations/);
-  assert.match(worker, /aicake_reply/);
+  assert.match(worker, /aicake_source_verified/);
+  assert.match(worker, /observed_actor_app_id/);
+  assert.match(worker, /verified_aicake_replies/);
   assert.match(worker, /transport_locked: true/);
   assert.match(worker, /BENCHMARK_INTERVAL_MS/);
   assert.doesNotMatch(worker, /sendMessage|graph\.facebook\.com/);
