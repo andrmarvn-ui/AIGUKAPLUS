@@ -7,7 +7,7 @@ const readinessMigration = fs.readFileSync("supabase/migrations/20260730213000_v
 const relockMigration = fs.readFileSync("supabase/migrations/20260730215000_v9_conversation_rpc_relock.sql", "utf8");
 
 test("conversation worker directly syncs the materialized fact without RPC schema cache", () => {
-  assert.match(worker, /const VERSION = "1\.1\.0"/);
+  assert.match(worker, /const VERSION = "1\.2\.0"/);
   assert.match(worker, /v8_report_conversation_attribution\?select=/);
   assert.match(worker, /v8_report_v21_conversation_fact\?on_conflict=source_channel,conversation_id/);
   assert.match(worker, /transport: "direct_postgrest_table_upsert"/);
@@ -33,4 +33,12 @@ test("unused refresh RPC is relocked after direct worker cutover", () => {
   assert.match(relockMigration, /revoke execute on function public\.v9_refresh_conversation_fact\(timestamptz\) from anon,authenticated/);
   assert.match(relockMigration, /grant execute on function public\.v9_refresh_conversation_fact\(timestamptz\) to service_role/);
   assert.match(relockMigration, /pg_notify\('pgrst','reload schema'\)/);
+});
+
+test("benchmark collection is shadow-only and bounded to the active run", () => {
+  assert.match(worker, /v9_shadow_benchmark_runs\?select=\*&status=eq\.active/);
+  assert.match(worker, /fetchPancakeConversationDetails/);
+  assert.match(worker, /transport_locked: true/);
+  assert.match(worker, /BENCHMARK_INTERVAL_MS/);
+  assert.doesNotMatch(worker, /sendMessage|graph\.facebook\.com/);
 });
