@@ -7,7 +7,7 @@ const filters = fs.readFileSync("supabase/migrations/20260730210000_v9_report_fi
 const worker = fs.readFileSync("v9-reporting-conversation-refresh-worker.js", "utf8");
 const start = fs.readFileSync("start.js", "utf8");
 
-test("Lead RPC reads only the materialized conversation fact at request time", () => {
+ test("Lead RPC reads only the materialized conversation fact at request time", () => {
   assert.match(migration, /create or replace function public\.v8_report_leads_test/i);
   assert.match(migration, /from public\.v8_report_v21_conversation_fact r/i);
   assert.match(migration, /'source','v9_conversation_fact'/i);
@@ -20,7 +20,7 @@ test("Lead RPC reads only the materialized conversation fact at request time", (
   assert.doesNotMatch(rpcSql, /v8_messages_raw/i);
 });
 
-test("conversation refresh is incremental, service-role only and idempotent", () => {
+test("conversation refresh migration remains idempotent and service-role only", () => {
   assert.match(migration, /create or replace function public\.v9_refresh_conversation_fact/i);
   assert.match(migration, /on conflict\(source_channel,conversation_id\) do update/i);
   assert.match(migration, /greatest\([\s\S]*r\.updated_at[\s\S]*r\.conversation_started_at/i);
@@ -28,12 +28,26 @@ test("conversation refresh is incremental, service-role only and idempotent", ()
   assert.match(migration, /grant execute on function public\.v9_refresh_conversation_fact[^;]+to service_role/i);
 });
 
-test("conversation worker uses a bounded window and never logs contact values", () => {
+test("conversation worker directly upserts a bounded window and never depends on RPC schema cache", () => {
+  assert.match(worker, /const VERSION = "1\.2\.0"/);
   assert.match(worker, /cycleNo === 1 \? 3 \* 86_400_000 : 30 \* 60_000/);
-  assert.match(worker, /rpc\/v9_refresh_conversation_fact/);
+  assert.match(worker, /v8_report_conversation_attribution\?select=/);
+  assert.match(worker, /v8_report_v21_conversation_fact\?on_conflict=source_channel,conversation_id/);
+  assert.match(worker, /transport: "direct_postgrest_table_upsert"/);
+  assert.doesNotMatch(worker, /rpc\/v9_refresh_conversation_fact/);
   assert.match(worker, /raw_contact_logging: false/);
-  assert.doesNotMatch(worker, /contact_value|normalized_value|\.phone|\.zalo/);
+  assert.doesNotMatch(worker, /contact_value|normalized_value/);
   assert.match(start, /startDetached\("\.\/v9-reporting-conversation-refresh-worker\.js"\)/);
+});
+
+test("shadow benchmark observes AICAKE via Pancake but keeps AIGUKA transport locked", () => {
+  assert.match(worker, /fetchPancakeConversationDetails/);
+  assert.match(worker, /v9_shadow_benchmark_runs/);
+  assert.match(worker, /v9_shadow_benchmark_conversations/);
+  assert.match(worker, /aicake_reply/);
+  assert.match(worker, /transport_locked: true/);
+  assert.match(worker, /BENCHMARK_INTERVAL_MS/);
+  assert.doesNotMatch(worker, /sendMessage|graph\.facebook\.com/);
 });
 
 test("stable filters read V9 dimensions and exclude unresolved ads", () => {
