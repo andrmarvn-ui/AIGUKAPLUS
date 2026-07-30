@@ -62,11 +62,11 @@ app.get("/v8-learning",(_req,res)=>res.redirect(302,"/learning-reviewed"));
 app.get("/context-ai",(_req,res)=>res.redirect(302,"/ai-contexts"));
 app.get("/control-center",(_req,res)=>res.redirect(302,"/bot-control"));
 app.get("/v8-control-center",(_req,res)=>res.redirect(302,"/bot-control"));
-app.get("/leads",(_req,res)=>res.redirect(302,"/v9-admin#leads"));
-app.get("/customers",(_req,res)=>res.redirect(302,"/v9-admin#leads"));
-app.get("/daily-report",(_req,res)=>res.redirect(302,"/v9-admin#daily"));
-app.get("/reports",(_req,res)=>res.redirect(302,"/v9-admin#daily"));
-app.get("/dashboard-meta-month",(_req,res)=>res.redirect(302,"/v9-admin#daily"));
+app.get("/leads",(_req,res)=>res.redirect(302,"/dashboard?view=leads"));
+app.get("/customers",(_req,res)=>res.redirect(302,"/dashboard?view=leads"));
+app.get("/daily-report",(_req,res)=>res.redirect(302,"/dashboard?view=daily"));
+app.get("/reports",(_req,res)=>res.redirect(302,"/dashboard?view=daily"));
+app.get("/dashboard-meta-month",(_req,res)=>res.redirect(302,"/dashboard?view=daily"));
 app.get("/v7-dashboard",(_req,res)=>res.redirect(302,"/dashboard?view=dashboard"));
 app.get("/dashboard-v7",(_req,res)=>res.redirect(302,"/dashboard?view=dashboard"));
 pageRoutes.set("/v8-dashboard","aiguka-v8-admin");
@@ -88,7 +88,7 @@ if (!source.includes("patchDashboardUi(html)")) source = source.replace('if(slug
 // The visible V7.5 dashboard uses the active V8 report API. Do not health-check the
 // Basic-auth protected V9 admin endpoint, which produced a false red disconnected badge.
 source = source.replace('const url = `http://127.0.0.1:${PORT}/api/v9/admin/overview`;', 'const url = `${SUPABASE_URL}/functions/v1/aiguka-v8-report-api?action=filters`;');
-for (const version of ["1.0.3-test-no-browser-key","1.0.4-test-rpc-data","1.0.5-learning-tags","1.0.6-control-center-fix","1.0.7-all-ui-green","1.1.0-v7-dashboard-bridge","1.1.1-v7-import-pending","1.2.0-v7-stable-dashboard","1.2.1-reviewed-learning-restored","1.2.2-reviewed-learning-startup-fix","1.3.0-facebook-login","1.3.1-facebook-callback-fixed","1.3.2-v7-all-account-filter-fixed","1.3.3-card-and-column-filters","1.3.4-practical-lead-filters","1.3.5-filter-card-fixed","1.4.0-learning-bot-control-restored","1.4.1-learning-data-complete","1.5.0-ai-context-manager","1.6.0-drive-context-lead-stable","1.6.1-lead-v4-drive-recursive","1.6.2-context-restore-drive-sync","1.6.3-all-actions-verified","1.6.4-aiguka-context-center","1.6.5-drive-v4-meta-messaging","1.6.6-valid-meta-scopes","1.6.7-messenger-carousel","1.7.0-unified-mapping-center","1.7.2-original-dashboard-hard-route","1.7.4-pre-v21-report-ui-lazy","1.7.5-supabase-pre-v21-report-ui","2.0.0-v9-admin-report-priority","2.0.2-v9-vat-benchmark"]) source = source.replaceAll(version,"2.0.3-live-dashboard-vat-cards");
+for (const version of ["1.0.3-test-no-browser-key","1.0.4-test-rpc-data","1.0.5-learning-tags","1.0.6-control-center-fix","1.0.7-all-ui-green","1.1.0-v7-dashboard-bridge","1.1.1-v7-import-pending","1.2.0-v7-stable-dashboard","1.2.1-reviewed-learning-restored","1.2.2-reviewed-learning-startup-fix","1.3.0-facebook-login","1.3.1-facebook-callback-fixed","1.3.2-v7-all-account-filter-fixed","1.3.3-card-and-column-filters","1.3.4-practical-lead-filters","1.3.5-filter-card-fixed","1.4.0-learning-bot-control-restored","1.4.1-learning-data-complete","1.5.0-ai-context-manager","1.6.0-drive-context-lead-stable","1.6.1-lead-v4-drive-recursive","1.6.2-context-restore-drive-sync","1.6.3-all-actions-verified","1.6.4-aiguka-context-center","1.6.5-drive-v4-meta-messaging","1.6.6-valid-meta-scopes","1.6.7-messenger-carousel","1.7.0-unified-mapping-center","1.7.2-original-dashboard-hard-route","1.7.4-pre-v21-report-ui-lazy","1.7.5-supabase-pre-v21-report-ui","2.0.0-v9-admin-report-priority","2.0.2-v9-vat-benchmark","2.0.3-live-dashboard-vat-cards"]) source = source.replaceAll(version,"2.0.4-v9-admin-fail-soft");
 
 fs.writeFileSync(file,source);
-console.log("[AIGUKA] Live V7.5 report cards use VAT 5% totals; data health checks the active report API");
+console.log("[AIGUKA] Live reports stay on Dashboard; missing V9 admin secret redirects UI safely while APIs remain locked");
