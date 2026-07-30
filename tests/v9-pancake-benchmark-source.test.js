@@ -14,6 +14,19 @@ test("Botcake is normalized as the AICAKE source", () => {
   assert.equal(__private__.sourceSystem(message, "outbound"), "aicake");
 });
 
+test("known Botcake app id verifies AICAKE even when actor name is absent", () => {
+  const message = {
+    message: "Dạ em gửi anh/chị mẫu phù hợp ạ",
+    app_id: 556376998159104,
+    admin_id: "104810069068200",
+    created_at: "2026-07-30T08:00:00Z",
+    is_admin: true,
+  };
+  assert.equal(__private__.actorAppId(message), "556376998159104");
+  assert.equal(__private__.AICAKE_APP_IDS.has("556376998159104"), true);
+  assert.equal(__private__.sourceSystem(message, "outbound"), "aicake");
+});
+
 test("Pancake conversation snippet creates a timestamped outbound summary", () => {
   const message = __private__.conversationSummaryMessage({
     id: "104810069068200_123",
@@ -37,6 +50,7 @@ test("Pancake conversation snippet creates a timestamped outbound summary", () =
   });
   assert.equal(normalized.direction, "outbound");
   assert.equal(normalized.source_system, "aicake");
+  assert.equal(normalized.actor_app_id, "556376998159104");
   assert.equal(normalized.is_automatic, true);
   assert.match(normalized.message_text, /một số mẫu phù hợp/);
 });

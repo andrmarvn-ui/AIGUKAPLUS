@@ -7,7 +7,7 @@ const REPORT_KEY = String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || SO
 const INTERVAL_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V9_CONVERSATION_REFRESH_MS || 10 * 60_000));
 const BENCHMARK_INTERVAL_MS = Math.max(20_000, Number(process.env.AIGUKA_V9_BENCHMARK_REFRESH_MS || 30_000));
 const WORKER = "aiguka-v9-reporting-conversation-refresh";
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 20_000;
 let cycle = 0;
@@ -178,6 +178,14 @@ function chooseObservedReply(messages, firstCustomerAt) {
     || null;
 }
 
+function safeAttempts(attempts = []) {
+  return attempts.slice(0, 8).map((item) => ({
+    status: item.status,
+    count: Number(item.count || 0),
+    lookup_page: item.lookup_page || null,
+  }));
+}
+
 async function syncShadowBenchmark() {
   if (benchmarkRunning || !ready()) return latestBenchmark;
   benchmarkRunning = true;
@@ -195,8 +203,9 @@ async function syncShadowBenchmark() {
       { timeout: 10_000 },
     );
     let captured = 0;
+    let verifiedAicake = 0;
     for (const row of rows || []) {
-      if (row.aicake_reply || row.status === "complete") continue;
+      if (row.comparison?.source_verified_v2 === true) continue;
       const details = await fetchPancakeConversationDetails({
         conversationId: row.sender_id,
         pageId: row.page_id,
@@ -204,8 +213,27 @@ async function syncShadowBenchmark() {
         fallbackTime: row.first_customer_at,
       });
       const observed = chooseObservedReply(details.messages, row.first_customer_at);
-      if (!observed) continue;
+      if (!observed) {
+        await request(SOURCE_BASE, SOURCE_KEY, `v9_shadow_benchmark_conversations?id=eq.${enc(row.id)}`, {
+          method: "PATCH",
+          body: {
+            comparison: {
+              ...(row.comparison || {}),
+              last_pancake_lookup_at: nowIso(),
+              pancake_lookup_ok: details.ok === true,
+              pancake_lookup_attempts: safeAttempts(details.attempts),
+            },
+            updated_at: nowIso(),
+          },
+          prefer: "return=minimal",
+          timeout: 10_000,
+        });
+        continue;
+      }
       const observedAt = observed.sent_at || observed.created_at || nowIso();
+      const source = observed.source_system || observed.actor_type || "pancake";
+      const isVerifiedAicake = source === "aicake";
+      if (isVerifiedAicake) verifiedAicake += 1;
       const comparison = {
         ...(row.comparison || {}),
         aicake_requests_contact: requestsContact(observed.message_text),
@@ -214,13 +242,18 @@ async function syncShadowBenchmark() {
           ? null
           : Boolean(row.aiguka_should_request_contact) === requestsContact(observed.message_text),
         observed_via: "pancake_live",
+        observed_actor_name: observed.actor_name || null,
+        observed_actor_app_id: observed.actor_app_id || null,
+        aicake_source_verified: isVerifiedAicake,
+        source_verified_v2: true,
+        pancake_lookup_attempts: safeAttempts(details.attempts),
       };
       await request(SOURCE_BASE, SOURCE_KEY, `v9_shadow_benchmark_conversations?id=eq.${enc(row.id)}`, {
         method: "PATCH",
         body: {
           aicake_reply: String(observed.message_text || "").slice(0, 6000),
           aicake_reply_at: observedAt,
-          aicake_source: observed.source_system || observed.actor_type || "pancake",
+          aicake_source: source,
           aicake_is_automatic: observed.is_automatic === true,
           comparison,
           status: row.aiguka_decision_id || row.aiguka_status ? "complete" : "aicake_observed",
@@ -234,11 +267,12 @@ async function syncShadowBenchmark() {
     const finalRows = await request(
       SOURCE_BASE,
       SOURCE_KEY,
-      `v9_shadow_benchmark_conversations?select=id,status&run_id=eq.${enc(run.id)}&order=sequence_no.asc&limit=${Math.max(20, Number(run.target_conversations || 12))}`,
+      `v9_shadow_benchmark_conversations?select=id,status,aicake_source,comparison&run_id=eq.${enc(run.id)}&order=sequence_no.asc&limit=${Math.max(20, Number(run.target_conversations || 12))}`,
       { timeout: 10_000 },
     );
     const observedCount = finalRows.length;
     const completedCount = finalRows.filter((item) => item.status === "complete").length;
+    const verifiedCount = finalRows.filter((item) => item.comparison?.aicake_source_verified === true).length;
     const done = observedCount >= Number(run.target_conversations || 12) && completedCount >= Number(run.target_conversations || 12);
     await request(SOURCE_BASE, SOURCE_KEY, `v9_shadow_benchmark_runs?id=eq.${enc(run.id)}`, {
       method: "PATCH",
@@ -247,6 +281,11 @@ async function syncShadowBenchmark() {
         completed_conversations: completedCount,
         status: done ? "completed" : "active",
         completed_at: done ? (run.completed_at || nowIso()) : null,
+        notes: {
+          ...(run.notes || {}),
+          verified_aicake_replies: verifiedCount,
+          actual_customer_facing_replies: completedCount,
+        },
         updated_at: nowIso(),
       },
       prefer: "return=minimal",
@@ -258,7 +297,9 @@ async function syncShadowBenchmark() {
       target: Number(run.target_conversations || 12),
       observed: observedCount,
       completed: completedCount,
-      aicake_replies_captured_last_tick: captured,
+      verified_aicake: verifiedCount,
+      replies_reclassified_last_tick: captured,
+      verified_aicake_last_tick: verifiedAicake,
       transport_locked: true,
     };
     return latestBenchmark;
@@ -320,5 +361,6 @@ export const __private__ = {
   upsertFacts,
   requestsContact,
   chooseObservedReply,
+  safeAttempts,
   syncShadowBenchmark,
 };

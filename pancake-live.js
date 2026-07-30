@@ -1,5 +1,11 @@
 const PAGE_ID = process.env.PANCAKE_PAGE_ID || process.env.META_PAGE_ID || "";
 const PAGE_TOKEN = process.env.PANCAKE_PAGE_ACCESS_TOKEN || "";
+const AICAKE_APP_IDS = new Set(
+  String(process.env.PANCAKE_AICAKE_APP_IDS || "556376998159104")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 const lookupCache = new Map();
 
 function cleanHtml(value = "") {
@@ -9,6 +15,7 @@ function messageText(msg = {}) { return cleanHtml(msg.message || msg.text || msg
 function messageTime(msg = {}, fallback = null) { return msg.created_at || msg.inserted_at || msg.updated_at || msg.sent_at || msg.timestamp || fallback || new Date().toISOString(); }
 function actorName(msg = {}) { return cleanHtml(msg.from?.name || msg.user?.name || msg.sender?.name || msg.admin_name || msg.actor_name || msg.created_by_name || ""); }
 function actorId(msg = {}) { return String(msg.from?.id || msg.from_id || msg.sender_id || msg.user_id || msg.uid || msg.admin_id || ""); }
+function actorAppId(msg = {}) { return String(msg.app_id || msg.application_id || msg.bot_id || msg.from?.app_id || msg.last_sent_by?.app_id || ""); }
 function inferDirection(msg = {}, pageId = "", senderId = "") {
   const fromId = actorId(msg); const type = String(msg.from?.type || msg.sender_type || msg.type || msg.role || "").toLowerCase();
   if (msg.is_from_page === true || msg.from_page === true || msg.is_page === true || msg.is_admin === true || msg.admin_id || msg.user?.is_admin || msg.is_echo === true) return "outbound";
@@ -18,8 +25,8 @@ function inferDirection(msg = {}, pageId = "", senderId = "") {
   return "unknown";
 }
 function sourceSystem(msg = {}, direction = "unknown") {
-  const raw = JSON.stringify(msg || {}).toLowerCase(); const name = actorName(msg).toLowerCase();
-  if (/aicake|ai cake|botcake|bot cake/.test(raw + " " + name)) return "aicake";
+  const raw = JSON.stringify(msg || {}).toLowerCase(); const name = actorName(msg).toLowerCase(); const appId = actorAppId(msg);
+  if ((appId && AICAKE_APP_IDS.has(appId)) || /aicake|ai cake|botcake|bot cake/.test(raw + " " + name)) return "aicake";
   if (/automation|automated|auto_reply|auto reply/.test(raw)) return "page_automation";
   if (/bot/.test(raw + " " + name)) return "bot";
   if (/pancake|pages\.fm/.test(raw + " " + name)) return "pancake";
@@ -71,9 +78,9 @@ function conversationSummaryMessage(conv = {}) {
   };
 }
 function normalizeMessage(msg, { pageId, senderId, fallbackTime }) {
-  const direction = inferDirection(msg, pageId, senderId); const source = sourceSystem(msg, direction); const name = actorName(msg); const text = messageText(msg); const sentAt = messageTime(msg, fallbackTime);
+  const direction = inferDirection(msg, pageId, senderId); const source = sourceSystem(msg, direction); const name = actorName(msg); const text = messageText(msg); const sentAt = messageTime(msg, fallbackTime); const appId = actorAppId(msg);
   const id = String(msg.id || msg.mid || msg.message_id || msg.comment_id || `${sentAt}|${actorId(msg)}|${text.slice(0, 60)}`);
-  return { id: `pancake:${id}`, message_id: id, direction, role: direction === "inbound" ? "customer" : "outbound", actor_type: direction === "inbound" ? "customer" : source, actor_name: name || (direction === "inbound" ? "Khách hàng" : "Page/nhân viên/hệ thống"), actor_app_id: String(msg.app_id || msg.application_id || msg.bot_id || ""), source_system: source, is_automatic: ["aicake", "page_automation", "bot"].includes(source), message_text: text, text, attachments: attachments(msg), sent_at: sentAt, created_at: sentAt, raw_payload: msg, source_detail: { source: msg.source_detail || "pancake_live" } };
+  return { id: `pancake:${id}`, message_id: id, direction, role: direction === "inbound" ? "customer" : "outbound", actor_type: direction === "inbound" ? "customer" : source, actor_name: name || (direction === "inbound" ? "Khách hàng" : "Page/nhân viên/hệ thống"), actor_app_id: appId, source_system: source, is_automatic: ["aicake", "page_automation", "bot"].includes(source), message_text: text, text, attachments: attachments(msg), sent_at: sentAt, created_at: sentAt, raw_payload: msg, source_detail: { source: msg.source_detail || "pancake_live" } };
 }
 function mergeUnique(messages = []) {
   const map = new Map();
@@ -142,4 +149,4 @@ export function mergeConversationMessages(primary = [], secondary = []) {
   return mergeUnique([...normalizedPrimary, ...(secondary || [])]);
 }
 
-export const __private__ = { sourceSystem, inferDirection, conversationSummaryMessage, normalizeMessage, conversationMatches };
+export const __private__ = { sourceSystem, inferDirection, actorAppId, conversationSummaryMessage, normalizeMessage, conversationMatches, AICAKE_APP_IDS };
