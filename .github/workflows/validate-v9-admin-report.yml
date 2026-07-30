@@ -5,12 +5,14 @@ on:
     paths:
       - "v9-admin-auth.js"
       - "v9-admin-report-api-v2.js"
+      - "v9-report-benchmark-api.js"
       - "v9-admin-ui.js"
       - "v9-admin-ui-v2.js"
       - "v9-reporting-legacy-refresh-worker-v2.js"
       - "v9-reporting-conversation-refresh-worker.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
+      - "pancake-live.js"
       - "start.js"
       - "supabase/migrations/20260730203000_v9_report_compat_source_view.sql"
       - "supabase/migrations/20260730210000_v9_report_filters_compat.sql"
@@ -18,6 +20,9 @@ on:
       - "supabase/migrations/20260730212000_v9_conversation_fact_ownership_fix.sql"
       - "supabase/migrations/20260730213000_v9_conversation_readiness_and_schema_reload.sql"
       - "supabase/migrations/20260730214000_v9_conversation_rpc_exposure_guard.sql"
+      - "supabase/migrations/20260730215000_v9_conversation_rpc_relock.sql"
+      - "supabase/migrations/20260730222000_v9_meta_vat_5_and_summary_metrics.sql"
+      - "supabase/migrations/20260730222500_v9_shadow_benchmark_12_conversations.sql"
       - "tests/v9-admin-report-priority.test.js"
       - "tests/v9-reporting-live-refresh.test.js"
       - "tests/v9-report-compat-rpcs.test.js"
@@ -30,12 +35,14 @@ on:
     paths:
       - "v9-admin-auth.js"
       - "v9-admin-report-api-v2.js"
+      - "v9-report-benchmark-api.js"
       - "v9-admin-ui.js"
       - "v9-admin-ui-v2.js"
       - "v9-reporting-legacy-refresh-worker-v2.js"
       - "v9-reporting-conversation-refresh-worker.js"
       - "v9/core/admin-report-utils.js"
       - "patch-server.js"
+      - "pancake-live.js"
       - "start.js"
       - "supabase/migrations/20260730203000_v9_report_compat_source_view.sql"
       - "supabase/migrations/20260730210000_v9_report_filters_compat.sql"
@@ -43,6 +50,9 @@ on:
       - "supabase/migrations/20260730212000_v9_conversation_fact_ownership_fix.sql"
       - "supabase/migrations/20260730213000_v9_conversation_readiness_and_schema_reload.sql"
       - "supabase/migrations/20260730214000_v9_conversation_rpc_exposure_guard.sql"
+      - "supabase/migrations/20260730215000_v9_conversation_rpc_relock.sql"
+      - "supabase/migrations/20260730222000_v9_meta_vat_5_and_summary_metrics.sql"
+      - "supabase/migrations/20260730222500_v9_shadow_benchmark_12_conversations.sql"
       - "tests/v9-admin-report-priority.test.js"
       - "tests/v9-reporting-live-refresh.test.js"
       - "tests/v9-report-compat-rpcs.test.js"
@@ -64,6 +74,7 @@ jobs:
         run: |
           node --check v9-admin-auth.js
           node --check v9-admin-report-api-v2.js
+          node --check v9-report-benchmark-api.js
           node --check v9-admin-ui.js
           node --check v9-admin-ui-v2.js
           node --check v9-reporting-legacy-refresh-worker-v2.js
@@ -77,6 +88,7 @@ jobs:
         run: |
           grep -F 'installV9AdminAuth(app);' patch-server.js
           grep -F 'installV9AdminReportApiV2(app);' patch-server.js
+          grep -F 'installV9ReportBenchmarkApi(app);' patch-server.js
           grep -F 'installV9AdminUiV2(app);' patch-server.js
           grep -F 'AIGUKA_V9_ADMIN_SECRET' v9-admin-auth.js
           grep -F 'timingSafeEqual' v9-admin-auth.js
@@ -92,6 +104,19 @@ jobs:
           grep -F 'reportedContact' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test|v8_messages_raw|v8_meta_events' v9-admin-report-api-v2.js
           ! grep -E 'v8_report_v21|v8_report_daily_test|v8_report_ads_test|v8_report_leads_test' v9-admin-ui.js
+      - name: Confirm VAT and benchmark requirements
+        run: |
+          grep -F 'vat_rate: 5' v9-report-benchmark-api.js
+          grep -F 'spend_with_tax' v9-report-benchmark-api.js
+          grep -F 'contact_rate' v9-report-benchmark-api.js
+          grep -F 'Tổng chi tiêu có VAT' v9-admin-ui-v2.js
+          grep -F 'Tỷ lệ ra SĐT/Zalo' v9-admin-ui-v2.js
+          grep -F 'v9_shadow_benchmark_runs' v9-reporting-conversation-refresh-worker.js
+          grep -F 'fetchPancakeConversationDetails' v9-reporting-conversation-refresh-worker.js
+          grep -F 'transport_locked: true' v9-reporting-conversation-refresh-worker.js
+          ! grep -E 'sendMessage|graph.facebook.com' v9-reporting-conversation-refresh-worker.js
+          grep -F "tax_rate=0.05" supabase/migrations/20260730222000_v9_meta_vat_5_and_summary_metrics.sql
+          grep -F "target_conversations,baseline_conversations" supabase/migrations/20260730222500_v9_shadow_benchmark_12_conversations.sql
       - name: Confirm temporary host and incremental fact refresh safety
         run: |
           grep -F 'temporaryReportingHost' start.js
@@ -99,7 +124,7 @@ jobs:
           grep -F 'startDetached("./v9-reporting-conversation-refresh-worker.js")' start.js
           ! grep -F 'startDetached("./v9-reporting-legacy-refresh-worker.js")' start.js
           grep -F 'const VERSION = "1.2.0"' v9-reporting-legacy-refresh-worker-v2.js
-          grep -F 'const VERSION = "1.0.2"' v9-reporting-conversation-refresh-worker.js
+          grep -F 'const VERSION = "1.2.0"' v9-reporting-conversation-refresh-worker.js
           grep -F 'rpc/v8_report_v21_discover_dirty' v9-reporting-legacy-refresh-worker-v2.js
           grep -F 'rpc/v8_report_v21_process_dirty' v9-reporting-legacy-refresh-worker-v2.js
           grep -F 'v8_report_v21_ad_day_fact?select=' v9-reporting-legacy-refresh-worker-v2.js
@@ -107,9 +132,12 @@ jobs:
           grep -F 'fact_daily_ad_performance' v9-reporting-legacy-refresh-worker-v2.js
           grep -F 'contact_hash' v9-reporting-legacy-refresh-worker-v2.js
           ! grep -E 'graph.facebook.com|META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value' v9-reporting-legacy-refresh-worker-v2.js
-          grep -F 'rpc/v9_refresh_conversation_fact' v9-reporting-conversation-refresh-worker.js
+          grep -F 'v8_report_conversation_attribution?select=' v9-reporting-conversation-refresh-worker.js
+          grep -F 'v8_report_v21_conversation_fact?on_conflict=source_channel,conversation_id' v9-reporting-conversation-refresh-worker.js
+          grep -F 'transport: "direct_postgrest_table_upsert"' v9-reporting-conversation-refresh-worker.js
           grep -F 'raw_contact_logging: false' v9-reporting-conversation-refresh-worker.js
-          ! grep -E 'graph.facebook.com|META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value|\.phone|\.zalo' v9-reporting-conversation-refresh-worker.js
+          ! grep -F 'rpc/v9_refresh_conversation_fact' v9-reporting-conversation-refresh-worker.js
+          ! grep -E 'META_ACCESS_TOKEN|sendMessage|contact_value|normalized_value' v9-reporting-conversation-refresh-worker.js
       - name: Confirm stable dashboard RPCs use only V9 Reporting facts
         run: |
           grep -F 'create or replace view public.v9_report_compat_performance' supabase/migrations/20260730203000_v9_report_compat_source_view.sql
@@ -125,9 +153,8 @@ jobs:
           ! grep -E 'v8_meta_page_registry|v8_meta_ad_account_registry|ad_mappings' supabase/migrations/20260730210000_v9_report_filters_compat.sql
           grep -F 'from public.v8_report_v21_conversation_fact r' supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql
           grep -F "'source','v9_conversation_fact'" supabase/migrations/20260730211000_v9_conversation_fact_refresh_and_lead_rpc.sql
-          grep -F 'SERVICE_ROLE_REQUIRED' supabase/migrations/20260730214000_v9_conversation_rpc_exposure_guard.sql
-          grep -F 'to anon,authenticated,service_role' supabase/migrations/20260730214000_v9_conversation_rpc_exposure_guard.sql
-          grep -F "pg_notify('pgrst','reload schema')" supabase/migrations/20260730214000_v9_conversation_rpc_exposure_guard.sql
+          grep -F 'revoke execute on function public.v9_refresh_conversation_fact(timestamptz) from anon,authenticated' supabase/migrations/20260730215000_v9_conversation_rpc_relock.sql
+          grep -F 'grant execute on function public.v9_refresh_conversation_fact(timestamptz) to service_role' supabase/migrations/20260730215000_v9_conversation_rpc_relock.sql
       - name: Confirm migration safety controls
         run: |
           grep -F '["OFF", "SUPPORT", "SHADOW", "CANARY"]' v9/core/admin-report-utils.js

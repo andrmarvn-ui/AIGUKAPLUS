@@ -9,6 +9,7 @@ import { __private__ as uiV2Private } from "../v9-admin-ui-v2.js";
 const ui = fs.readFileSync(new URL("../v9-admin-ui.js", import.meta.url), "utf8");
 const patch = fs.readFileSync(new URL("../patch-server.js", import.meta.url), "utf8");
 const auth = fs.readFileSync(new URL("../v9-admin-auth.js", import.meta.url), "utf8");
+const benchmarkApi = fs.readFileSync(new URL("../v9-report-benchmark-api.js", import.meta.url), "utf8");
 
 test("report range defaults to seven days and rejects oversized scans", () => {
   const range = parseReportRange({}, new Date("2026-07-29T12:00:00Z"));
@@ -81,12 +82,24 @@ test("UI v2 reports Reporting readiness independently from Core", () => {
   assert.match(script, /r\.temporary_host/);
 });
 
+test("UI v2 exposes VAT 5 percent and the 12-conversation shadow benchmark", () => {
+  const script = uiV2Private.VAT_BENCHMARK_SCRIPT.replace(/^<script[^>]*>|<\/script>$/g, "");
+  assert.doesNotThrow(() => new vm.Script(script));
+  assert.match(script, /\/api\/v9\/report\/summary-vat/);
+  assert.match(script, /Tổng chi tiêu có VAT/);
+  assert.match(script, /Tỷ lệ ra SĐT\/Zalo/);
+  assert.match(script, /\/api\/v9\/benchmark\/current/);
+  assert.match(script, /Bắt đầu 14:16 · ban đầu 0/);
+  assert.match(benchmarkApi, /vat_rate: 5/);
+  assert.match(benchmarkApi, /v9_shadow_benchmark_conversations/);
+});
+
 test("V9 admin secret is required and middleware is installed first", () => {
   assert.match(auth, /AIGUKA_V9_ADMIN_SECRET/);
   assert.match(auth, /timingSafeEqual/);
   assert.match(auth, /V9_ADMIN_SECRET_NOT_CONFIGURED/);
   assert.match(auth, /www-authenticate/);
-  assert.match(patch, /installV9AdminAuth\(app\);\ninstallV9AdminReportApiV2\(app\);\ninstallV9AdminUiV2\(app\);\ninstallReportRoutes/);
+  assert.match(patch, /installV9AdminAuth\(app\);\ninstallV9AdminReportApiV2\(app\);\ninstallV9ReportBenchmarkApi\(app\);\ninstallV9AdminUiV2\(app\);\ninstallReportRoutes/);
 });
 
 test("Railway preserves the V8 dashboard only as fallback", () => {
