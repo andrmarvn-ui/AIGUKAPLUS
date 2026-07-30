@@ -55,6 +55,13 @@ test("basic auth parser accepts valid credentials and rejects malformed values",
   assert.equal(authPrivate.safeEqual("same", "other"), false);
 });
 
+test("missing V9 admin secret redirects only UI pages and never unlocks APIs", () => {
+  assert.equal(authPrivate.missingSecretFallback("GET", "/v9-admin#daily"), "/dashboard?view=dashboard&v9_admin=not_configured");
+  assert.equal(authPrivate.missingSecretFallback("HEAD", "/v9?x=1"), "/dashboard?view=dashboard&v9_admin=not_configured");
+  assert.equal(authPrivate.missingSecretFallback("GET", "/api/v9/report/daily"), null);
+  assert.equal(authPrivate.missingSecretFallback("POST", "/v9-admin"), null);
+});
+
 test("V9 UI is static, lazy-loaded and never calls V8 reporting RPCs", () => {
   assert.match(ui, /installV9AdminUi/);
   assert.match(ui, /\/api\/v9\/admin\/overview/);
@@ -94,12 +101,19 @@ test("UI v2 exposes VAT 5 percent and the 12-conversation shadow benchmark", () 
   assert.match(benchmarkApi, /v9_shadow_benchmark_conversations/);
 });
 
-test("V9 admin secret is required and middleware is installed first", () => {
+test("V9 admin APIs remain locked and middleware is installed first", () => {
   assert.match(auth, /AIGUKA_V9_ADMIN_SECRET/);
   assert.match(auth, /timingSafeEqual/);
   assert.match(auth, /V9_ADMIN_SECRET_NOT_CONFIGURED/);
+  assert.match(auth, /missingSecretFallback/);
   assert.match(auth, /www-authenticate/);
   assert.match(patch, /installV9AdminAuth\(app\);\ninstallV9AdminReportApiV2\(app\);\ninstallV9ReportBenchmarkApi\(app\);\ninstallV9AdminUiV2\(app\);\ninstallReportRoutes/);
+});
+
+test("report shortcuts stay on the visible V7.5 dashboard", () => {
+  assert.match(patch, /\/dashboard\?view=leads/);
+  assert.match(patch, /\/dashboard\?view=daily/);
+  assert.doesNotMatch(patch, /res\.redirect\(302,"\/v9-admin#(?:leads|daily)"\)/);
 });
 
 test("Railway patches the visible V7.5 production dashboard without false disconnect status", () => {
