@@ -19,7 +19,7 @@ function inferDirection(msg = {}, pageId = "", senderId = "") {
 }
 function sourceSystem(msg = {}, direction = "unknown") {
   const raw = JSON.stringify(msg || {}).toLowerCase(); const name = actorName(msg).toLowerCase();
-  if (/aicake|ai cake/.test(raw + " " + name)) return "aicake";
+  if (/aicake|ai cake|botcake|bot cake/.test(raw + " " + name)) return "aicake";
   if (/automation|automated|auto_reply|auto reply/.test(raw)) return "page_automation";
   if (/bot/.test(raw + " " + name)) return "bot";
   if (/pancake|pages\.fm/.test(raw + " " + name)) return "pancake";
@@ -50,10 +50,30 @@ function collectMessages(node, out = [], depth = 0, seen = new WeakSet()) {
   }
   return out;
 }
+function conversationSummaryMessage(conv = {}) {
+  const text = cleanHtml(conv.snippet || conv.last_message?.message || conv.last_message?.text || "");
+  const sender = conv.last_sent_by || conv.last_message?.from || null;
+  if (!text || !sender) return null;
+  const senderName = cleanHtml(sender.admin_name || sender.name || sender.actor_name || "");
+  const senderId = String(sender.admin_id || sender.id || conv.page_id || "");
+  if (!senderName && !senderId) return null;
+  return {
+    id: `conversation-summary:${conv.id || conv.conversation_id || "unknown"}:${conv.updated_at || conv.last_message?.created_at || ""}`,
+    message: text,
+    created_at: conv.updated_at || conv.last_message?.created_at || conv.last_customer_message_at,
+    from: { id: senderId, name: senderName },
+    admin_id: sender.admin_id || sender.id || conv.page_id,
+    admin_name: senderName,
+    app_id: sender.app_id || sender.application_id || "",
+    flow_id: sender.flow_id || "",
+    is_admin: true,
+    source_detail: "pancake_conversation_snippet",
+  };
+}
 function normalizeMessage(msg, { pageId, senderId, fallbackTime }) {
   const direction = inferDirection(msg, pageId, senderId); const source = sourceSystem(msg, direction); const name = actorName(msg); const text = messageText(msg); const sentAt = messageTime(msg, fallbackTime);
   const id = String(msg.id || msg.mid || msg.message_id || msg.comment_id || `${sentAt}|${actorId(msg)}|${text.slice(0, 60)}`);
-  return { id: `pancake:${id}`, message_id: id, direction, role: direction === "inbound" ? "customer" : "outbound", actor_type: direction === "inbound" ? "customer" : source, actor_name: name || (direction === "inbound" ? "Khách hàng" : "Page/nhân viên/hệ thống"), actor_app_id: String(msg.app_id || msg.application_id || msg.bot_id || ""), source_system: source, is_automatic: ["aicake", "page_automation", "bot"].includes(source), message_text: text, text, attachments: attachments(msg), sent_at: sentAt, created_at: sentAt, raw_payload: msg, source_detail: { source: "pancake_live" } };
+  return { id: `pancake:${id}`, message_id: id, direction, role: direction === "inbound" ? "customer" : "outbound", actor_type: direction === "inbound" ? "customer" : source, actor_name: name || (direction === "inbound" ? "Khách hàng" : "Page/nhân viên/hệ thống"), actor_app_id: String(msg.app_id || msg.application_id || msg.bot_id || ""), source_system: source, is_automatic: ["aicake", "page_automation", "bot"].includes(source), message_text: text, text, attachments: attachments(msg), sent_at: sentAt, created_at: sentAt, raw_payload: msg, source_detail: { source: msg.source_detail || "pancake_live" } };
 }
 function mergeUnique(messages = []) {
   const map = new Map();
@@ -79,7 +99,14 @@ async function lookupConversation(pageId, senderId, token) {
       const rows = Array.isArray(data.conversations) ? data.conversations : Array.isArray(data.data) ? data.data : [];
       attempts.push({ lookup_page: pageNo + 1, status: response.status, count: rows.length });
       const found = rows.find(row => conversationMatches(row, senderId));
-      if (found) { const value = { id: String(found.id || found.conversation_id || senderId), embedded: collectMessages(found, []), attempts }; lookupCache.set(key, { time: Date.now(), value }); return value; }
+      if (found) {
+        const embedded = collectMessages(found, []);
+        const summary = conversationSummaryMessage(found);
+        if (summary) embedded.push(summary);
+        const value = { id: String(found.id || found.conversation_id || senderId), embedded, attempts };
+        lookupCache.set(key, { time: Date.now(), value });
+        return value;
+      }
       const tail = rows[rows.length - 1]; if (!tail || !tail.id || tail.id === last || rows.length === 0) break; last = String(tail.id);
     } catch (error) { attempts.push({ lookup_page: pageNo + 1, status: "error", error: error instanceof Error ? error.message : String(error) }); break; }
   }
@@ -114,3 +141,5 @@ export function mergeConversationMessages(primary = [], secondary = []) {
   const normalizedPrimary = (primary || []).map(item => ({ ...item, message_text: item.message_text || item.text || item.message || item.content || "", text: item.text || item.message_text || item.message || item.content || "" }));
   return mergeUnique([...normalizedPrimary, ...(secondary || [])]);
 }
+
+export const __private__ = { sourceSystem, inferDirection, conversationSummaryMessage, normalizeMessage, conversationMatches };
