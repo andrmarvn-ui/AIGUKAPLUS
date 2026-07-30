@@ -102,7 +102,8 @@ test("V9 admin secret is required and middleware is installed first", () => {
   assert.match(patch, /installV9AdminAuth\(app\);\ninstallV9AdminReportApiV2\(app\);\ninstallV9ReportBenchmarkApi\(app\);\ninstallV9AdminUiV2\(app\);\ninstallReportRoutes/);
 });
 
-test("Railway preserves the V8 dashboard only as fallback", () => {
-  assert.match(patch, /V8 dashboard retained as fallback/);
-  assert.match(patch, /\/api\/v9\/admin\/overview/);
+test("Railway patches the visible V7.5 production dashboard without false disconnect status", () => {
+  assert.match(patch, /aiguka-v8-report-api\?action=filters/);
+  assert.match(patch, /false red disconnected badge/);
+  assert.match(patch, /patchDashboardUi\(html\)/);
 });
