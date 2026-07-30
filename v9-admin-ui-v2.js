@@ -78,12 +78,13 @@ const VAT_BENCHMARK_SCRIPT = `<script id="aiguka-v9-vat-benchmark-ui">
  function renderBenchmark(d){
   const run=d.run||{},p=d.progress||{},rows=d.data||[];
   const aigukaReady=rows.filter(x=>x.aiguka_decision_id||x.aiguka_status).length;
-  const aicakeReady=rows.filter(x=>x.aicake_reply).length;
+  const actualReplies=rows.filter(x=>x.aicake_reply).length;
+  const verifiedAicake=rows.filter(x=>x.comparison&&x.comparison.aicake_source_verified===true).length;
   $('#benchmarkMetrics').innerHTML=[
    metric('Hội thoại đã nhận',n(p.observed||0)+' / '+n(p.target||0),'Bắt đầu 14:16 · ban đầu 0'),
    metric('AIGUKA chạy ngầm',n(aigukaReady),'Không gửi Messenger'),
-   metric('AICAKE thực tế',n(aicakeReady),'Câu trả lời đã gửi khách'),
-   metric('Đã đủ cặp so sánh',n(p.completed||0),'Còn '+n(p.remaining||0)+' hội thoại')
+   metric('AICAKE đã xác minh',n(verifiedAicake),'Theo Botcake/app ID'),
+   metric('Phản hồi thực tế đã gửi',n(actualReplies),'Đủ cặp: '+n(p.completed||0)+' · còn '+n(p.remaining||0))
   ].join('');
   $('#benchmarkInfo').innerHTML=run.id
    ?'<div class="kv"><span>Đợt kiểm tra</span><strong>'+esc(run.benchmark_name||run.id)+'</strong></div>'
@@ -94,12 +95,15 @@ const VAT_BENCHMARK_SCRIPT = `<script id="aiguka-v9-vat-benchmark-ui">
    :'<div class="empty">Chưa có đợt benchmark</div>';
   $('#benchmarkRows').innerHTML=rows.length?rows.map(r=>{
    const match=r.comparison&&r.comparison.contact_request_match;
+   const verified=r.comparison&&r.comparison.aicake_source_verified===true;
+   const sourceLabel=verified?'AICAKE đã xác minh':(r.aicake_reply?'Sale/admin hoặc nguồn chưa xác minh':'Chưa có phản hồi');
+   const sourceType=verified?'ok':(r.aicake_reply?'warn':'warn');
    const compare=match===true?badge('Khớp xin số','ok'):match===false?badge('Khác cách xin số','warn'):badge('Chờ đủ dữ liệu','warn');
    return '<tr><td><strong>'+n(r.sequence_no)+'</strong></td>'
     +'<td><div class="mono">'+esc(r.page_id)+'</div><div class="mono muted">'+esc(r.sender_id)+'</div><div class="muted">'+date(r.first_customer_at)+'</div></td>'
     +'<td class="reply-cell">'+esc(shortText(r.customer_message))+'</td>'
     +'<td class="reply-cell"><strong>'+esc(r.aiguka_action||r.aiguka_status||'-')+'</strong><div>'+esc(shortText(r.aiguka_reply))+'</div><div class="muted">'+(r.aiguka_latency_ms!=null?n(r.aiguka_latency_ms)+' ms':'')+'</div></td>'
-    +'<td class="reply-cell"><strong>'+esc(r.aicake_source||'-')+'</strong><div>'+esc(shortText(r.aicake_reply))+'</div><div class="muted">'+date(r.aicake_reply_at)+'</div></td>'
+    +'<td class="reply-cell">'+badge(sourceLabel,sourceType)+'<div>'+esc(shortText(r.aicake_reply))+'</div><div class="muted">Nguồn: '+esc(r.aicake_source||'-')+(r.comparison&&r.comparison.observed_actor_app_id?' · app '+esc(r.comparison.observed_actor_app_id):'')+' · '+date(r.aicake_reply_at)+'</div></td>'
     +'<td>'+compare+'<div class="muted">'+esc(r.status||'pending')+'</div></td></tr>';
   }).join(''):'<tr><td colspan="6" class="empty">Chưa có hội thoại mới sau 14:16</td></tr>';
  }
@@ -129,7 +133,7 @@ function enhance(html) {
     )
     .replace('<button data-tab="admin">⚙️ <span>Quản trị hệ thống</span></button>', '<button data-tab="benchmark">🧪 <span>So sánh AIGUKA/AICAKE</span></button><button data-tab="admin">⚙️ <span>Quản trị hệ thống</span></button>')
     .replace('<th>Chi tiêu</th><th>Hội thoại</th>', '<th>Chi tiêu có VAT</th><th>Hội thoại</th>')
-    .replace('<section class="panel" id="panel-admin">', '<section class="panel" id="panel-benchmark"><div class="grid" id="benchmarkMetrics"></div><div class="section card"><h3>Đợt chạy song song</h3><div id="benchmarkInfo"></div></div><div class="section table-wrap"><table class="table" style="min-width:1300px"><thead><tr><th>#</th><th>Hội thoại</th><th>Tin khách mở đầu</th><th>AIGUKA chạy ngầm</th><th>AICAKE đã gửi</th><th>Đối chiếu</th></tr></thead><tbody id="benchmarkRows"></tbody></table></div></section><section class="panel" id="panel-admin">');
+    .replace('<section class="panel" id="panel-admin">', '<section class="panel" id="panel-benchmark"><div class="grid" id="benchmarkMetrics"></div><div class="section card"><h3>Đợt chạy song song</h3><div id="benchmarkInfo"></div></div><div class="section table-wrap"><table class="table" style="min-width:1300px"><thead><tr><th>#</th><th>Hội thoại</th><th>Tin khách mở đầu</th><th>AIGUKA chạy ngầm</th><th>AICAKE / phản hồi thực tế</th><th>Đối chiếu</th></tr></thead><tbody id="benchmarkRows"></tbody></table></div></section><section class="panel" id="panel-admin">');
   output = output.replace('</style>', '.reply-cell{white-space:pre-wrap;min-width:280px;max-width:420px;line-height:1.45}</style>');
   if (!output.includes("aiguka-v9-reporting-status-ui")) output = output.replace("</body>", `${REPORTING_STATUS_SCRIPT}</body>`);
   if (!output.includes("aiguka-v9-vat-benchmark-ui")) output = output.replace("</body>", `${VAT_BENCHMARK_SCRIPT}</body>`);
