@@ -15,6 +15,12 @@ export function patchDashboardUi(html){
     "if(['spend_with_tax','cost_per_contact','cost_per_conversation'].includes(key))",
     "if(['spend','tax_amount','spend_with_tax','cost_per_contact','cost_per_conversation'].includes(key))",
   );
+  // The legacy renderer still calls updateCards after every table render. Daily cards are
+  // owned by the summary request below, so bypass the Lead-only counter logic for daily.
+  output=output.replace(
+    "function updateCards(rows){const contacts=",
+    "function updateCards(rows){if(currentView==='daily')return;const contacts=",
+  );
 
   const extra=`<style>
 .aiguka_lead_tag{display:inline-block;margin:2px;padding:3px 7px;border-radius:999px;background:#ede9fe;color:#5b21b6;font-size:12px;font-weight:700}
@@ -23,6 +29,7 @@ export function patchDashboardUi(html){
 .cards.aiguka_daily_cards .card:nth-child(2){border-top-color:#b54708}
 .cards.aiguka_daily_cards .card:nth-child(3){border-top-color:#067647}
 .cards.aiguka_daily_cards .card:nth-child(4){border-top-color:#6941c6}
+.aiguka_legacy_counter{display:none!important}
 @media(max-width:1000px){.cards.aiguka_daily_cards{grid-template-columns:repeat(2,minmax(180px,1fr))}}
 @media(max-width:700px){.cards.aiguka_daily_cards{grid-template-columns:repeat(4,160px);min-width:680px}}
 </style><script>(function(){
@@ -35,7 +42,8 @@ if(view!=='daily')return;
 const cards=document.getElementById('leadCards');
 if(!cards)return;
 cards.classList.add('aiguka_daily_cards');
-cards.innerHTML='<div class="card"><div class="cardLabel">Tổng chi tiêu chưa VAT</div><div id="aigukaSpendBeforeVat" class="cardNum">…</div><div class="cardHint">Ngân sách quảng cáo trước thuế</div></div>'
+cards.innerHTML='<span id="matchedCount" class="aiguka_legacy_counter"></span><span id="contactCount" class="aiguka_legacy_counter"></span><span id="accountCount" class="aiguka_legacy_counter"></span>'
+ +'<div class="card"><div class="cardLabel">Tổng chi tiêu chưa VAT</div><div id="aigukaSpendBeforeVat" class="cardNum">…</div><div class="cardHint">Ngân sách quảng cáo trước thuế</div></div>'
  +'<div class="card"><div class="cardLabel">VAT 5%</div><div id="aigukaVatAmount" class="cardNum">…</div><div class="cardHint">Thuế Meta theo cấu hình 5%</div></div>'
  +'<div class="card"><div class="cardLabel">Tổng chi tiêu có VAT</div><div id="aigukaSpendWithVat" class="cardNum">…</div><div class="cardHint">Tổng tiền thanh toán</div></div>'
  +'<div class="card"><div class="cardLabel">Tỷ lệ ra SĐT/Zalo</div><div id="aigukaContactRate" class="cardNum">…</div><div id="aigukaContactHint" class="cardHint">Liên hệ / hội thoại</div></div>';
