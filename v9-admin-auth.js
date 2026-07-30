@@ -21,9 +21,22 @@ function parseBasic(header) {
   } catch { return null; }
 }
 
+function missingSecretFallback(method, originalUrl) {
+  if (!/^(GET|HEAD)$/i.test(String(method || ""))) return null;
+  const pathname = String(originalUrl || "").split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
+  if (!["/v9", "/v9-admin", "/v9-dashboard"].includes(pathname)) return null;
+  return "/dashboard?view=dashboard&v9_admin=not_configured";
+}
+
 export function installV9AdminAuth(app) {
   const guard = (req, res, next) => {
     if (!SECRET) {
+      const fallback = missingSecretFallback(req.method, req.originalUrl || req.url);
+      if (fallback) {
+        res.setHeader("cache-control", "no-store");
+        res.redirect(302, fallback);
+        return;
+      }
       res.status(503).json({ ok: false, error: "V9_ADMIN_SECRET_NOT_CONFIGURED" });
       return;
     }
@@ -39,4 +52,4 @@ export function installV9AdminAuth(app) {
   app.use(["/v9", "/v9-admin", "/v9-dashboard", "/api/v9"], guard);
 }
 
-export const __private__ = { parseBasic, safeEqual };
+export const __private__ = { parseBasic, safeEqual, missingSecretFallback };
