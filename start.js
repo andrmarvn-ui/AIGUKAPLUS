@@ -71,6 +71,7 @@ for (const patch of [
   "./patch-slide-generic-carousel.js",
   "./seed-tong-hop-context.js",
   "./patch-mapping-meta-midnight-delivery.js",
+  "./v9-live-release-patch.js",
 ]) await safeImport(patch);
 
 await safeImport("./patch-server.js");
@@ -93,8 +94,7 @@ const reportingReady = Boolean(
   && String(process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || "").trim()
 );
 
-// AICAKE is customer-facing during the V9 migration. Legacy recovery/AI/outbound workers stay off
-// unless explicitly re-enabled for an emergency rollback.
+// Legacy V8 background workers stay off unless explicitly enabled for emergency rollback.
 const v8BackgroundEnabled = String(process.env.AIGUKA_V8_BACKGROUND_WORKERS || "false").trim().toLowerCase() === "true";
 if (v8BackgroundEnabled) {
   startDetached("./webhook-inbox-worker.js");
@@ -128,8 +128,9 @@ if (v9CoreReady) {
   startDetached("./v9-legacy-inbox-bridge.js");
   startDetached("./v9-direct-core-worker.js");
   startDetached("./v9-ai-shadow-worker.js");
+  startDetached("./v9-live-outbound-worker.js");
   startDetached("./v9-reporting-publisher.js");
-  console.log(`[AIGUKA V9] Core workers started via ${v9CoreBridgeState.mode}; outbound remains locked`);
+  console.log(`[AIGUKA V9] Core workers started via ${v9CoreBridgeState.mode}; live outbound is final-gated and idle until runtime ACTIVE`);
 
   if (reportingReady) {
     startDetached("./v9-reporting-sync-worker.js");
