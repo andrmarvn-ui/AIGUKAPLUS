@@ -33,9 +33,8 @@ test("fallback uses only verified address and never invents price", () => {
   assert.doesNotMatch(worker, /\d{1,3}(?:[.,]\d{3})+\s*(?:đ|vnđ)/i);
 });
 
-test("release replaces the old AI worker before startup and removes invalid text_sent state", () => {
+test("release replaces the old AI worker before startup and maps invalid text_sent to sent", () => {
   assert.match(release, /fs\.writeFileSync\(aiTargetFile/);
   assert.match(release, /v9-ai-live-worker\.js/);
-  assert.match(release, /status: "sent"/);
-  assert.doesNotMatch(release, /status: assets\.length \? "text_sent"/);
+  assert.match(release, /replace\('body: \{ status: assets\.length \? "text_sent" : "sent", updated_at: new Date\(\)\.toISOString\(\) \}', 'body: \{ status: "sent", updated_at: new Date\(\)\.toISOString\(\) \}'\)/);
 });
