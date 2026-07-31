@@ -25,4 +25,6 @@ let outboundSource = fs.readFileSync(outboundFile, "utf8");
 outboundSource = outboundSource.replace('body: { status: assets.length ? "text_sent" : "sent", updated_at: new Date().toISOString() }', 'body: { status: "sent", updated_at: new Date().toISOString() }');
 fs.writeFileSync(outboundFile, outboundSource);
 
-console.log("[AIGUKA V9] ACTIVE Core, Gemini-first AI fallback and valid delivery states installed");
+await import("./v9-support-release-patch.js");
+
+console.log("[AIGUKA V9] ACTIVE Core, Gemini-first AI fallback, SUPPORT slide-only and valid delivery states installed");
