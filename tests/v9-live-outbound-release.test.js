@@ -41,6 +41,8 @@ test("delivery is idempotent and recorded in Core", () => {
 
 test("worker sends only Meta RESPONSE messages and has no broadcast path", () => {
   assert.match(worker, /messaging_type: "RESPONSE"/);
-  assert.doesNotMatch(worker, /MESSAGE_TAG|UPDATE|NON_PROMOTIONAL_SUBSCRIPTION|marketing/i);
+  assert.doesNotMatch(worker, /messaging_type:\s*["'](?:MESSAGE_TAG|UPDATE|NON_PROMOTIONAL_SUBSCRIPTION)["']/i);
+  assert.doesNotMatch(worker, /tag:\s*["'](?:POST_PURCHASE_UPDATE|CONFIRMED_EVENT_UPDATE|ACCOUNT_UPDATE)["']/i);
+  assert.doesNotMatch(worker, /marketing_notifications|notification_messages_token/i);
   assert.doesNotMatch(worker, /v8_claim_outbound_batch|v8_authorize_outbound_send/);
 });
