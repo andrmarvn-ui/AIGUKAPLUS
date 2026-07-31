@@ -84,9 +84,30 @@ test("AI decision reporting excludes final reply and model input", () => {
   assert.equal(envelope.payload.attributes.transport_locked, true);
 });
 
-test("privacy guard rejects forbidden fields", () => {
+test("privacy guard rejects forbidden field names", () => {
   assert.throws(() => assertReportingPayloadPrivacy({ message_text: "secret" }), /REPORTING_PRIVACY_FIELD_FORBIDDEN/);
-  assert.throws(() => assertReportingPayloadPrivacy({ phone: "0965" }), /REPORTING_PRIVACY_FIELD_FORBIDDEN/);
+  assert.throws(() => assertReportingPayloadPrivacy({ nested: { phone: "0965" } }), /REPORTING_PRIVACY_FIELD_FORBIDDEN/);
+  assert.throws(() => assertReportingPayloadPrivacy([{ safe: true }, { zalo: "secret" }]), /REPORTING_PRIVACY_FIELD_FORBIDDEN/);
+});
+
+test("privacy guard permits safe values that happen to say phone or zalo", () => {
+  assert.doesNotThrow(() => assertReportingPayloadPrivacy({
+    contact_type: "phone",
+    channel: "zalo",
+    nested: { label: "phone", values: ["zalo", "phone"] },
+  }));
+});
+
+test("contact reporting envelope passes privacy guard", () => {
+  const envelope = buildReportingEnvelope("contact_fact", {
+    id: "contact-safe",
+    page_id: "page-1",
+    customer_id: "customer-1",
+    contact_type: "phone",
+    normalized_value: "0965499803",
+    captured_at: "2026-07-29T10:01:00Z",
+  }, { contactHashSecret: "reporting-secret" });
+  assert.doesNotThrow(() => assertReportingPayloadPrivacy(envelope.payload));
 });
 
 test("page and customer dimensions contain no contact fields", () => {

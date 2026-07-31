@@ -182,10 +182,36 @@ export function buildReportingEnvelope(sourceType, row, options = {}) {
   throw new TypeError(`REPORTING_SOURCE_TYPE_UNSUPPORTED:${sourceType}`);
 }
 
-export function assertReportingPayloadPrivacy(value) {
-  const serialized = JSON.stringify(value || {}).toLowerCase();
-  for (const forbidden of ["message_text", "contact_value", "normalized_value", "phone", "zalo", "token_cipher", "api_key"]) {
-    if (serialized.includes(`\"${forbidden}\"`)) throw new Error(`REPORTING_PRIVACY_FIELD_FORBIDDEN:${forbidden}`);
+const FORBIDDEN_REPORTING_KEYS = new Set([
+  "message_text",
+  "contact_value",
+  "normalized_value",
+  "phone",
+  "zalo",
+  "token_cipher",
+  "api_key",
+]);
+
+function assertPrivacyKeys(value, path = "payload", seen = new WeakSet()) {
+  if (value === null || typeof value !== "object") return;
+  if (seen.has(value)) return;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertPrivacyKeys(item, `${path}[${index}]`, seen));
+    return;
   }
+
+  for (const [key, nested] of Object.entries(value)) {
+    const normalizedKey = String(key).trim().toLowerCase();
+    if (FORBIDDEN_REPORTING_KEYS.has(normalizedKey)) {
+      throw new Error(`REPORTING_PRIVACY_FIELD_FORBIDDEN:${normalizedKey}:${path}`);
+    }
+    assertPrivacyKeys(nested, `${path}.${key}`, seen);
+  }
+}
+
+export function assertReportingPayloadPrivacy(value) {
+  assertPrivacyKeys(value);
   return value;
 }

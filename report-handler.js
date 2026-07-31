@@ -32,33 +32,38 @@ export function installReportRoutes(app,{supabaseUrl,publishableKey}){
 
   function exportRows(rows,type){
     if(type==="ads")return rows.map(x=>({
-      "Quảng cáo":x.ad_name||"","ID quảng cáo":x.ad_id||"",
-      "Tài khoản QC":x.ad_account_name||"","Chiến dịch":x.campaign_name||"",
-      "Nhóm quảng cáo":x.adset_name||"","Chi tiêu gồm thuế":+x.spend_with_tax||0,
-      "Hội thoại":+x.conversations||0,"Có SĐT/Zalo":+x.contacts||0,
+      "Tài khoản QC":x.ad_account_name||"","ID tài khoản":x.ad_account_id||"",
+      "Chiến dịch":x.campaign_name||"","ID chiến dịch":x.campaign_id||"",
+      "Nhóm quảng cáo":x.adset_name||"","ID nhóm quảng cáo":x.adset_id||"",
+      "Quảng cáo":x.ad_name||"","ID quảng cáo":x.ad_id||"","Trạng thái":x.effective_status||x.ad_status||"",
+      "Chi tiêu chưa VAT":+x.spend||0,"VAT":+x.tax_amount||0,"Chi tiêu có VAT":+x.spend_with_tax||0,
+      "Hiển thị":+x.impressions||0,"Tiếp cận":+x.reach||0,"Click":+x.clicks||0,"Click liên kết":+x.link_clicks||0,
+      "Hội thoại Meta":+x.meta_conversations||0,"Hội thoại thực":+x.conversations||0,"Có SĐT/Zalo":+x.contacts||0,
       "Tỷ lệ lấy số (%)":+x.contact_rate||0,"Khách nóng":+x.hot_leads||0,
       "Cost/Hội thoại":+x.cost_per_conversation||0,"Cost/SĐT":+x.cost_per_contact||0
     }));
     if(type==="daily")return rows.map(x=>({
       "Ngày":x.report_date||"","Page":x.page_name||"","Tài khoản QC":x.ad_account_name||"",
-      "Chi tiêu gồm thuế":+x.spend_with_tax||0,"Hội thoại":+x.conversations||0,
-      "Có SĐT/Zalo":+x.contacts||0,"Tỷ lệ lấy số (%)":+x.contact_rate||0,
-      "Khách nóng":+x.hot_leads||0,"Cost/Hội thoại":+x.cost_per_conversation||0,
-      "Cost/SĐT":+x.cost_per_contact||0
+      "Chi tiêu chưa VAT":+x.spend||0,"VAT":+x.tax_amount||0,"Chi tiêu có VAT":+x.spend_with_tax||0,
+      "Hội thoại":+x.conversations||0,"Có SĐT/Zalo":+x.contacts||0,"Tỷ lệ lấy số (%)":+x.contact_rate||0,
+      "Khách nóng":+x.hot_leads||0,"Cost/Hội thoại":+x.cost_per_conversation||0,"Cost/SĐT":+x.cost_per_contact||0
     }));
     return rows.map(x=>({
-      "Ngày":x.report_date||"","Khách hàng":x.customer_name||"","SĐT":x.phone||"",
-      "Zalo":x.zalo||"","Page":x.page_name||"","Tài khoản QC":x.ad_account_name||"",
-      "Quảng cáo":x.ad_name||"","Chiến dịch":x.campaign_name||"",
-      "Sản phẩm":x.product_label||x.product_group||"","Khách nóng":x.is_hot_lead?"Có":"Không",
-      "Nhân viên":x.pancake_employee||"","Tin cuối":x.last_snippet||""
+      "Ngày":x.report_date||"","Khách hàng":x.customer_name||"","ID khách":x.customer_id||x.sender_id||"",
+      "SĐT":x.phone||"","Zalo":x.zalo||"","Đã có liên hệ":x.has_contact?"Có":"Không",
+      "Page":x.page_name||"","ID Page":x.page_id||"","Tài khoản QC":x.ad_account_name||"",
+      "Chiến dịch":x.campaign_name||"","Nhóm quảng cáo":x.adset_name||"","Quảng cáo":x.ad_name||"",
+      "Trạng thái QC":x.ad_status||x.effective_status||"","Sản phẩm":x.product_label||x.product_group||"",
+      "Nguồn":x.source_channel||x.identity_source||"","Tag Pancake":Array.isArray(x.pancake_tags)?x.pancake_tags.map(t=>t?.text||t?.name||String(t||"")).filter(Boolean).join(", "):"",
+      "Nhân viên":x.pancake_employee||"","Tin cuối":x.last_snippet||"","Số tin":+x.message_count||0,
+      "Thời gian":x.last_customer_at||x.conversation_started_at||""
     }));
   }
 
   app.get("/functions/v1/aiguka-v8-report-api",async(req,res)=>{
     const action=String(req.query.action||"health").toLowerCase();
     try{
-      if(action==="health")return res.json({ok:true,service:"aiguka-v8-report-railway",version:1});
+      if(action==="health")return res.json({ok:true,service:"aiguka-v8-report-railway",version:2});
       if(action==="filters")return res.json(await rpc("v8_report_filters_test"));
       if(action==="summary"){
         const a=args(req.query);delete a.p_limit;delete a.p_offset;
@@ -66,7 +71,8 @@ export function installReportRoutes(app,{supabaseUrl,publishableKey}){
       }
       if(["ads","daily","leads"].includes(action)){
         const name=action==="ads"?"v8_report_ads_test":action==="daily"?"v8_report_daily_test":"v8_report_leads_test";
-        return res.json(await rpc(name,args(req.query)));
+        const defaultLimit=action==="leads"&&!String(req.query.limit||"").trim()?1000:null;
+        return res.json(await rpc(name,args(req.query,defaultLimit)));
       }
       if(action==="system"){
         const d=await rpc("v8_admin_control_overview");
