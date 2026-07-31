@@ -1,5 +1,7 @@
 import fs from "node:fs";
 
+await import("./patch-dashboard-ui-filter-metrics.js");
+
 const directFile = "v9-direct-core-worker.js";
 let directSource = fs.readFileSync(directFile, "utf8");
 
@@ -28,4 +30,4 @@ fs.writeFileSync(outboundFile, outboundSource);
 await import("./v9-support-release-patch.js");
 await import("./v9-media-authority-release-patch.js");
 
-console.log("[AIGUKA V9] ACTIVE Core, AI fallback, SUPPORT slide-only and authoritative media delivery installed");
+console.log("[AIGUKA V9] ACTIVE Core, AI fallback, SUPPORT slide-only, report filters and authoritative media delivery installed");
