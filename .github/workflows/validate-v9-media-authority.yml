@@ -1,0 +1,58 @@
+name: Validate V9 media authority
+
+on:
+  pull_request:
+    paths:
+      - "v9/core/media-authority.js"
+      - "v9/core/decision-contract.js"
+      - "v9-media-authority-release-patch.js"
+      - "v9-live-release-patch.js"
+      - "v9-support-release-patch.js"
+      - "v9-ai-live-worker.js"
+      - "v9-live-outbound-worker.js"
+      - "tests/v9-media-authority.test.js"
+      - "tests/v9-media-decision-contract.test.js"
+      - ".github/workflows/validate-v9-media-authority.yml"
+  push:
+    branches: [main]
+    paths:
+      - "v9/core/media-authority.js"
+      - "v9/core/decision-contract.js"
+      - "v9-media-authority-release-patch.js"
+      - "v9-live-release-patch.js"
+      - "v9-support-release-patch.js"
+      - "v9-ai-live-worker.js"
+      - "v9-live-outbound-worker.js"
+      - "tests/v9-media-authority.test.js"
+      - "tests/v9-media-decision-contract.test.js"
+      - ".github/workflows/validate-v9-media-authority.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate syntax
+        run: |
+          node --check v9/core/media-authority.js
+          node --check v9/core/decision-contract.js
+          node --check v9-media-authority-release-patch.js
+          node --check v9-live-release-patch.js
+          node --check tests/v9-media-authority.test.js
+          node --check tests/v9-media-decision-contract.test.js
+      - name: Run media authority regressions
+        run: node --test tests/v9-media-authority.test.js tests/v9-media-decision-contract.test.js tests/v9-support-slide-only-release.test.js tests/v9-live-outbound-release.test.js
+      - name: Confirm decision authority and fail-closed delivery
+        run: |
+          grep -F 'media_catalog_keys: mediaCatalogKeys' v9-media-authority-release-patch.js
+          grep -F 'selectAuthoritativeMedia' v9-media-authority-release-patch.js
+          grep -F 'MEDIA_RESOLUTION_BLOCKED' v9-media-authority-release-patch.js
+          grep -F 'MEDIA_CROSS_CATALOG_BLOCKED' v9/core/media-authority.js
+          grep -F 'V9_MEDIA_PRODUCT_REQUIRED' v9/core/decision-contract.js
+          grep -F 'products bắt buộc chỉ chứa catalog_key chính xác' v9/core/decision-contract.js
+          grep -F 'await import("./v9-media-authority-release-patch.js")' v9-live-release-patch.js
+          ! grep -F 'selected_knowledge' v9/core/media-authority.js

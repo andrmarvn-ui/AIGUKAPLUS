@@ -26,5 +26,6 @@ outboundSource = outboundSource.replace('body: { status: assets.length ? "text_s
 fs.writeFileSync(outboundFile, outboundSource);
 
 await import("./v9-support-release-patch.js");
+await import("./v9-media-authority-release-patch.js");
 
-console.log("[AIGUKA V9] ACTIVE Core, Gemini-first AI fallback, SUPPORT slide-only and valid delivery states installed");
+console.log("[AIGUKA V9] ACTIVE Core, AI fallback, SUPPORT slide-only and authoritative media delivery installed");
