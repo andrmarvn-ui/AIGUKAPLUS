@@ -9,8 +9,13 @@ const patchFile = path.resolve("patch-dashboard-ui-filter-metrics.js");
 
 function fixture() {
   return `export function patchDashboardUi(html){
-  const extra=\`<script>
+  const extra=\`<style id="aiguka-report-integrity-style">
+.aiguka_report_scroll{overflow:auto!important}
+</style><script>
 const view=new URLSearchParams(location.search).get('view')||'dashboard';
+function number(value){return String(value)}
+function money(value){return String(value)+' đ'}
+function percent(value){return String(value)+'%'}
 function emptyRow(body,colspan){body.innerHTML='<tr><td class=\\"empty\\" colspan=\\"'+colspan+'\\">Không có dữ liệu phù hợp bộ lọc.</td></tr>'}
 function renderLeadRows(rows,count){
   setNotice('Nguồn hợp nhất: V9 Messenger + Meta Business; Pancake bổ sung tên, tag, nhân viên và nội dung khi có.');
@@ -31,24 +36,34 @@ function installRenderer(){
   if(typeof window.loadLeads==='function')window.loadLeads().catch(function(){});
   return true;
 }
+let summaryBusy=false;
+async function loadDailySummary(){
+  if(summaryBusy)return;summaryBusy=true;
+  try{}finally{summaryBusy=false}
+}
 </script>\`;
   return html+extra;
 }`;
 }
 
-test("runtime hotfix normalizes report view aliases and installs working column filters", () => {
-  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"aiguka-report-hotfix-"));
+test("runtime V2 keeps column filters working after every table render", () => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"aiguka-report-hotfix-v2-"));
   const target=path.join(dir,"dashboard-ui-patch.js");
   fs.writeFileSync(target,fixture(),"utf8");
-  const run=spawnSync(process.execPath,[patchFile],{cwd:dir,encoding:"utf8"});
-  assert.equal(run.status,0,run.stderr||run.stdout);
+  const first=spawnSync(process.execPath,[patchFile],{cwd:dir,encoding:"utf8"});
+  assert.equal(first.status,0,first.stderr||first.stdout);
   const output=fs.readFileSync(target,"utf8");
-  assert.match(output,/AIGUKA_REPORT_FILTER_METRICS_HOTFIX_V1/);
-  assert.match(output,/\['dashboard','ads','ad-performance','performance'/);
-  assert.match(output,/installAigukaColumnFilters\('leads'\)/);
-  assert.match(output,/installAigukaColumnFilters\('dashboard'\)/);
-  assert.match(output,/applyAigukaTableFilters/);
-  assert.match(output,/renderAds/);
+  assert.match(output,/AIGUKA_REPORT_FILTER_METRICS_HOTFIX_V2/);
+  assert.match(output,/aigukaBuildBodyGrid/);
+  assert.match(output,/MutationObserver/);
+  assert.match(output,/installAigukaColumnFilters\(\)/);
+  assert.match(output,/__aigukaColumnFiltersActive/);
+  assert.match(output,/if\(window\.__aigukaColumnFiltersActive\)return/);
+  assert.match(output,/\['renderLeads','renderAds','renderDashboard','renderAdPerformance'\]/);
   const syntax=spawnSync(process.execPath,["--check",target],{encoding:"utf8"});
   assert.equal(syntax.status,0,syntax.stderr||syntax.stdout);
+
+  const second=spawnSync(process.execPath,[patchFile],{cwd:dir,encoding:"utf8"});
+  assert.equal(second.status,0,second.stderr||second.stdout);
+  assert.equal(fs.readFileSync(target,"utf8"),output,"patch must be idempotent");
 });
