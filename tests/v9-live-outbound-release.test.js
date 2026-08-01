@@ -18,14 +18,16 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway cannot report healthy while silently running stale V9 workers", () => {
-  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V2/);
+  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V3/);
   assert.match(patch, /refusing to start Railway with stale workers/);
   assert.match(patch, /process\.exit\(1\)/);
   assert.match(patch, /V9_SUPPORT_FAST_VISION/);
+  assert.match(patch, /V9_SUPPORT_SAMPLE_AI/);
+  assert.match(patch, /V9_SUPPORT_REFERRAL_CARRY/);
   assert.match(patch, /V9_OUTBOUND_MEDIA_AUTHORITY/);
   assert.match(patch, /\$\{label\}_NOT_INSTALLED/);
   assert.ok(
-    patch.indexOf('await import("./v9-support-fast-vision-release-patch.js")')
+    patch.indexOf('await import("./v9-support-sample-ai-release-patch.js")')
       < patch.indexOf('await import("./patch-dashboard-ui-filter-metrics.js")'),
     "customer workers must be installed before the independent dashboard hotfix",
   );
