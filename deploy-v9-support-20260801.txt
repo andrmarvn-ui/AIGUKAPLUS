@@ -1,2 +1,4 @@
-Deploy trigger for AICAKE primary + AIGUKA SUPPORT slide-only mode.
-Activated at 2026-08-01 09:06 Asia/Ho_Chi_Minh.
+Deploy trigger for AICAKE primary + AIGUKA SUPPORT fast vision mode.
+Activated at 2026-08-01 10:16 Asia/Ho_Chi_Minh.
+Release commit: c3fc6cd609a2086742c7db99b3187df9b455ef39
+Scope: explicit sample/slide requests and real customer images; one contact sentence permitted for images.
