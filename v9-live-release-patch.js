@@ -28,7 +28,8 @@ outboundSource = outboundSource.replace('body: { status: assets.length ? "text_s
 fs.writeFileSync(outboundFile, outboundSource);
 
 await import("./v9-support-release-patch.js");
+await import("./v9-support-fast-vision-release-patch.js");
 await import("./v9-media-authority-release-patch.js");
 await import("./v8-v9-mode-sync-worker.js");
 
-console.log("[AIGUKA V9] ACTIVE Core, AI fallback, SUPPORT slide-only, V8→V9 mode sync, report filters and authoritative media delivery installed");
+console.log("[AIGUKA V9] ACTIVE Core, SUPPORT fast vision, V8→V9 mode sync, report filters and authoritative media delivery installed");
