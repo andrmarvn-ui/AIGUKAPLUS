@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import {
   buildConversationTurn,
   detectSemanticProductKeys,
-} from "../v9/core/semantic-conversation-intelligence.js";
+} from "../v9/core/semantic-conversation-intelligence-v2.js";
 import {
   semanticDeterministicDecision,
   enforceSemanticProductLock,
@@ -186,6 +186,7 @@ test("full Railway patch chain installs semantic lock after no-drop", async () =
     "v9/core/turn-builder.js",
     "v9/core/conversation-intelligence.js",
     "v9/core/semantic-conversation-intelligence.js",
+    "v9/core/semantic-conversation-intelligence-v2.js",
     "v9/core/semantic-decision-policy.js",
     "v9/core/semantic-decision-policy-v2.js",
     "v9/core/knowledge-selector.js",
@@ -238,5 +239,5 @@ test("full Railway patch chain installs semantic lock after no-drop", async () =
   assert.match(ai, /semanticBeforeGeminiCall/);
   assert.match(ai, /enforceSemanticProductLock/);
   assert.match(direct, /v9_direct_semantic_lock_v4/);
-  assert.match(direct, /semantic-conversation-intelligence/);
+  assert.match(direct, /semantic-conversation-intelligence-v2/);
 });
