@@ -21,7 +21,7 @@ function replaceOnce(source, oldValue, newValue, label) {
     source = replaceOnce(
       source,
       'import { buildConversationTurn } from "./v9/core/conversation-intelligence.js";',
-      'import { buildConversationTurn } from "./v9/core/semantic-conversation-intelligence.js";',
+      'import { buildConversationTurn } from "./v9/core/semantic-conversation-intelligence-v2.js";',
       "SEMANTIC_DIRECT_IMPORT",
     );
     source = source.replace(/const VERSION = "[^"]+";/, 'const VERSION = "v9_direct_semantic_lock_v4";');
@@ -46,8 +46,8 @@ function replaceOnce(source, oldValue, newValue, label) {
 
     source = replaceOnce(
       source,
-      '  if (providerName.includes("gemini")) {\n    let base = String(ai.base_url || "https://generativelanguage.googleapis.com/v1beta").replace(/\\\/$/, "");',
-      '  if (providerName.includes("gemini")) {\n    await semanticBeforeGeminiCall();\n    let base = String(ai.base_url || "https://generativelanguage.googleapis.com/v1beta").replace(/\\\/$/, "");',
+      '  if (providerName.includes("gemini")) {',
+      '  if (providerName.includes("gemini")) {\n    await semanticBeforeGeminiCall();',
       "SEMANTIC_GEMINI_GATE",
     );
 
