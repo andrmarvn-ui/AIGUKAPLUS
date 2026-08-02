@@ -44,30 +44,26 @@ function replaceOnce(source, oldValue, newValue, label) {
       "SEMANTIC_AI_IMPORT",
     );
 
-    // Pace Gemini at the provider loop rather than patching providerCall internals.
-    // This remains stable even when earlier release patches replace the provider body.
+    // Pace and cool down Gemini around the single provider call. The existing outer
+    // catch remains untouched, so this survives earlier release patches that alter
+    // provider error recording.
     source = replaceOnce(
       source,
       '      const result = await providerCall(ai, modelInput);',
       `      const semanticProviderKey = String(ai.provider_key || ai.provider_type || "").toLowerCase();
       if (semanticProviderKey.includes("gemini")) await semanticBeforeGeminiCall();
-      const result = await providerCall(ai, modelInput);
-      if (semanticProviderKey.includes("gemini")) semanticAfterGeminiCall(200);`,
+      let result;
+      try {
+        result = await providerCall(ai, modelInput);
+        if (semanticProviderKey.includes("gemini")) semanticAfterGeminiCall(200);
+      } catch (semanticProviderError) {
+        const semanticErrorText = String(semanticProviderError?.message || semanticProviderError);
+        if (semanticProviderKey.includes("gemini") && /(?:^|\\D)429(?:\\D|$)|resource exhausted|quota/i.test(semanticErrorText)) {
+          semanticAfterGeminiCall(429);
+        }
+        throw semanticProviderError;
+      }`,
       "SEMANTIC_PROVIDER_PACING",
-    );
-
-    source = replaceOnce(
-      source,
-      '    } catch (error) {\n      providerErrors.push(`${ai.provider_key || ai.provider_type}:${String(error?.message || error).slice(0, 240)}`);\n    }',
-      `    } catch (error) {
-      const semanticProviderKey = String(ai.provider_key || ai.provider_type || "").toLowerCase();
-      const semanticErrorText = String(error?.message || error);
-      if (semanticProviderKey.includes("gemini") && /(?:^|\\D)429(?:\\D|$)|resource exhausted|quota/i.test(semanticErrorText)) {
-        semanticAfterGeminiCall(429);
-      }
-      providerErrors.push(\`${'${ai.provider_key || ai.provider_type}'}:${'${semanticErrorText.slice(0, 240)}'}\`);
-    }`,
-      "SEMANTIC_PROVIDER_COOLDOWN",
     );
 
     source = replaceOnce(
