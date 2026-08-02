@@ -43,6 +43,13 @@ function hasPriorityInstruction(value) {
     || /(?:^|\s)da$/.test(normalized);
 }
 
+function tileConstructionOnly(normalized) {
+  const tileAction = /\b(op|lat|gach|op lat|lat nen|op tuong)\b/.test(normalized);
+  const projectQuantity = /\b([0-9]+\s*(m2|m)|[0-9]+\s*v\s*s|[0-9]+\s*wc|khoang\s*[0-9]+)\b/.test(normalized);
+  const explicitOtherProduct = /\b(thiet bi ve sinh|thiet bi nha tam|thiet bi phong tam|combo nha tam|combo phong tam|bon cau|lavabo|tu lavabo|sen tam|sen cay|bon tam|bep tu|bep dien|may hut mui|hut mui|chau rua bat|chau 1 ho|voi rua bat|tu van nha tam|tu van phong tam|tu van nha bep|tu van phong bep)\b/.test(normalized);
+  return tileAction && projectQuantity && !explicitOtherProduct;
+}
+
 export function detectSemanticProductKeys(value, options = {}) {
   return detectSemanticProducts(value, { ...options, referral: safeReferral(options.referral) });
 }
@@ -53,6 +60,10 @@ function segmentProducts(event) {
   const explicitProducts = detectSemanticProductKeys(text, { referral: { source: "ORGANIC" } });
   const referralEnhanced = detectSemanticProductKeys(text, { referral: safeReferral(event?.referral) });
   const hasReferralQualifier = /\b(vang guong|ma vang|mau vang|gold|mau den|black|mau nau|brown|van go|mau go|wood|10 canh|quat)\b/.test(normalized);
+
+  // In a construction sentence such as "ốp 4 WC và khu bếp khoảng 100m",
+  // WC/kitchen describe tile locations, not requests for bathroom/kitchen equipment.
+  if (tileConstructionOnly(normalized)) return ["gach_da_op_lat"];
 
   // Referral may supply a family for a short qualifier such as "vàng gương".
   // Generic follow-ups such as "cho xin giá" must not create a new product.
