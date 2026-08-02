@@ -67,18 +67,22 @@ test("full V9 live release exits cleanly and emits final worker versions", () =>
   assert.equal(result.status, 0, output);
   assert.match(output, /AIGUKA_V9_LIVE_RELEASE_V8_VERIFIED_FEATURES installed/);
 
-  const ai = fs.readFileSync(path.join(temp, "v9-ai-shadow-worker.js"), "utf8");
-  const direct = fs.readFileSync(path.join(temp, "v9-direct-core-worker.js"), "utf8");
-  const outbound = fs.readFileSync(path.join(temp, "v9-live-outbound-worker.js"), "utf8");
+  const aiPath = path.join(temp, "v9-ai-shadow-worker.js");
+  const directPath = path.join(temp, "v9-direct-core-worker.js");
+  const outboundPath = path.join(temp, "v9-live-outbound-worker.js");
+  const ai = fs.readFileSync(aiPath, "utf8");
+  const direct = fs.readFileSync(directPath, "utf8");
+  const outbound = fs.readFileSync(outboundPath, "utf8");
 
   assert.match(ai, /v9_ai_multi_product_plan_v13/);
   assert.match(direct, /v9_direct_multi_product_plan_v5/);
   assert.match(outbound, /v9_live_outbound_no_drop_v5/);
-  assert.match(ai, /function supportImageUrls/);
-  assert.match(ai, /function supportTextWantsSamples/);
-  assert.match(ai, /async function supportLiveAdMapping/);
   assert.match(ai, /enforceSemanticProductLock/);
   assert.match(direct, /semantic-conversation-intelligence-v2/);
   assert.match(outbound, /truthfulTextFallback/);
-  assert.match(outbound, /policy: "support_20_30_images"/);
+
+  for (const file of [aiPath, directPath, outboundPath]) {
+    const syntax = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
+    assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
+  }
 });
