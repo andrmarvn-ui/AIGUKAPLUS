@@ -1,0 +1,6 @@
+AIGUKA semantic product lock V7 deployment trigger
+Merged PR: #117
+Expected Direct Core: v9_direct_semantic_lock_v4
+Expected AI: v9_ai_semantic_lock_v12
+Expected Outbound: healthy no-drop layer
+Triggered at: 2026-08-02T22:35:30+07:00
