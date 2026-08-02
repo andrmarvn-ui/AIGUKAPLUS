@@ -44,6 +44,7 @@ async function installLiveRelease() {
   await import("./v9-support-large-slide-release-patch.js");
   await import("./v9-root-conversation-architecture-release-patch.js");
   await import("./v9-no-drop-release-patch.js");
+  await import("./v9-semantic-product-lock-release-patch.js");
 
   requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_FAST_VISION_V1", "V9_SUPPORT_FAST_VISION");
   requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_SAMPLE_AI_V1", "V9_SUPPORT_SAMPLE_AI");
@@ -51,14 +52,18 @@ async function installLiveRelease() {
   requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_SUPPORT_LARGE_SLIDE_AI");
   requireToken(aiTargetFile, "AIGUKA_V9_ROOT_CONVERSATION_ARCH_V1", "V9_AI_ROOT_CONVERSATION_ARCH");
   requireToken(aiTargetFile, "AIGUKA_V9_NO_DROP_V1", "V9_AI_NO_DROP");
+  requireToken(aiTargetFile, "AIGUKA_V9_SEMANTIC_PRODUCT_LOCK_V1", "V9_AI_SEMANTIC_LOCK");
   requireToken(directFile, "AIGUKA_V9_SUPPORT_SAMPLE_AI_V1", "V9_SUPPORT_REFERRAL_CARRY");
   requireToken(directFile, "AIGUKA_V9_ROOT_CONVERSATION_ARCH_V1", "V9_DIRECT_ROOT_CONVERSATION_ARCH");
   requireToken(directFile, "AIGUKA_V9_NO_DROP_V1", "V9_DIRECT_NO_DROP");
+  requireToken(directFile, "AIGUKA_V9_SEMANTIC_PRODUCT_LOCK_V1", "V9_DIRECT_SEMANTIC_LOCK");
   requireToken(outboundFile, "AIGUKA_V9_SUPPORT_FAST_VISION_V1", "V9_OUTBOUND_IMAGE_PERMISSION");
   requireToken(outboundFile, "AIGUKA_V9_MEDIA_AUTHORITY_V1", "V9_OUTBOUND_MEDIA_AUTHORITY");
   requireToken(outboundFile, "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_OUTBOUND_SUPPORT_LARGE_SLIDE");
   requireToken(outboundFile, "AIGUKA_V9_NO_DROP_V1", "V9_OUTBOUND_NO_DROP");
   requireToken("v9/core/media-authority.js", "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_MEDIA_LIMIT_30");
+  requireToken("v9/core/semantic-conversation-intelligence.js", "semantic_product_lock", "V9_SEMANTIC_CONVERSATION_CORE");
+  requireToken("v9/core/semantic-decision-policy.js", "GEMINI_FREE_COOLDOWN_ACTIVE", "V9_GEMINI_FREE_CIRCUIT_BREAKER");
 
   await import("./v8-v9-mode-sync-worker.js");
 
@@ -71,7 +76,7 @@ async function installLiveRelease() {
   }
 
   globalThis.__AIGUKA_V9_LIVE_RELEASE__ = RELEASE;
-  console.log(`[AIGUKA V9] ${RELEASE} installed: no-drop conversation, fresh reply gate, live Mapping, 20-30 exact images and truthful text fallback`);
+  console.log(`[AIGUKA V9] ${RELEASE} installed: no-drop delivery, ordered needs, hard catalog lock, Gemini Free pacing and truthful fallback`);
 }
 
 try {
