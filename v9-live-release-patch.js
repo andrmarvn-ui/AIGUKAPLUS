@@ -67,7 +67,8 @@ async function installLiveRelease() {
   // final worker versions and must survive the complete patch chain.
   requireToken(aiTargetFile, 'const VERSION = "v9_ai_multi_product_plan_v13";', "V9_AI_FINAL_VERSION");
   requireToken(aiTargetFile, "function supportImageUrls", "V9_AI_IMAGE_SUPPORT");
-  requireToken(aiTargetFile, "function supportTextInstructions", "V9_AI_SAMPLE_SUPPORT");
+  requireToken(aiTargetFile, "function supportTextWantsSamples", "V9_AI_SAMPLE_SUPPORT");
+  requireToken(aiTargetFile, "async function supportLiveAdMapping", "V9_AI_LIVE_SAMPLE_MAPPING");
   requireToken(aiTargetFile, "resolveAuthoritativeCatalogKeys", "V9_AI_MEDIA_AUTHORITY");
   requireToken(aiTargetFile, "function rootLiveMappingContext", "V9_AI_ROOT_CONTEXT");
   requireToken(aiTargetFile, "contactNewlyCaptured", "V9_AI_CONTACT_NO_DROP");
