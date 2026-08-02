@@ -26,6 +26,7 @@ test("Railway cannot report healthy while silently running stale V9 workers", ()
   assert.match(patch, /V9_AI_FINAL_VERSION/);
   assert.match(patch, /V9_AI_IMAGE_SUPPORT/);
   assert.match(patch, /V9_AI_SAMPLE_SUPPORT/);
+  assert.match(patch, /V9_AI_LIVE_SAMPLE_MAPPING/);
   assert.match(patch, /V9_AI_MEDIA_AUTHORITY/);
   assert.match(patch, /V9_AI_ROOT_CONTEXT/);
   assert.match(patch, /V9_AI_CONTACT_NO_DROP/);
