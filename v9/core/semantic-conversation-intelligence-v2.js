@@ -28,17 +28,35 @@ function messageText(message) {
   return String(message?.text ?? message?.message_text ?? "");
 }
 
+function isCustomerEvent(event) {
+  const type = String(event?.event_type || event?.eventType || "").toLowerCase();
+  return ["customer_message", "customer_postback"].includes(type);
+}
+
 export function detectSemanticProductKeys(value, options = {}) {
   return detectSemanticProducts(value, { ...options, referral: safeReferral(options.referral) });
 }
 
-function latestRequestProductState(turn) {
-  const currentMessages = Array.isArray(turn?.customerMessages) ? turn.customerMessages : [];
-  const contextMessages = Array.isArray(turn?.contextCustomerMessages) ? turn.contextCustomerMessages : currentMessages;
-  const referral = safeReferral(turn?.referral);
-  const segments = contextMessages.map((message) => ({
-    text: messageText(message),
-    products: detectSemanticProductKeys(messageText(message), { referral }),
+function segmentProducts(event) {
+  const text = messageText(event);
+  const normalized = normalizeVietnamese(text);
+  const explicitProducts = detectSemanticProductKeys(text, { referral: { source: "ORGANIC" } });
+  const referralEnhanced = detectSemanticProductKeys(text, { referral: safeReferral(event?.referral) });
+  const hasReferralQualifier = /\b(vang guong|ma vang|mau vang|gold|mau den|black|mau nau|brown|van go|mau go|wood|10 canh|quat)\b/.test(normalized);
+
+  // Referral may provide the product family for a short qualifier such as "vàng
+  // gương". It must not turn a later generic phrase such as "cho xin giá" into a
+  // new, less-specific product request that overwrites the prior exact color.
+  if (explicitProducts.length || hasReferralQualifier) return referralEnhanced.length ? referralEnhanced : explicitProducts;
+  return [];
+}
+
+function latestRequestProductState(safeEvents, turn) {
+  const customerEvents = (safeEvents || []).filter(isCustomerEvent);
+  const segments = customerEvents.map((event) => ({
+    text: messageText(event),
+    products: segmentProducts(event),
+    occurredAt: event?.occurred_at || event?.occurredAt || null,
   }));
   const productSegments = segments.filter((segment) => segment.products.length);
   const latest = productSegments.at(-1) || null;
@@ -46,15 +64,14 @@ function latestRequestProductState(turn) {
   const latestProducts = latest?.products || [];
   let allowedProducts = [];
 
-  // A single quick-reply mentioning both bathroom and kitchen must serve the first
-  // requested group (bathroom) and preserve kitchen as pending. A later, separate
-  // request such as "Tư vấn gạch ốp lát" always supersedes that earlier group.
+  // A single quick-reply mentioning both bathroom and kitchen serves bathroom
+  // first and keeps kitchen pending. A later separate request always supersedes it.
   if (latestProducts.includes("combo_phong_tam") && latestProducts.includes("phong_bep")) {
     allowedProducts = ["combo_phong_tam"];
   } else if (latestProducts.length) {
     allowedProducts = [latestProducts[0]];
   } else {
-    const referralProducts = detectSemanticProductKeys("", { referral });
+    const referralProducts = detectSemanticProductKeys("", { referral: safeReferral(turn?.referral) });
     allowedProducts = referralProducts.length ? [referralProducts[0]] : [];
   }
 
@@ -73,8 +90,8 @@ export function buildConversationTurn(events, options = {}) {
     if (hasRealReferral(event?.referral)) carriedReferral = event.referral;
     return {
       ...event,
-      // Follow-up messages normally omit the referral payload. Carry the last real
-      // ad referral forward instead of replacing it with a fake ORGANIC referral.
+      // Follow-up messages normally omit referral. Carry the last real ad referral
+      // forward instead of replacing it with an artificial ORGANIC referral.
       referral: hasRealReferral(event?.referral)
         ? event.referral
         : carriedReferral || safeReferral(event?.referral),
@@ -83,7 +100,7 @@ export function buildConversationTurn(events, options = {}) {
   const turn = buildSemanticTurn(safeEvents, options);
   if (!turn?.valid) return turn;
 
-  const state = latestRequestProductState(turn);
+  const state = latestRequestProductState(safeEvents, turn);
   const originalSignals = turn.salesSignals || {};
   turn.salesSignals = {
     ...originalSignals,
