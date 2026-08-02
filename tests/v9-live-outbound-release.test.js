@@ -18,7 +18,7 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway cannot report healthy while silently running stale V9 workers", () => {
-  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V5/);
+  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V6/);
   assert.match(patch, /refusing to start Railway with stale workers/);
   assert.match(patch, /process\.exit\(1\)/);
   assert.match(patch, /V9_SUPPORT_FAST_VISION/);
@@ -29,6 +29,9 @@ test("Railway cannot report healthy while silently running stale V9 workers", ()
   assert.match(patch, /V9_MEDIA_LIMIT_30/);
   assert.match(patch, /V9_AI_ROOT_CONVERSATION_ARCH/);
   assert.match(patch, /V9_DIRECT_ROOT_CONVERSATION_ARCH/);
+  assert.match(patch, /V9_AI_NO_DROP/);
+  assert.match(patch, /V9_DIRECT_NO_DROP/);
+  assert.match(patch, /V9_OUTBOUND_NO_DROP/);
   assert.match(patch, /\$\{label\}_NOT_INSTALLED/);
   assert.ok(
     patch.indexOf('await import("./v9-support-large-slide-release-patch.js")')
@@ -37,6 +40,11 @@ test("Railway cannot report healthy while silently running stale V9 workers", ()
   );
   assert.ok(
     patch.indexOf('await import("./v9-root-conversation-architecture-release-patch.js")')
+      < patch.indexOf('await import("./v9-no-drop-release-patch.js")'),
+    "no-drop patch must be the final customer-worker policy",
+  );
+  assert.ok(
+    patch.indexOf('await import("./v9-no-drop-release-patch.js")')
       < patch.indexOf('await import("./patch-dashboard-ui-filter-metrics.js")'),
     "customer workers must be installed before the independent dashboard hotfix",
   );
@@ -50,9 +58,8 @@ test("live outbound requires AIGUKA primary and an explicit activation cutover",
   assert.match(worker, /DECISION_TOO_OLD/);
 });
 
-test("final gate blocks human takeover, captured contact and prior Page replies", () => {
+test("base final gate blocks human takeover, verified Page replies and low confidence", () => {
   assert.match(worker, /HUMAN_TAKEOVER/);
-  assert.match(worker, /CONTACT_ALREADY_CAPTURED/);
   assert.match(worker, /PAGE_ALREADY_REPLIED/);
   assert.match(worker, /CONFIDENCE_TOO_LOW/);
 });

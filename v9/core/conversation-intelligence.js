@@ -46,10 +46,10 @@ const PRODUCT_RULES = [
   ["lavabo", /\blavabo\b|\bchau rua mat\b/],
   ["sen_tam", /\bsen tam\b|\bsen cay\b|\bvoi tam\b/],
   ["bep_tu_hut_mui", /\bbep\b|\bbep dien\b|\bbep [1-9] (tu|vung)\b|\bbep tu\b|\bhut mui\b|\bmay hut mui\b|\bhut khoi\b/],
-  ["chau_voi_rua_bat", /\bchau (voi )?rua (bat|chen)\b|\bvoi rua (bat|chen)\b|\bbon rua (bat|bep)\b/],
-  ["quat_tran", /\bquat tran\b|\bquat [0-9]+ canh\b/],
-  ["den_trang_tri", /\bden chum\b|\bden trang tri\b|\bden tha\b/],
-  ["gach_op_lat", /\bgach\b|\bop lat\b|\bgach men\b/],
+  ["chau_voi_rua_bat", /\bchau\b|\bchau (voi )?rua (bat|chen)\b|\bvoi rua (bat|chen)\b|\bbon rua (bat|bep)\b/],
+  ["quat_tran", /\bquat tran\b|\bquat [0-9]+ canh\b|\bquat nay\b/],
+  ["den_trum", /\bden chum\b|\bden trum\b|\bden trang tri\b|\bden tha\b/],
+  ["gach_da_op_lat", /\bgach\b|\bop lat\b|\bgach men\b/],
   ["guong_tu", /\bguong tu\b|\btu guong\b|\btu lavabo\b|\btu chau\b/],
   ["bon_tam", /\bbon tam\b|\bjacuzzi\b/],
 ];
@@ -61,9 +61,13 @@ export function detectProductKeys(value) {
     if (pattern.test(normalized)) push(products, key);
   }
   if (products.includes("bep_tu_hut_mui") && products.includes("chau_voi_rua_bat")
-    && /\b(rua bep|bon rua bep)\b/.test(normalized)
+    && /\b(chau|rua bep|bon rua bep)\b/.test(normalized)
     && !/\bbep (dien|tu|[1-9])\b|\bhut mui\b/.test(normalized)) {
     products.splice(products.indexOf("bep_tu_hut_mui"), 1);
+  }
+  if (products.includes("lavabo") && products.includes("chau_voi_rua_bat")
+    && /\b(lavabo|rua mat)\b/.test(normalized)) {
+    products.splice(products.indexOf("chau_voi_rua_bat"), 1);
   }
   return products;
 }
@@ -82,7 +86,7 @@ function detectIntents(value, options = {}) {
   if (address) push(intents, "address");
   if (visit) push(intents, "visit");
   if (explicitMedia || (bareView && hasProductContext && !visit)) push(intents, "samples");
-  if (/\b(xem het|tat ca|day du|co nhung gi)\b/.test(normalized)) push(intents, "all_products");
+  if (/\b(xem het|tat ca|day du|co nhung gi|noi that nha moi)\b/.test(normalized)) push(intents, "all_products");
   if (/\b(mua|chot|dat hang|dat coc|lay bo|lay combo)\b/.test(normalized)) push(intents, "purchase");
   if (/\b(ship|giao hang|van chuyen)\b/.test(normalized)) push(intents, "delivery");
   if (/\b(bao hanh|doi tra)\b/.test(normalized)) push(intents, "warranty");
@@ -110,7 +114,7 @@ export function extractSalesSignals(value, options = {}) {
   const addressOnly = intentInfo.intents.includes("address")
     && !intentInfo.intents.some((item) => ["samples", "price", "purchase", "all_products"].includes(item));
   const anaphoric = intentInfo.bareView
-    || /\b(gui qua day|gui day|moi do duoc|chua do|tu van tiep|loai do|mau do)\b/.test(normalizeVietnamese(value));
+    || /\b(gui qua day|gui day|moi do duoc|chua do|tu van tiep|loai do|mau do|mau nay|san pham nay)\b/.test(normalizeVietnamese(value));
 
   if (!products.length && fallbackProduct && !addressOnly
     && (anaphoric || intentInfo.intents.some((item) => ["samples", "price", "purchase", "all_products"].includes(item)))) {
@@ -159,6 +163,15 @@ function latestReferral(sorted, latestCustomerIndex) {
   })?.referral || null;
 }
 
+function knownContactFromState(state = {}, customer = {}) {
+  const status = String(state.contact_status || state.contactStatus || "").toLowerCase();
+  return Boolean(
+    state.phone || state.zalo || customer.phone || customer.zalo
+    || customer.profile?.phone || customer.profile?.zalo
+    || ["captured", "verified"].includes(status)
+  );
+}
+
 export function buildConversationTurn(events, options = {}) {
   const maxGapMs = Math.max(15, Number(options.maxGapSeconds || 90)) * 1000;
   const coexistenceMode = String(options.coexistenceMode || "AICAKE_ACTIVE").toUpperCase();
@@ -190,7 +203,15 @@ export function buildConversationTurn(events, options = {}) {
   const contextCustomerEvents = customerEventsForContext(sorted, latestCustomerIndex, options);
   const combinedText = activeCustomerEvents.map((event) => text(event?.message_text ?? event?.text)).filter(Boolean).join("\n");
   const contextText = contextCustomerEvents.map((event) => text(event?.message_text ?? event?.text)).filter(Boolean).join("\n");
-  const contact = detectContact(contextText || combinedText);
+  const currentContact = detectContact(combinedText);
+  const contextContact = detectContact(contextText || combinedText);
+  const contactKnown = Boolean(contextContact.contactCaptured || knownContactFromState(state, customer));
+  const contact = {
+    ...contextContact,
+    contactCaptured: contactKnown,
+    newlyCaptured: currentContact.contactCaptured,
+    currentTurn: currentContact,
+  };
   const salesSignals = extractSalesSignals(combinedText, {
     contextText,
     lastProductKey: customer.last_product_key || customer.profile?.last_product_key,
@@ -204,7 +225,7 @@ export function buildConversationTurn(events, options = {}) {
   const ambiguous = responses.find((event) => eventType(event) === "page_message");
 
   let action = "needs_ai_decision";
-  if (contact.contactCaptured) action = "contact_captured";
+  if (currentContact.contactCaptured) action = "contact_captured";
   else if (verifiedHuman || state.human_takeover === true || state.humanTakeover === true) action = "human_takeover_active";
   else if (bot) action = "aiguka_already_replied";
   else if (!supportSlideOnly && automation && coexistenceMode === "AICAKE_ACTIVE") action = "external_bot_replied";
@@ -235,11 +256,13 @@ export function buildConversationTurn(events, options = {}) {
       bot: bot ? eventId(bot) : null,
       ambiguousPage: ambiguous ? eventId(ambiguous) : null,
     },
-    shouldRequestContact: !contact.contactCaptured && action === "needs_ai_decision",
+    shouldRequestContact: !contactKnown && action === "needs_ai_decision",
     contextPolicy: {
       active_gap_seconds: Math.round(maxGapMs / 1000),
       context_customer_messages: contextCustomerEvents.length,
       product_source: salesSignals.productSource,
+      contact_known: contactKnown,
+      contact_newly_captured: currentContact.contactCaptured,
     },
   };
 }

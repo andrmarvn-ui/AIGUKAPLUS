@@ -43,26 +43,86 @@ function nodeTokens(node) {
   ].map(normalizeCatalogToken));
 }
 
-function resolveNode(requestedKey, catalog) {
+function nodeAssetCount(node) {
+  return array(node?.assets).filter((asset) => validHttpUrl(asset?.source_url)).length;
+}
+
+function assetNodesByKeys(catalog, keys) {
+  const wanted = new Set(array(keys).map(normalizeCatalogToken));
+  return array(catalog)
+    .filter((node) => wanted.has(normalizeCatalogToken(node?.catalog_key)) && nodeAssetCount(node) > 0)
+    .sort((a, b) => nodeAssetCount(b) - nodeAssetCount(a)
+      || String(a?.catalog_key || "").localeCompare(String(b?.catalog_key || "")));
+}
+
+function familyNodes(requestedKey, catalog) {
+  const token = normalizeCatalogToken(requestedKey);
+  const fixedFamilies = {
+    phong_bep: ["bep_tu_hut_mui", "chau_voi_rua_bat"],
+    bep_tu: ["bep_tu_hut_mui"],
+    may_hut_mui: ["bep_tu_hut_mui"],
+    phong_tam: ["combo_phong_tam_ban_chay", "combo_phong_tam_dep_moi", "bon_cau_thong_minh", "guong_tu", "lavabo", "sen_voi_cao_cap"],
+    sen_tam: ["sen_cay", "sen_voi", "sen_voi_cao_cap"],
+    lavabo_tu_lavabo: ["guong_tu", "lavabo"],
+    bon_cau: ["bon_cau_thong_minh", "bon_cau_lien_khoi", "bon_cau"],
+    bon_tam: ["bon_tam_ares", "bon_tam_massage", "bon_tam"],
+    quat_10_canh: ["quat_10_canh_gold", "quat_10_canh_wood", "quat_10_canh_brown", "quat_10_canh_black", "quat_10_canh"],
+    quat_tran_den_chum_decor: ["quat_tran", "den_trum"],
+    den_trang_tri: ["den_trum"],
+  };
+  if (fixedFamilies[token]) return assetNodesByKeys(catalog, fixedFamilies[token]);
+
+  if (["gach", "gach_op_lat", "gach_da_op_lat"].includes(token)) {
+    return array(catalog)
+      .filter((node) => normalizeCatalogToken(node?.catalog_key).startsWith("gach_") && nodeAssetCount(node) > 0)
+      .sort((a, b) => nodeAssetCount(b) - nodeAssetCount(a)
+        || String(a?.catalog_key || "").localeCompare(String(b?.catalog_key || "")))
+      .slice(0, 6);
+  }
+  return [];
+}
+
+function resolveNodes(requestedKey, catalog) {
   const raw = String(requestedKey || "").trim();
   if (!raw) throw mediaError("MEDIA_CATALOG_KEY_EMPTY");
 
+  const family = familyNodes(raw, catalog);
+  if (family.length) return family;
+
   const exact = catalog.filter((node) => String(node?.catalog_key || "").trim() === raw);
-  if (exact.length === 1) return exact[0];
+  if (exact.length === 1 && nodeAssetCount(exact[0]) > 0) return exact;
   if (exact.length > 1) {
     throw mediaError("MEDIA_CATALOG_DUPLICATE_KEY", { requested_key: raw });
   }
 
   const normalized = normalizeCatalogToken(raw);
-  const matches = catalog.filter((node) => nodeTokens(node).includes(normalized));
-  if (matches.length === 1) return matches[0];
+  const matches = catalog.filter((node) => nodeTokens(node).includes(normalized) && nodeAssetCount(node) > 0);
+  if (matches.length === 1) return matches;
   if (!matches.length) {
-    throw mediaError("MEDIA_CATALOG_NOT_FOUND", { requested_key: raw });
+    throw mediaError("MEDIA_CATALOG_NOT_FOUND", {
+      requested_key: raw,
+      exact_catalog_key: exact[0]?.catalog_key || null,
+      exact_asset_count: exact[0] ? nodeAssetCount(exact[0]) : 0,
+    });
   }
+
+  const exactTokenMatches = matches.filter((node) => normalizeCatalogToken(node?.catalog_key) === normalized);
+  if (exactTokenMatches.length === 1) return exactTokenMatches;
   throw mediaError("MEDIA_CATALOG_AMBIGUOUS", {
     requested_key: raw,
     matching_catalog_keys: matches.map((node) => node.catalog_key),
   });
+}
+
+function resolveNode(requestedKey, catalog) {
+  const nodes = resolveNodes(requestedKey, catalog);
+  if (nodes.length !== 1) {
+    throw mediaError("MEDIA_CATALOG_FAMILY", {
+      requested_key: String(requestedKey || "").trim(),
+      matching_catalog_keys: nodes.map((node) => node.catalog_key),
+    });
+  }
+  return nodes[0];
 }
 
 export function authoritativeRequestedKeys(decision = {}) {
@@ -76,7 +136,24 @@ export function resolveAuthoritativeCatalogKeys({ requestedKeys = [], catalog = 
   const nodes = array(catalog);
   const requested = unique(array(requestedKeys).map((value) => String(value || "").trim()));
   if (!requested.length) throw mediaError("MEDIA_DECISION_PRODUCTS_REQUIRED");
-  return unique(requested.map((key) => String(resolveNode(key, nodes).catalog_key || "").trim()));
+
+  const resolved = [];
+  const ignored = [];
+  for (const key of requested) {
+    try {
+      resolved.push(...resolveNodes(key, nodes).map((node) => String(node?.catalog_key || "").trim()));
+    } catch (error) {
+      ignored.push({ requested_key: key, error: String(error?.code || error?.message || error) });
+    }
+  }
+  const keys = unique(resolved);
+  if (!keys.length) {
+    throw mediaError("MEDIA_CATALOG_NOT_FOUND", {
+      requested_keys: requested,
+      ignored_requested_keys: ignored,
+    });
+  }
+  return keys;
 }
 
 function assetsForNode(node) {
@@ -157,6 +234,9 @@ export const __private__ = {
   validHttpUrl,
   mediaError,
   nodeTokens,
+  nodeAssetCount,
+  familyNodes,
+  resolveNodes,
   resolveNode,
   assetsForNode,
 };
