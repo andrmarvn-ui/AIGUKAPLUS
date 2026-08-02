@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-const RELEASE = "AIGUKA_V9_LIVE_RELEASE_V7_MULTI_PRODUCT";
+const RELEASE = "AIGUKA_V9_LIVE_RELEASE_V8_VERIFIED_FEATURES";
 
 function requireToken(file, token, label) {
   const source = fs.readFileSync(file, "utf8");
@@ -61,27 +61,32 @@ async function installLiveRelease() {
   ];
   for (const [stage, path] of stages) await applyStage(stage, path);
 
-  requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_FAST_VISION_V1", "V9_SUPPORT_FAST_VISION");
-  requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_SAMPLE_AI_V1", "V9_SUPPORT_SAMPLE_AI");
-  requireToken(aiTargetFile, "AIGUKA_V9_MEDIA_AUTHORITY_V1", "V9_AI_MEDIA_AUTHORITY");
-  requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_SUPPORT_LARGE_SLIDE_AI");
-  requireToken(aiTargetFile, "AIGUKA_V9_ROOT_CONVERSATION_ARCH_V1", "V9_AI_ROOT_CONVERSATION_ARCH");
-  requireToken(aiTargetFile, "AIGUKA_V9_NO_DROP_V1", "V9_AI_NO_DROP");
-  requireToken(aiTargetFile, "AIGUKA_V9_SEMANTIC_PRODUCT_LOCK_V1", "V9_AI_SEMANTIC_LOCK");
-  requireToken(aiTargetFile, "AIGUKA_V9_MULTI_PRODUCT_REQUEST_PLAN_V1", "V9_AI_MULTI_PRODUCT_PLAN");
-  requireToken(directFile, "AIGUKA_V9_SUPPORT_SAMPLE_AI_V1", "V9_SUPPORT_REFERRAL_CARRY");
-  requireToken(directFile, "AIGUKA_V9_ROOT_CONVERSATION_ARCH_V1", "V9_DIRECT_ROOT_CONVERSATION_ARCH");
-  requireToken(directFile, "AIGUKA_V9_NO_DROP_V1", "V9_DIRECT_NO_DROP");
-  requireToken(directFile, "AIGUKA_V9_SEMANTIC_PRODUCT_LOCK_V1", "V9_DIRECT_SEMANTIC_LOCK");
-  requireToken(directFile, "AIGUKA_V9_MULTI_PRODUCT_REQUEST_PLAN_V1", "V9_DIRECT_MULTI_PRODUCT_PLAN");
-  requireToken(outboundFile, "AIGUKA_V9_SUPPORT_FAST_VISION_V1", "V9_OUTBOUND_IMAGE_PERMISSION");
-  requireToken(outboundFile, "AIGUKA_V9_MEDIA_AUTHORITY_V1", "V9_OUTBOUND_MEDIA_AUTHORITY");
-  requireToken(outboundFile, "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_OUTBOUND_SUPPORT_LARGE_SLIDE");
-  requireToken(outboundFile, "AIGUKA_V9_NO_DROP_V1", "V9_OUTBOUND_NO_DROP");
-  requireToken("v9/core/media-authority.js", "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_MEDIA_LIMIT_30");
+  // Validate stable final capabilities. Earlier patches may intentionally rewrite the
+  // exact lines that held their temporary marker comments, so marker-only checks can
+  // falsely kill a fully installed release. These tokens are executable behavior or
+  // final worker versions and must survive the complete patch chain.
+  requireToken(aiTargetFile, 'const VERSION = "v9_ai_multi_product_plan_v13";', "V9_AI_FINAL_VERSION");
+  requireToken(aiTargetFile, "function supportImageUrls", "V9_AI_IMAGE_SUPPORT");
+  requireToken(aiTargetFile, "function supportTextInstructions", "V9_AI_SAMPLE_SUPPORT");
+  requireToken(aiTargetFile, "resolveAuthoritativeCatalogKeys", "V9_AI_MEDIA_AUTHORITY");
+  requireToken(aiTargetFile, "function rootLiveMappingContext", "V9_AI_ROOT_CONTEXT");
+  requireToken(aiTargetFile, "contactNewlyCaptured", "V9_AI_CONTACT_NO_DROP");
+  requireToken(aiTargetFile, "enforceSemanticProductLock", "V9_AI_SEMANTIC_LOCK");
+  requireToken(aiTargetFile, "semanticDeterministicDecision", "V9_AI_MULTI_PRODUCT_POLICY");
+
+  requireToken(directFile, 'const VERSION = "v9_direct_multi_product_plan_v5";', "V9_DIRECT_FINAL_VERSION");
+  requireToken(directFile, 'semantic-conversation-intelligence-v2.js', "V9_DIRECT_MULTI_PRODUCT_BUILDER");
+  requireToken(directFile, "contextCustomerMessages: 12", "V9_DIRECT_BOUNDED_CONTEXT");
   requireToken("v9/core/semantic-conversation-intelligence-v2.js", "requestPlan", "V9_MULTI_PRODUCT_CONVERSATION_CORE");
   requireToken("v9/core/semantic-decision-policy.js", "multi_product_plan_restored", "V9_MULTI_PRODUCT_DECISION_POLICY");
   requireToken("v9/core/semantic-decision-policy.js", "GEMINI_FREE_COOLDOWN_ACTIVE", "V9_GEMINI_FREE_CIRCUIT_BREAKER");
+
+  requireToken(outboundFile, 'const VERSION = "v9_live_outbound_no_drop_v5";', "V9_OUTBOUND_FINAL_VERSION");
+  requireToken(outboundFile, "selectAuthoritativeMedia", "V9_OUTBOUND_MEDIA_AUTHORITY");
+  requireToken(outboundFile, "policy: \"support_20_30_images\"", "V9_OUTBOUND_LARGE_SLIDE");
+  requireToken(outboundFile, "latestCustomerAt", "V9_OUTBOUND_FRESH_PAGE_GATE");
+  requireToken(outboundFile, "truthfulTextFallback", "V9_OUTBOUND_TEXT_FALLBACK");
+  requireToken("v9/core/media-authority.js", "const MAX_MEDIA_ASSETS = 30", "V9_MEDIA_LIMIT_30");
 
   await applyStage("mode-sync", "./v8-v9-mode-sync-worker.js");
 
