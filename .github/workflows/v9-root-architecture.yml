@@ -1,0 +1,37 @@
+name: V9 Root Architecture
+
+on:
+  pull_request:
+    paths:
+      - "v9/**"
+      - "v9-*.js"
+      - "tests/v9-root-conversation-*.test.js"
+      - ".github/workflows/v9-root-architecture.yml"
+  push:
+    branches:
+      - "fix/v9-root-conversation-architecture"
+    paths:
+      - "v9/**"
+      - "v9-*.js"
+      - "tests/v9-root-conversation-*.test.js"
+      - ".github/workflows/v9-root-architecture.yml"
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Conversation and Knowledge regression
+        run: node --test tests/v9-root-conversation-architecture.test.js
+      - name: Railway patch-chain integration
+        run: node --test tests/v9-root-conversation-release.test.js
+      - name: Syntax checks
+        run: |
+          node --check v9/core/conversation-intelligence.js
+          node --check v9/core/knowledge-selector-v2.js
+          node --check v9/core/decision-contract-v2.js
+          node --check v9-root-conversation-architecture-release-patch.js

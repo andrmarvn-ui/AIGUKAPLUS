@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-const RELEASE = "AIGUKA_V9_LIVE_RELEASE_V4";
+const RELEASE = "AIGUKA_V9_LIVE_RELEASE_V5";
 
 function requireToken(file, token, label) {
   const source = fs.readFileSync(file, "utf8");
@@ -42,12 +42,15 @@ async function installLiveRelease() {
   await import("./v9-support-sample-ai-release-patch.js");
   await import("./v9-media-authority-release-patch.js");
   await import("./v9-support-large-slide-release-patch.js");
+  await import("./v9-root-conversation-architecture-release-patch.js");
 
   requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_FAST_VISION_V1", "V9_SUPPORT_FAST_VISION");
   requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_SAMPLE_AI_V1", "V9_SUPPORT_SAMPLE_AI");
   requireToken(aiTargetFile, "AIGUKA_V9_MEDIA_AUTHORITY_V1", "V9_AI_MEDIA_AUTHORITY");
   requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_SUPPORT_LARGE_SLIDE_AI");
+  requireToken(aiTargetFile, "AIGUKA_V9_ROOT_CONVERSATION_ARCH_V1", "V9_AI_ROOT_CONVERSATION_ARCH");
   requireToken(directFile, "AIGUKA_V9_SUPPORT_SAMPLE_AI_V1", "V9_SUPPORT_REFERRAL_CARRY");
+  requireToken(directFile, "AIGUKA_V9_ROOT_CONVERSATION_ARCH_V1", "V9_DIRECT_ROOT_CONVERSATION_ARCH");
   requireToken(outboundFile, "AIGUKA_V9_SUPPORT_FAST_VISION_V1", "V9_OUTBOUND_IMAGE_PERMISSION");
   requireToken(outboundFile, "AIGUKA_V9_MEDIA_AUTHORITY_V1", "V9_OUTBOUND_MEDIA_AUTHORITY");
   requireToken(outboundFile, "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_OUTBOUND_SUPPORT_LARGE_SLIDE");
@@ -64,7 +67,7 @@ async function installLiveRelease() {
   }
 
   globalThis.__AIGUKA_V9_LIVE_RELEASE__ = RELEASE;
-  console.log(`[AIGUKA V9] ${RELEASE} installed: SUPPORT sample AI, fast vision, 20-30 exact images, V8→V9 mode sync and authoritative media delivery`);
+  console.log(`[AIGUKA V9] ${RELEASE} installed: root conversation context, live folder Mapping, SUPPORT sample AI, 20-30 exact images and authoritative media delivery`);
 }
 
 try {

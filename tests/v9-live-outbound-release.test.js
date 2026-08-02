@@ -18,7 +18,7 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway cannot report healthy while silently running stale V9 workers", () => {
-  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V4/);
+  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V5/);
   assert.match(patch, /refusing to start Railway with stale workers/);
   assert.match(patch, /process\.exit\(1\)/);
   assert.match(patch, /V9_SUPPORT_FAST_VISION/);
@@ -27,9 +27,16 @@ test("Railway cannot report healthy while silently running stale V9 workers", ()
   assert.match(patch, /V9_OUTBOUND_MEDIA_AUTHORITY/);
   assert.match(patch, /V9_OUTBOUND_SUPPORT_LARGE_SLIDE/);
   assert.match(patch, /V9_MEDIA_LIMIT_30/);
+  assert.match(patch, /V9_AI_ROOT_CONVERSATION_ARCH/);
+  assert.match(patch, /V9_DIRECT_ROOT_CONVERSATION_ARCH/);
   assert.match(patch, /\$\{label\}_NOT_INSTALLED/);
   assert.ok(
     patch.indexOf('await import("./v9-support-large-slide-release-patch.js")')
+      < patch.indexOf('await import("./v9-root-conversation-architecture-release-patch.js")'),
+    "root architecture must be installed after legacy SUPPORT/media patches",
+  );
+  assert.ok(
+    patch.indexOf('await import("./v9-root-conversation-architecture-release-patch.js")')
       < patch.indexOf('await import("./patch-dashboard-ui-filter-metrics.js")'),
     "customer workers must be installed before the independent dashboard hotfix",
   );
