@@ -43,23 +43,25 @@ function build(events, options = {}) {
   });
 }
 
-test("bathroom and kitchen request preserves order and serves bathroom first", () => {
+test("bathroom and kitchen request keeps both groups active", () => {
   const turn = build([ev(0, "Tư vấn nhà tắm/nhà bếp...")]);
-  assert.deepEqual(turn.salesSignals.allowedProducts, ["combo_phong_tam"]);
-  assert.equal(turn.salesSignals.primaryProduct, "combo_phong_tam");
-  assert.ok(turn.salesSignals.pendingProducts.includes("phong_bep"));
+  assert.deepEqual(turn.salesSignals.allowedProducts, ["combo_phong_tam", "phong_bep"]);
+  assert.equal(turn.salesSignals.productLock, "hard_multi");
+  assert.equal(turn.salesSignals.requestPlan.filter((item) => item.state === "active").length, 2);
   const decision = semanticDeterministicDecision({ turn }, {});
   assert.equal(decision.action, "reply_with_slides");
-  assert.deepEqual(decision.products, ["combo_phong_tam"]);
+  assert.deepEqual(decision.products, ["combo_phong_tam", "phong_bep"]);
+  assert.match(decision.final_reply, /đồng thời|từng nhóm/i);
 });
 
-test("explicit bathroom-first follow-up cannot be overridden by prior kitchen context", () => {
+test("explicit bathroom-first follow-up defers other groups without forgetting them", () => {
   const turn = build([
     ev(0, "Tư vấn nhà tắm/nhà bếp..."),
     ev(45, "Cần tư vấn thiết bị vệ sinh đã"),
   ]);
   assert.deepEqual(turn.salesSignals.allowedProducts, ["combo_phong_tam"]);
-  assert.equal(turn.salesSignals.primaryProduct, "combo_phong_tam");
+  assert.ok(turn.salesSignals.pendingProducts.includes("phong_bep"));
+  assert.equal(turn.salesSignals.requestPlan.find((item) => item.productKey === "phong_bep")?.state, "pending");
   const decision = semanticDeterministicDecision({ turn }, {});
   assert.deepEqual(decision.products, ["combo_phong_tam"]);
   assert.doesNotMatch(decision.final_reply, /bếp từ|hút mùi/i);
@@ -82,23 +84,23 @@ test("tủ lavabo is one vanity catalog, not standalone lavabo plus mirror", () 
   assert.deepEqual(turn.salesSignals.allowedProducts, ["guong_tu"]);
 });
 
-test("tile project for four bathrooms and kitchen is locked to tile", () => {
+test("tile project for four bathrooms and kitchen is locked to tile when tile is the only requested product", () => {
   const turn = build([ev(0, "Tôi ốp 4 v s và pòng bếp khoảng 100m")]);
   const decision = semanticDeterministicDecision({ turn }, {});
   assert.deepEqual(decision.products, ["gach_da_op_lat"]);
   assert.equal(decision.needs_slides, true);
 });
 
-test("independent bathroom kitchen and tile postbacks keep latest tile request separate", () => {
+test("sequential bathroom kitchen and tile requests in one active turn keep all groups", () => {
   const turn = build([
     ev(0, "Tư vấn nhà tắm/nhà bếp..."),
     ev(20, "Tư vấn gạch ốp lát"),
   ]);
-  assert.deepEqual(turn.salesSignals.allowedProducts, ["gach_da_op_lat"]);
-  assert.ok(turn.salesSignals.requestedProducts.includes("combo_phong_tam"));
-  assert.ok(turn.salesSignals.requestedProducts.includes("phong_bep"));
+  assert.deepEqual(turn.salesSignals.allowedProducts, ["combo_phong_tam", "phong_bep", "gach_da_op_lat"]);
+  assert.equal(turn.salesSignals.requestPlan.filter((item) => item.state === "active").length, 3);
   const decision = semanticDeterministicDecision({ turn }, {});
-  assert.deepEqual(decision.products, ["gach_da_op_lat"]);
+  assert.deepEqual(decision.products, ["combo_phong_tam", "phong_bep", "gach_da_op_lat"]);
+  assert.match(decision.final_reply, /không.*bỏ sót|không quy|từng nhóm/i);
 });
 
 test("10-wing fan color is inferred from current text plus referral", () => {
@@ -151,6 +153,25 @@ test("provider cannot change a locked sink request into chandelier", () => {
   assert.deepEqual(corrected.products, ["chau_voi_rua_bat"]);
 });
 
+test("provider cannot collapse a multi-product request to one group", () => {
+  const allowedProducts = ["combo_phong_tam", "phong_bep", "gach_da_op_lat"];
+  const corrected = enforceSemanticProductLock({
+    action: "reply_with_slides",
+    final_reply: "Em gửi mẫu gạch ạ",
+    products: ["gach_da_op_lat"],
+    intents: ["samples"],
+    needs_slides: true,
+    should_request_contact: false,
+    contact_benefit: "",
+    confidence: 0.9,
+    reason: "provider collapsed request",
+    risk_flags: [],
+  }, { turn: { salesSignals: { allowedProducts, productLock: "hard_multi" } } });
+  assert.deepEqual(corrected.products, allowedProducts);
+  assert.match(corrected.final_reply, /đồng thời|từng nhóm|không bỏ sót/i);
+  assert.ok(corrected.risk_flags.includes("multi_product_plan_restored"));
+});
+
 test("media is blocked when no semantic product is resolved", () => {
   const corrected = enforceSemanticProductLock({
     action: "reply_with_slides",
@@ -178,7 +199,7 @@ test("Gemini Free 429 opens a cooldown circuit", () => {
   semanticAfterGeminiCall(200);
 });
 
-test("full Railway patch chain installs semantic lock after no-drop", async () => {
+test("full Railway patch chain installs multi-product request plan after no-drop", async () => {
   const root = process.cwd();
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "aiguka-semantic-lock-"));
   const files = [
@@ -234,10 +255,10 @@ test("full Railway patch chain installs semantic lock after no-drop", async () =
 
   const ai = fs.readFileSync(path.join(temp, "v9-ai-shadow-worker.js"), "utf8");
   const direct = fs.readFileSync(path.join(temp, "v9-direct-core-worker.js"), "utf8");
-  assert.match(ai, /AIGUKA_V9_SEMANTIC_PRODUCT_LOCK_V1/);
-  assert.match(ai, /v9_ai_semantic_lock_v12/);
+  assert.match(ai, /AIGUKA_V9_MULTI_PRODUCT_REQUEST_PLAN_V1/);
+  assert.match(ai, /v9_ai_multi_product_plan_v13/);
   assert.match(ai, /semanticBeforeGeminiCall/);
   assert.match(ai, /enforceSemanticProductLock/);
-  assert.match(direct, /v9_direct_semantic_lock_v4/);
+  assert.match(direct, /v9_direct_multi_product_plan_v5/);
   assert.match(direct, /semantic-conversation-intelligence-v2/);
 });

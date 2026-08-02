@@ -18,9 +18,11 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway cannot report healthy while silently running stale V9 workers", () => {
-  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V6/);
+  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V7_MULTI_PRODUCT/);
   assert.match(patch, /refusing to start Railway with stale workers/);
   assert.match(patch, /process\.exit\(1\)/);
+  assert.match(patch, /V9_RELEASE_STAGE_FAILED/);
+  assert.match(patch, /RAILWAY_GIT_COMMIT_SHA/);
   assert.match(patch, /V9_SUPPORT_FAST_VISION/);
   assert.match(patch, /V9_SUPPORT_SAMPLE_AI/);
   assert.match(patch, /V9_SUPPORT_REFERRAL_CARRY/);
@@ -32,22 +34,19 @@ test("Railway cannot report healthy while silently running stale V9 workers", ()
   assert.match(patch, /V9_AI_NO_DROP/);
   assert.match(patch, /V9_DIRECT_NO_DROP/);
   assert.match(patch, /V9_OUTBOUND_NO_DROP/);
+  assert.match(patch, /V9_AI_MULTI_PRODUCT_PLAN/);
+  assert.match(patch, /V9_DIRECT_MULTI_PRODUCT_PLAN/);
   assert.match(patch, /\$\{label\}_NOT_INSTALLED/);
-  assert.ok(
-    patch.indexOf('await import("./v9-support-large-slide-release-patch.js")')
-      < patch.indexOf('await import("./v9-root-conversation-architecture-release-patch.js")'),
-    "root architecture must be installed after legacy SUPPORT/media patches",
-  );
-  assert.ok(
-    patch.indexOf('await import("./v9-root-conversation-architecture-release-patch.js")')
-      < patch.indexOf('await import("./v9-no-drop-release-patch.js")'),
-    "no-drop patch must be the final customer-worker policy",
-  );
-  assert.ok(
-    patch.indexOf('await import("./v9-no-drop-release-patch.js")')
-      < patch.indexOf('await import("./patch-dashboard-ui-filter-metrics.js")'),
-    "customer workers must be installed before the independent dashboard hotfix",
-  );
+
+  const largeSlide = patch.indexOf('["large-slide", "./v9-support-large-slide-release-patch.js"]');
+  const root = patch.indexOf('["root-conversation", "./v9-root-conversation-architecture-release-patch.js"]');
+  const noDrop = patch.indexOf('["no-drop", "./v9-no-drop-release-patch.js"]');
+  const multi = patch.indexOf('["multi-product-plan", "./v9-semantic-product-lock-release-patch.js"]');
+  const dashboard = patch.indexOf('applyStage("dashboard-best-effort"');
+  assert.ok(largeSlide >= 0 && largeSlide < root, "root architecture must run after SUPPORT/media patches");
+  assert.ok(root < noDrop, "no-drop must run after root architecture");
+  assert.ok(noDrop < multi, "multi-product plan must be the final customer decision policy");
+  assert.ok(multi < dashboard, "customer workers must be complete before dashboard hotfix");
 });
 
 test("live outbound requires AIGUKA primary and an explicit activation cutover", () => {

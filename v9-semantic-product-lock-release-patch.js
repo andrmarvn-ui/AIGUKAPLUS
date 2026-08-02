@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const MARKER = "AIGUKA_V9_SEMANTIC_PRODUCT_LOCK_V1";
+const MULTI_MARKER = "AIGUKA_V9_MULTI_PRODUCT_REQUEST_PLAN_V1";
 
 function syntaxCheck(file) {
   const result = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
@@ -24,11 +25,12 @@ function replaceOnce(source, oldValue, newValue, label) {
       'import { buildConversationTurn } from "./v9/core/semantic-conversation-intelligence-v2.js";',
       "SEMANTIC_DIRECT_IMPORT",
     );
-    source = source.replace(/const VERSION = "[^"]+";/, 'const VERSION = "v9_direct_semantic_lock_v4";');
-    source += `\n// ${MARKER}: ordered customer needs and hard semantic product lock installed.\n`;
-    fs.writeFileSync(file, source);
-    syntaxCheck(file);
   }
+  source = source.replace(/const VERSION = "[^"]+";/, 'const VERSION = "v9_direct_multi_product_plan_v5";');
+  if (!source.includes(MARKER)) source += `\n// ${MARKER}: semantic product lock installed.\n`;
+  if (!source.includes(MULTI_MARKER)) source += `// ${MULTI_MARKER}: all active customer product groups are preserved in requestPlan.\n`;
+  fs.writeFileSync(file, source);
+  syntaxCheck(file);
 }
 
 {
@@ -44,9 +46,6 @@ function replaceOnce(source, oldValue, newValue, label) {
       "SEMANTIC_AI_IMPORT",
     );
 
-    // Pace and cool down Gemini around the single provider call. The existing outer
-    // catch remains untouched, so this survives earlier release patches that alter
-    // provider error recording.
     source = replaceOnce(
       source,
       '      const result = await providerCall(ai, modelInput);',
@@ -95,12 +94,13 @@ function replaceOnce(source, oldValue, newValue, label) {
       semanticValidation,
       "SEMANTIC_VALIDATE_LOCK",
     );
-
-    source = source.replace(/const VERSION = "[^"]+";/, 'const VERSION = "v9_ai_semantic_lock_v12";');
-    source += `\n// ${MARKER}: deterministic routine decisions, Gemini Free pacing and cross-catalog rejection installed.\n`;
-    fs.writeFileSync(file, source);
-    syntaxCheck(file);
   }
+
+  source = source.replace(/const VERSION = "[^"]+";/, 'const VERSION = "v9_ai_multi_product_plan_v13";');
+  if (!source.includes(MARKER)) source += `\n// ${MARKER}: deterministic semantic lock and Gemini pacing installed.\n`;
+  if (!source.includes(MULTI_MARKER)) source += `// ${MULTI_MARKER}: AI may write wording but cannot collapse or replace active product groups.\n`;
+  fs.writeFileSync(file, source);
+  syntaxCheck(file);
 }
 
-console.log(`[AIGUKA V9] ${MARKER} installed: ordered needs, exact catalog lock and Gemini Free circuit breaker`);
+console.log(`[AIGUKA V9] ${MULTI_MARKER} installed: complete multi-product requestPlan, balanced catalogs and Gemini Free circuit breaker`);

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-const RELEASE = "AIGUKA_V9_LIVE_RELEASE_V6";
+const RELEASE = "AIGUKA_V9_LIVE_RELEASE_V7_MULTI_PRODUCT";
 
 function requireToken(file, token, label) {
   const source = fs.readFileSync(file, "utf8");
@@ -8,9 +8,21 @@ function requireToken(file, token, label) {
   return source;
 }
 
+async function applyStage(stage, path) {
+  const startedAt = Date.now();
+  console.log(`[AIGUKA V9 release] START ${stage} ${path}`);
+  try {
+    await import(path);
+    console.log(`[AIGUKA V9 release] OK ${stage} ${Date.now() - startedAt}ms`);
+  } catch (error) {
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    throw new Error(`V9_RELEASE_STAGE_FAILED:${stage}:${message}`);
+  }
+}
+
 async function installLiveRelease() {
-  // Apply the customer-facing worker release first. Dashboard UI hotfixes must never
-  // be able to block Core ingestion, image understanding or Messenger delivery.
+  console.log(`[AIGUKA V9 release] BEGIN ${RELEASE} commit=${process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "unknown"}`);
+
   const directFile = "v9-direct-core-worker.js";
   let directSource = fs.readFileSync(directFile, "utf8");
 
@@ -37,14 +49,17 @@ async function installLiveRelease() {
   outboundSource = outboundSource.replace('body: { status: assets.length ? "text_sent" : "sent", updated_at: new Date().toISOString() }', 'body: { status: "sent", updated_at: new Date().toISOString() }');
   fs.writeFileSync(outboundFile, outboundSource);
 
-  await import("./v9-support-release-patch.js");
-  await import("./v9-support-fast-vision-release-patch.js");
-  await import("./v9-support-sample-ai-release-patch.js");
-  await import("./v9-media-authority-release-patch.js");
-  await import("./v9-support-large-slide-release-patch.js");
-  await import("./v9-root-conversation-architecture-release-patch.js");
-  await import("./v9-no-drop-release-patch.js");
-  await import("./v9-semantic-product-lock-release-patch.js");
+  const stages = [
+    ["support-base", "./v9-support-release-patch.js"],
+    ["support-vision", "./v9-support-fast-vision-release-patch.js"],
+    ["support-sample", "./v9-support-sample-ai-release-patch.js"],
+    ["media-authority", "./v9-media-authority-release-patch.js"],
+    ["large-slide", "./v9-support-large-slide-release-patch.js"],
+    ["root-conversation", "./v9-root-conversation-architecture-release-patch.js"],
+    ["no-drop", "./v9-no-drop-release-patch.js"],
+    ["multi-product-plan", "./v9-semantic-product-lock-release-patch.js"],
+  ];
+  for (const [stage, path] of stages) await applyStage(stage, path);
 
   requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_FAST_VISION_V1", "V9_SUPPORT_FAST_VISION");
   requireToken(aiTargetFile, "AIGUKA_V9_SUPPORT_SAMPLE_AI_V1", "V9_SUPPORT_SAMPLE_AI");
@@ -53,30 +68,31 @@ async function installLiveRelease() {
   requireToken(aiTargetFile, "AIGUKA_V9_ROOT_CONVERSATION_ARCH_V1", "V9_AI_ROOT_CONVERSATION_ARCH");
   requireToken(aiTargetFile, "AIGUKA_V9_NO_DROP_V1", "V9_AI_NO_DROP");
   requireToken(aiTargetFile, "AIGUKA_V9_SEMANTIC_PRODUCT_LOCK_V1", "V9_AI_SEMANTIC_LOCK");
+  requireToken(aiTargetFile, "AIGUKA_V9_MULTI_PRODUCT_REQUEST_PLAN_V1", "V9_AI_MULTI_PRODUCT_PLAN");
   requireToken(directFile, "AIGUKA_V9_SUPPORT_SAMPLE_AI_V1", "V9_SUPPORT_REFERRAL_CARRY");
   requireToken(directFile, "AIGUKA_V9_ROOT_CONVERSATION_ARCH_V1", "V9_DIRECT_ROOT_CONVERSATION_ARCH");
   requireToken(directFile, "AIGUKA_V9_NO_DROP_V1", "V9_DIRECT_NO_DROP");
   requireToken(directFile, "AIGUKA_V9_SEMANTIC_PRODUCT_LOCK_V1", "V9_DIRECT_SEMANTIC_LOCK");
+  requireToken(directFile, "AIGUKA_V9_MULTI_PRODUCT_REQUEST_PLAN_V1", "V9_DIRECT_MULTI_PRODUCT_PLAN");
   requireToken(outboundFile, "AIGUKA_V9_SUPPORT_FAST_VISION_V1", "V9_OUTBOUND_IMAGE_PERMISSION");
   requireToken(outboundFile, "AIGUKA_V9_MEDIA_AUTHORITY_V1", "V9_OUTBOUND_MEDIA_AUTHORITY");
   requireToken(outboundFile, "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_OUTBOUND_SUPPORT_LARGE_SLIDE");
   requireToken(outboundFile, "AIGUKA_V9_NO_DROP_V1", "V9_OUTBOUND_NO_DROP");
   requireToken("v9/core/media-authority.js", "AIGUKA_V9_SUPPORT_SLIDE_20_30_V1", "V9_MEDIA_LIMIT_30");
-  requireToken("v9/core/semantic-conversation-intelligence.js", "semantic_product_lock", "V9_SEMANTIC_CONVERSATION_CORE");
+  requireToken("v9/core/semantic-conversation-intelligence-v2.js", "requestPlan", "V9_MULTI_PRODUCT_CONVERSATION_CORE");
+  requireToken("v9/core/semantic-decision-policy.js", "multi_product_plan_restored", "V9_MULTI_PRODUCT_DECISION_POLICY");
   requireToken("v9/core/semantic-decision-policy.js", "GEMINI_FREE_COOLDOWN_ACTIVE", "V9_GEMINI_FREE_CIRCUIT_BREAKER");
 
-  await import("./v8-v9-mode-sync-worker.js");
+  await applyStage("mode-sync", "./v8-v9-mode-sync-worker.js");
 
-  // Reporting UI is independent and best-effort. A stale HTML anchor must not leave
-  // Railway healthy while silently running the old customer workers.
   try {
-    await import("./patch-dashboard-ui-filter-metrics.js");
+    await applyStage("dashboard-best-effort", "./patch-dashboard-ui-filter-metrics.js");
   } catch (error) {
     console.error(`[AIGUKA V9] dashboard hotfix skipped after live release: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   globalThis.__AIGUKA_V9_LIVE_RELEASE__ = RELEASE;
-  console.log(`[AIGUKA V9] ${RELEASE} installed: no-drop delivery, ordered needs, hard catalog lock, Gemini Free pacing and truthful fallback`);
+  console.log(`[AIGUKA V9] ${RELEASE} installed: complete requestPlan, no-drop delivery, balanced catalogs and Gemini Free pacing`);
 }
 
 try {
