@@ -71,7 +71,6 @@ for (const patch of [
   "./patch-slide-generic-carousel.js",
   "./seed-tong-hop-context.js",
   "./patch-mapping-meta-midnight-delivery.js",
-  "./v9-live-release-patch.js",
 ]) await safeImport(patch);
 
 await safeImport("./patch-server.js");
@@ -82,7 +81,14 @@ await safeImport("./patch-outbound-drive-image-proxy-v2.js");
 await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
+
+// Bind the Railway HTTP port before installing the generated V9 worker release.
+// The release must still finish successfully before any V9 customer worker starts,
+// but lengthy file generation or cross-project preparation must not starve healthcheck.
 await safeImport("./server-fixed.js", true);
+console.log("[AIGUKA startup] HTTP server initialized; installing V9 customer-worker release");
+await safeImport("./v9-live-release-patch.js", true);
+console.log("[AIGUKA startup] V9 customer-worker release installed after HTTP bind");
 
 // V8 remains a temporary durable webhook source. All V9 state, jobs and decisions
 // use the isolated Core project. The router remains fail-closed if bootstrap fails.
