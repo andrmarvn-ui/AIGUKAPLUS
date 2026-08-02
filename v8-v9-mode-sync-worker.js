@@ -1,4 +1,4 @@
-const VERSION = "v8_v9_mode_sync_v1";
+const VERSION = "v8_v9_mode_sync_v2";
 const WORKER = "aiguka-v8-v9-mode-sync";
 const INTERVAL_MS = Math.max(10_000, Number(process.env.AIGUKA_V8_V9_MODE_SYNC_MS || 15_000));
 
@@ -192,6 +192,9 @@ async function tick() {
   } finally { running = false; }
 }
 
-await tick();
+// Never block Railway HTTP startup on cross-project synchronization. The first
+// synchronization runs immediately in the background; subsequent runs retain
+// the same interval and single-flight guard.
+void tick();
 setInterval(() => void tick(), INTERVAL_MS).unref();
-console.log(`[AIGUKA mode sync] V8 page modes -> V9 Core every ${INTERVAL_MS}ms`);
+console.log(`[AIGUKA mode sync] scheduled non-blocking; V8 page modes -> V9 Core every ${INTERVAL_MS}ms`);
