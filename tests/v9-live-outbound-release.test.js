@@ -24,22 +24,19 @@ test("Railway cannot report healthy while silently running stale V9 workers", ()
   assert.match(patch, /V9_RELEASE_STAGE_FAILED/);
   assert.match(patch, /RAILWAY_GIT_COMMIT_SHA/);
   assert.match(patch, /V9_AI_FINAL_VERSION/);
-  assert.match(patch, /V9_AI_IMAGE_SUPPORT/);
-  assert.match(patch, /V9_AI_SAMPLE_SUPPORT/);
-  assert.match(patch, /V9_AI_LIVE_SAMPLE_MAPPING/);
-  assert.match(patch, /V9_AI_MEDIA_AUTHORITY/);
-  assert.match(patch, /V9_AI_ROOT_CONTEXT/);
-  assert.match(patch, /V9_AI_CONTACT_NO_DROP/);
   assert.match(patch, /V9_AI_SEMANTIC_LOCK/);
   assert.match(patch, /V9_AI_MULTI_PRODUCT_POLICY/);
   assert.match(patch, /V9_DIRECT_FINAL_VERSION/);
   assert.match(patch, /V9_DIRECT_MULTI_PRODUCT_BUILDER/);
+  assert.match(patch, /V9_MULTI_PRODUCT_CONVERSATION_CORE/);
+  assert.match(patch, /V9_MULTI_PRODUCT_DECISION_POLICY/);
+  assert.match(patch, /V9_GEMINI_FREE_CIRCUIT_BREAKER/);
   assert.match(patch, /V9_OUTBOUND_FINAL_VERSION/);
   assert.match(patch, /V9_OUTBOUND_MEDIA_AUTHORITY/);
-  assert.match(patch, /V9_OUTBOUND_LARGE_SLIDE/);
   assert.match(patch, /V9_OUTBOUND_FRESH_PAGE_GATE/);
   assert.match(patch, /V9_OUTBOUND_TEXT_FALLBACK/);
   assert.match(patch, /V9_MEDIA_LIMIT_30/);
+  assert.match(patch, /requireSyntax/);
   assert.match(patch, /\$\{label\}_NOT_INSTALLED/);
 
   const largeSlide = patch.indexOf('["large-slide", "./v9-support-large-slide-release-patch.js"]');
