@@ -23,9 +23,9 @@ function fallbackDecision(turn, snapshot, selectedKnowledge, mappedSupportProduc
 async function process(snapshot, selectedKnowledge, mappedSupportProducts, row) {
   const contactCaptured = Boolean(snapshot?.turn?.contact?.contactCaptured || snapshot?.customer?.phone || snapshot?.customer?.zalo);
   let rawDecision = {};
-  const decision = validateDecision(rawDecision, { contactCaptured });
-  const detectedMediaProducts = Array.isArray(decision.products) ? decision.products : [];
-  await coreRest(\`v9_decisions?id=eq.\${row.id}\`, {});
+    const decision = validateDecision(rawDecision, { contactCaptured });
+    const detectedMediaProducts = Array.isArray(decision.products) ? decision.products : [];
+    await coreRest(\`v9_decisions?id=eq.\${row.id}\`, {});
 }
 function validateDecision(value) { return value; }
 async function coreRest() {}
