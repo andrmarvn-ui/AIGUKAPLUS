@@ -35,7 +35,7 @@ function replaceOnce(source, oldValue, newValue, label) {
   const file = "v9-ai-shadow-worker.js";
   let source = fs.readFileSync(file, "utf8");
   if (!source.includes(MARKER)) {
-    const semanticImport = 'import { semanticDeterministicDecision, enforceSemanticProductLock, semanticBeforeGeminiCall, semanticAfterGeminiCall } from "./v9/core/semantic-decision-policy.js";';
+    const semanticImport = 'import { semanticDeterministicDecision, enforceSemanticProductLock, semanticBeforeGeminiCall, semanticAfterGeminiCall } from "./v9/core/semantic-decision-policy-v2.js";';
     const importAnchor = 'import { selectKnowledgeContext } from "./v9/core/knowledge-selector-v2.js";';
     source = replaceOnce(
       source,
