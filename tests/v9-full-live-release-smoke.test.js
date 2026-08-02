@@ -75,7 +75,8 @@ test("full V9 live release exits cleanly and emits final worker versions", () =>
   assert.match(direct, /v9_direct_multi_product_plan_v5/);
   assert.match(outbound, /v9_live_outbound_no_drop_v5/);
   assert.match(ai, /function supportImageUrls/);
-  assert.match(ai, /function supportTextInstructions/);
+  assert.match(ai, /function supportTextWantsSamples/);
+  assert.match(ai, /async function supportLiveAdMapping/);
   assert.match(ai, /enforceSemanticProductLock/);
   assert.match(direct, /semantic-conversation-intelligence-v2/);
   assert.match(outbound, /truthfulTextFallback/);
