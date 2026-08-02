@@ -1,0 +1,4 @@
+AIGUKA_V9_LIVE_RELEASE_V6
+Source fix: fb89098b9bed6f231d4270e4191046e2f776f9e6
+Triggered at: 2026-08-02T14:40:15Z
+Purpose: deploy no-drop conversation, current-turn contact lock, fresh Page reply gate, catalog family resolution, and truthful text fallback.
