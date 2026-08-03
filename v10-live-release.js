@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V1";
+const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V2";
 
-// Gemini Free may remain rate-limited longer than one short retry cycle. These defaults
-// are established before the AI worker is imported so provider pressure cannot exhaust
-// the conversation after only three attempts. Explicit Railway settings still win.
-process.env.AIGUKA_V10_AI_MAX_ATTEMPTS ||= "10";
-process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "12000";
+// Conservative defaults for Gemini Free. The AI scheduler does not claim customer work
+// while every provider is unavailable, so cooldown never consumes a decision attempt.
+process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
+process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
 process.env.AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS ||= "300000";
+process.env.AIGUKA_OPENAI_CREDIT_COOLDOWN_MS ||= "21600000";
 
 const FILES = [
   "v10/core/advisory-engine.js",
@@ -18,6 +18,7 @@ const FILES = [
   "v10-decision-queue-janitor.js",
   "v10-direct-core-worker.js",
   "v10-ai-worker.js",
+  "v10-ai-worker-v2.js",
   "v10-outbound-worker.js",
 ];
 
@@ -35,8 +36,11 @@ for (const file of FILES) {
 requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygiene_v2";');
 requireToken("v10-decision-queue-janitor.js", "V10_REHYDRATE_LEGACY_PENDING");
 requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovereign_v1";');
-requireToken("v10-ai-worker.js", 'const VERSION = "v10_ai_sovereign_lease_v1";');
-requireToken("v10-ai-worker.js", "recoverStaleProcessing");
+requireToken("v10-ai-worker.js", 'await import("./v10-ai-worker-v2.js")');
+requireToken("v10-ai-worker-v2.js", 'const VERSION = "v10_ai_sovereign_scheduler_v2";');
+requireToken("v10-ai-worker-v2.js", "providerAvailability");
+requireToken("v10-ai-worker-v2.js", "recoverStaleProcessing");
+requireToken("v10-ai-worker-v2.js", "operational_fallback_enabled: false");
 requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
@@ -44,4 +48,4 @@ requireToken("v10/core/decision-contract.js", "sole business decision maker");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: strict provider schema, advisory-only rules, AI sole decision, processing lease recovery and pressure-aware retry defaults`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: AI-only customer decisions, provider-aware scheduling, no quota attempt burn, no operational customer fallback`);
