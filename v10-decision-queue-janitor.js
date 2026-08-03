@@ -32,6 +32,7 @@ function isV10(row) {
 }
 
 async function suppress(row, action, reason) {
+  const now = new Date().toISOString();
   await core(`v9_decisions?id=eq.${row.id}&status=eq.${encodeURIComponent(row.status)}`, {
     method: "PATCH",
     prefer: "return=minimal",
@@ -43,9 +44,11 @@ async function suppress(row, action, reason) {
         should_send: false,
         transport_locked: true,
         queue_hygiene_reason: reason,
+        rehydrated_at: action === "legacy_rehydrating" ? now : row?.output?.rehydrated_at || null,
         architecture: row?.output?.architecture || row?.input_snapshot?.architecture || null,
       },
-      updated_at: new Date().toISOString(),
+      ...(action === "legacy_rehydrating" ? { created_at: now } : {}),
+      updated_at: now,
     },
   });
 }
