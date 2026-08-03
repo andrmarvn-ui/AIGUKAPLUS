@@ -1,5 +1,5 @@
-const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v2");
-const COMPATIBLE_HOSTS = new Set(["api.moonshot.ai", "openrouter.ai"]);
+const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v3");
+const COMPATIBLE_HOSTS = new Set(["api.moonshot.ai", "openrouter.ai", "api.deepseek.com"]);
 const DEFAULT_MAX_TOKENS = 1200;
 
 export function isCompatibleResponsesUrl(input) {
@@ -28,6 +28,16 @@ export function compatibleMaxTokens(value = process.env.AIGUKA_V10_COMPAT_MAX_TO
   return Math.max(256, Math.min(4000, Math.floor(parsed)));
 }
 
+function normalizeToolChoice(choice) {
+  if (!choice) return undefined;
+  if (choice === "required" || choice === "auto" || choice === "none") return choice;
+  if (choice?.type === "function" && choice?.name) {
+    return { type: "function", function: { name: String(choice.name) } };
+  }
+  if (choice?.type === "function" && choice?.function?.name) return choice;
+  return choice;
+}
+
 export function toChatCompletionsBody(body = {}) {
   const messages = [];
   if (body.instructions) messages.push({ role: "system", content: String(body.instructions) });
@@ -45,17 +55,16 @@ export function toChatCompletionsBody(body = {}) {
         name: tool.name,
         description: tool.description || "",
         parameters: tool.parameters || { type: "object", properties: {} },
-        ...(tool.strict === undefined ? {} : { strict: Boolean(tool.strict) }),
       },
     }));
 
+  const toolChoice = normalizeToolChoice(body.tool_choice);
   return {
     model: body.model,
     messages,
     max_tokens: compatibleMaxTokens(),
     ...(tools.length ? { tools } : {}),
-    ...(body.tool_choice ? { tool_choice: body.tool_choice === "required" ? "required" : body.tool_choice } : {}),
-    ...(body.parallel_tool_calls === undefined ? {} : { parallel_tool_calls: Boolean(body.parallel_tool_calls) }),
+    ...(toolChoice ? { tool_choice: toolChoice } : {}),
   };
 }
 
@@ -137,8 +146,8 @@ export function installOpenAICompatibleResponsesAdapter() {
   }
 
   globalThis.fetch = adaptedFetch;
-  globalThis[PATCH_MARK] = { version: "v2", hosts: [...COMPATIBLE_HOSTS], maxTokens: compatibleMaxTokens() };
-  console.log(`[AIGUKA V10] OpenAI-compatible /responses adapter v2 enabled for KIMI and OpenRouter; max_tokens=${compatibleMaxTokens()}`);
+  globalThis[PATCH_MARK] = { version: "v3", hosts: [...COMPATIBLE_HOSTS], maxTokens: compatibleMaxTokens() };
+  console.log(`[AIGUKA V10] OpenAI-compatible /responses adapter v3 enabled for KIMI, OpenRouter and DeepSeek; max_tokens=${compatibleMaxTokens()}`);
   return globalThis[PATCH_MARK];
 }
 
