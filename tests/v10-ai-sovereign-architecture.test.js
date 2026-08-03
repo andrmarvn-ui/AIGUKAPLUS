@@ -105,9 +105,11 @@ test("outbound has safety gates but no contact conversation lock", () => {
   assert.match(source, /HUMAN_TAKEOVER/);
 });
 
-test("queue janitor quarantines legacy pending decisions and supersedes older V10 decisions", () => {
+test("queue janitor rehydrates latest legacy pending decisions and supersedes older decisions", () => {
   const source = fs.readFileSync(new URL("../v10-decision-queue-janitor.js", import.meta.url), "utf8");
-  assert.match(source, /legacy_quarantined/);
-  assert.match(source, /A newer customer event exists/);
+  assert.match(source, /V10_REHYDRATE_LEGACY_PENDING/);
+  assert.match(source, /legacy_rehydrating/);
+  assert.match(source, /created_at: now/);
+  assert.match(source, /A newer pending customer event exists/);
   assert.match(source, /business_decision_authority: "none"/);
 });
