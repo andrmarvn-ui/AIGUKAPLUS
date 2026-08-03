@@ -5,7 +5,8 @@ import test from "node:test";
 const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
 const release = fs.readFileSync(new URL("../v10-live-release.js", import.meta.url), "utf8");
 const direct = fs.readFileSync(new URL("../v10-direct-core-worker.js", import.meta.url), "utf8");
-const ai = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
+const aiEntry = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
+const ai = fs.readFileSync(new URL("../v10-ai-worker-v2.js", import.meta.url), "utf8");
 const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
 
 test("live transport starts only after the isolated Core router and queue cleanup", () => {
@@ -22,17 +23,20 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway verifies clean V10 workers instead of generating patched workers", () => {
-  assert.match(release, /AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V1/);
+  assert.match(release, /AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V2/);
   assert.match(release, /v10_queue_hygiene_v2/);
   assert.match(release, /V10_REHYDRATE_LEGACY_PENDING/);
   assert.match(release, /v10_direct_ai_sovereign_v1/);
-  assert.match(release, /v10_ai_sovereign_lease_v1/);
+  assert.match(release, /v10_ai_sovereign_scheduler_v2/);
   assert.match(release, /v10_outbound_safety_only_v1/);
   assert.match(release, /spawnSync\(process\.execPath, \["--check", file\]/);
   assert.doesNotMatch(start, /v9-live-release-patch\.js/);
   assert.doesNotMatch(release, /replaceOnce|replaceBetween|applyStage/);
+  assert.match(aiEntry, /v10-ai-worker-v2\.js/);
   assert.match(ai, /recoverStaleProcessing/);
+  assert.match(ai, /providerAvailability/);
   assert.match(ai, /ai_decision_authority: "sole"/);
+  assert.match(ai, /operational_fallback_enabled: false/);
 });
 
 test("live outbound requires AIGUKA primary and an explicit activation cutover", () => {
