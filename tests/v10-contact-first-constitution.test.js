@@ -25,7 +25,8 @@ test("V10 constitution makes contact capture the primary business goal", () => {
   assert.match(instructions, /nhiệm vụ số 1 là tạo lead có SĐT hoặc Zalo/i);
   assert.match(instructions, /không phải chatbot tư vấn sâu kéo dài/i);
   assert.match(instructions, /tối đa 2-3 câu ngắn/i);
-  assert.match(instructions, /phải xin SĐT\/Zalo ngay/i);
+  assert.match(instructions, /khi đúng nhịp mới xin SĐT\/Zalo/i);
+  assert.match(instructions, /trả lời trực tiếp trước/i);
   const schema = decisionSchema();
   assert.equal(schema.properties.final_reply.maxLength, 650);
   assert.ok(schema.required.includes("contact_state"));

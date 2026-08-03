@@ -1,5 +1,5 @@
 const ACTIONS = ["reply_text", "reply_with_slides", "ask_clarification", "acknowledge_contact", "suppress"];
-const CONTACT_STATES = ["known", "missing", "refused_messenger_only", "unclear"];
+const CONTACT_STATES = ["known", "missing", "missing_recently_requested", "refused_messenger_only", "unclear"];
 const SALES_INTENTS = new Set([
   "product",
   "purchase",
@@ -15,6 +15,7 @@ const SALES_INTENTS = new Set([
   "showroom",
 ]);
 const CONTACT_REQUEST_PATTERN = /(sđt|số điện thoại|điện thoại|zalo|số liên hệ|liên hệ của anh|liên hệ của chị)/i;
+const DIRECT_CONTACT_REQUEST_PATTERN = /((cho|gửi)\s+(em|bên em)\s+xin|để lại|cho bên em).{0,60}(sđt|số điện thoại|điện thoại|zalo|số liên hệ)|(sđt|số điện thoại|zalo).{0,35}(của anh|của chị|của anh\/chị)/i;
 
 export function decisionSchema() {
   return {
@@ -67,18 +68,22 @@ export function buildDecisionInstructions() {
   return [
     "Bạn là AI ra quyết định kinh doanh duy nhất cho hội thoại khách hàng của AIGUKA/GUKA.",
     "HIẾN PHÁP MỤC TIÊU: nhiệm vụ số 1 là tạo lead có SĐT hoặc Zalo để Sale tư vấn và chốt đơn; bạn không phải chatbot tư vấn sâu kéo dài trên Messenger.",
-    "Thứ tự xử lý bắt buộc: (1) trả lời đúng ý khách vừa hỏi bằng thông tin tối thiểu cần thiết; (2) gửi vài mẫu bán chạy nếu khách xin xem mẫu và có catalog phù hợp; (3) xin SĐT/Zalo ngay trong cùng phản hồi bằng một lợi ích cụ thể; (4) dừng, không tiếp tục diễn giải lan man.",
-    "Khi khách hỏi sản phẩm, mẫu, ảnh, giá, báo giá, ưu đãi, thông số, tồn hàng, vận chuyển, địa chỉ hoặc muốn đến showroom mà chưa có liên hệ: should_request_contact=true. Câu xin liên hệ phải nêu lợi ích như gửi đúng mẫu, giá, thông số, ưu đãi, định vị hoặc tư vấn theo công trình.",
-    "Mỗi phản hồi tối đa 2-3 câu ngắn, mục tiêu dưới 450 ký tự và tuyệt đối không quá 650 ký tự. Không viết bài tư vấn dài, không liệt kê kiến thức chung, không kể lại toàn bộ nhu cầu của khách.",
-    "Mỗi phản hồi chỉ đặt tối đa một câu hỏi. Nếu cần xin liên hệ thì câu hỏi xin SĐT/Zalo được ưu tiên hơn các câu hỏi khảo sát phụ.",
-    "Nếu khách hỏi nhiều nhóm sản phẩm, giữ đủ các nhóm trong selected_products/follow_up_plan nhưng không tư vấn dài từng nhóm; gửi mẫu cân bằng rồi xin liên hệ để tư vấn đúng nhu cầu.",
+    "HIẾN PHÁP HỘI THOẠI: phải hiểu đúng câu khách vừa hỏi và trả lời trực tiếp trước. Tuyệt đối không bỏ câu hỏi của khách để chỉ xin SĐT/Zalo.",
+    "Thứ tự xử lý: (1) trả lời đúng ý bằng thông tin ngắn nhưng có ích; (2) gửi vài mẫu bán chạy nếu khách xin xem và có catalog phù hợp; (3) khi đúng nhịp mới xin SĐT/Zalo để tư vấn cho tiện, gửi mẫu và báo giá chính xác; (4) dừng, không diễn giải lan man.",
+    "KHÔNG XIN SỐ DỒN DẬP: đọc toàn bộ messages để nhận biết lần gần nhất bot/page/human đã xin SĐT/Zalo. Nếu sau lần xin gần nhất khách mới gửi dưới 2 tin nhắn, contact_state=missing_recently_requested, should_request_contact=false và lượt này chỉ trả lời câu hỏi hoặc gửi mẫu.",
+    "Chỉ được nhắc lại xin liên hệ sau ít nhất 2 tin nhắn mới của khách kể từ lần xin gần nhất. Khi nhắc lại, phải cung cấp giá trị mới trước và câu xin SĐT/Zalo luôn là câu cuối.",
+    "contact_state=missing khi chưa có liên hệ, khách chưa từ chối và nhịp xin số hiện tại được phép. Với nhu cầu bán hàng rõ, should_request_contact=true sau khi đã trả lời câu hỏi.",
+    "Khi khách hỏi sản phẩm, mẫu, ảnh, giá, báo giá, ưu đãi, thông số, tồn hàng, vận chuyển, địa chỉ hoặc showroom mà được phép xin liên hệ: câu xin phải gắn lợi ích cụ thể như tư vấn cho tiện, gửi đúng mẫu, báo giá chính xác, thông số, ưu đãi hoặc định vị.",
+    "Không bao giờ gửi một tin chỉ có nội dung xin SĐT/Zalo. Phần trước câu xin liên hệ phải trả lời được ít nhất một ý thực tế của khách hoặc xác nhận đang gửi mẫu đúng nhóm họ hỏi.",
+    "Mỗi phản hồi tối đa 2-3 câu ngắn, mục tiêu dưới 450 ký tự và tuyệt đối không quá 650 ký tự. Không viết bài tư vấn dài, không liệt kê kiến thức chung, không kể lại toàn bộ nhu cầu.",
+    "Mỗi phản hồi chỉ đặt tối đa một câu hỏi. Nếu được phép xin liên hệ thì câu hỏi xin SĐT/Zalo được ưu tiên và đặt cuối; không hỏi thêm câu khảo sát khác trong cùng lượt.",
+    "Nếu khách hỏi nhiều nhóm sản phẩm, giữ đủ các nhóm trong selected_products/follow_up_plan nhưng không tư vấn dài từng nhóm; gửi mẫu cân bằng rồi xin liên hệ khi đúng nhịp.",
     "Chỉ ask_clarification khi thực sự không xác định được khách đang hỏi sản phẩm nào. Câu hỏi làm rõ phải ngắn và không biến thành cuộc phỏng vấn nhiều bước.",
     "Đọc toàn bộ hội thoại theo thời gian; tin mới nhất không được xóa các nhu cầu chưa hoàn thành trước đó.",
     "Mappings, catalog hints, rules, locks và knowledge chỉ là cố vấn không ràng buộc. Phải suy luận từ lời khách thực tế và tự quyết định.",
     "Không thay sản phẩm khách yêu cầu bằng sản phẩm suy ra từ quảng cáo hoặc mapping.",
     "Không bịa giá, thông số, thương hiệu, tồn kho, ưu đãi, thời gian giao hoặc cam kết. Không nói đã gửi mẫu nếu needs_slides=false.",
     "contact_state=known khi hệ thống hoặc hội thoại đã có SĐT/Zalo; tuyệt đối không xin lại. contact_state=refused_messenger_only khi khách từ chối cho số hoặc yêu cầu tiếp tục trên Messenger; tôn trọng và trả lời ngắn tại Messenger.",
-    "contact_state=missing khi chưa có liên hệ và khách chưa từ chối. Với nhu cầu bán hàng rõ ràng, phải xin SĐT/Zalo ngay, không chờ nhiều lượt tư vấn.",
     "Xưng em và gọi anh/chị khi chưa có bằng chứng giới tính đáng tin cậy.",
     "Chỉ trả về tool call submit_v10_decision.",
   ].join("\n");
@@ -110,8 +115,28 @@ function hasSalesIntent(decision) {
 
 function contactRequestSentence(benefit) {
   const cleanBenefit = String(benefit || "").replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
-  if (cleanBenefit) return `Anh/chị cho em xin SĐT hoặc Zalo, bên em ${cleanBenefit.charAt(0).toLowerCase()}${cleanBenefit.slice(1)} cho tiện nhé.`;
-  return "Anh/chị cho em xin SĐT hoặc Zalo, bên em gửi đúng mẫu, giá và ưu đãi phù hợp cho tiện nhé.";
+  if (cleanBenefit) return `Anh/chị cho em xin SĐT hoặc Zalo, bên em ${cleanBenefit.charAt(0).toLowerCase()}${cleanBenefit.slice(1)} nhé.`;
+  return "Anh/chị cho em xin SĐT hoặc Zalo để bên em tư vấn cho tiện, gửi đúng mẫu và báo giá chính xác nhé.";
+}
+
+function replySentences(value) {
+  return String(value || "")
+    .match(/[^.!?]+[.!?]?/g)?.map((sentence) => sentence.trim()).filter(Boolean) || [];
+}
+
+function isDirectContactRequest(sentence) {
+  return DIRECT_CONTACT_REQUEST_PATTERN.test(String(sentence || ""));
+}
+
+function withoutContactRequest(value) {
+  return compactReply(replySentences(value).filter((sentence) => !isDirectContactRequest(sentence)).join(" "));
+}
+
+function contactRequestLast(value) {
+  const sentences = replySentences(value);
+  const valueSentences = sentences.filter((sentence) => !isDirectContactRequest(sentence));
+  const requestSentences = sentences.filter((sentence) => isDirectContactRequest(sentence));
+  return compactReply([...valueSentences, ...requestSentences.slice(-1)].join(" "));
 }
 
 export function validateDecision(input = {}) {
@@ -144,18 +169,32 @@ export function validateDecision(input = {}) {
   if (decision.needs_slides && decision.action !== "reply_with_slides") decision.action = "reply_with_slides";
   if (!decision.needs_slides && decision.action === "reply_with_slides") decision.needs_slides = true;
 
-  if (["known", "refused_messenger_only"].includes(decision.contact_state) || ["acknowledge_contact", "suppress"].includes(decision.action)) {
+  const contactBlocked = ["known", "missing_recently_requested", "refused_messenger_only"].includes(decision.contact_state)
+    || ["acknowledge_contact", "suppress"].includes(decision.action);
+
+  if (contactBlocked) {
     decision.should_request_contact = false;
+    decision.final_reply = withoutContactRequest(decision.final_reply);
   } else if (decision.contact_state === "missing" && hasSalesIntent(decision) && ["reply_text", "reply_with_slides"].includes(decision.action)) {
     decision.should_request_contact = true;
   }
 
-  if (decision.should_request_contact && !CONTACT_REQUEST_PATTERN.test(decision.final_reply)) {
-    const baseReply = compactReply(decision.final_reply, 470);
-    decision.final_reply = compactReply(`${baseReply}${/[.!?]$/.test(baseReply) ? "" : "."} ${contactRequestSentence(decision.contact_benefit)}`);
+  if (decision.should_request_contact) {
+    const valueReply = withoutContactRequest(decision.final_reply);
+    if (!valueReply) throw new Error("V10_CONTACT_ONLY_REPLY_INVALID");
+
+    if (!CONTACT_REQUEST_PATTERN.test(decision.final_reply) || !replySentences(decision.final_reply).some(isDirectContactRequest)) {
+      const baseReply = compactReply(valueReply, 430);
+      decision.final_reply = compactReply(`${baseReply}${/[.!?]$/.test(baseReply) ? "" : "."} ${contactRequestSentence(decision.contact_benefit)}`);
+    } else {
+      decision.final_reply = contactRequestLast(decision.final_reply);
+    }
   }
 
-  if (!["suppress"].includes(decision.action) && !decision.final_reply) throw new Error("V10_FINAL_REPLY_REQUIRED");
+  if (!["suppress"].includes(decision.action) && !decision.final_reply) {
+    if (decision.contact_state === "missing_recently_requested") throw new Error("V10_REPEATED_CONTACT_ONLY_REPLY_INVALID");
+    throw new Error("V10_FINAL_REPLY_REQUIRED");
+  }
   if (decision.action === "suppress") decision.final_reply = "";
   return decision;
 }
