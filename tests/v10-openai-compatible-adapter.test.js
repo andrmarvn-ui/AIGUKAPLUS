@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  compatibleMaxTokens,
   isCompatibleResponsesUrl,
   toChatCompletionsBody,
   toResponsesPayload,
@@ -11,6 +12,13 @@ test("only KIMI and OpenRouter Responses URLs are adapted", () => {
   assert.equal(isCompatibleResponsesUrl("https://openrouter.ai/api/v1/responses"), true);
   assert.equal(isCompatibleResponsesUrl("https://api.openai.com/v1/responses"), false);
   assert.equal(isCompatibleResponsesUrl("https://api.moonshot.ai/v1/chat/completions"), false);
+});
+
+test("compatible output budget is safe for low-credit OpenRouter accounts", () => {
+  assert.equal(compatibleMaxTokens(), 1200);
+  assert.equal(compatibleMaxTokens("200"), 256);
+  assert.equal(compatibleMaxTokens("8000"), 4000);
+  assert.equal(compatibleMaxTokens("invalid"), 1200);
 });
 
 test("Responses request becomes OpenAI-compatible chat/completions request", () => {
@@ -34,6 +42,7 @@ test("Responses request becomes OpenAI-compatible chat/completions request", () 
     { role: "system", content: "system instructions" },
     { role: "user", content: "customer context" },
   ]);
+  assert.equal(body.max_tokens, 1200);
   assert.equal(body.tools[0].function.name, "submit_v10_decision");
   assert.equal(body.tool_choice, "required");
   assert.equal(body.parallel_tool_calls, false);
