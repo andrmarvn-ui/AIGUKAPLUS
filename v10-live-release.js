@@ -24,7 +24,8 @@ for (const file of FILES) {
   if (result.status !== 0) throw new Error(`V10_RELEASE_SYNTAX:${file}:${result.stderr || result.stdout}`);
 }
 
-requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygiene_v1";');
+requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygiene_v2";');
+requireToken("v10-decision-queue-janitor.js", "V10_REHYDRATE_LEGACY_PENDING");
 requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovereign_v1";');
 requireToken("v10-ai-worker.js", 'const VERSION = "v10_ai_sovereign_lease_v1";');
 requireToken("v10-ai-worker.js", "recoverStaleProcessing");
@@ -34,4 +35,4 @@ requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_author
 requireToken("v10/core/decision-contract.js", "sole business decision maker");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: clean workers, advisory-only rules, AI sole decision, processing lease recovery`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: clean workers, advisory-only rules, AI sole decision, processing lease recovery and V9 pending rehydration`);
