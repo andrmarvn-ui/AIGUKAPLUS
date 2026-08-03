@@ -23,7 +23,8 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 
 test("Railway verifies clean V10 workers instead of generating patched workers", () => {
   assert.match(release, /AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V1/);
-  assert.match(release, /v10_queue_hygiene_v1/);
+  assert.match(release, /v10_queue_hygiene_v2/);
+  assert.match(release, /V10_REHYDRATE_LEGACY_PENDING/);
   assert.match(release, /v10_direct_ai_sovereign_v1/);
   assert.match(release, /v10_ai_sovereign_lease_v1/);
   assert.match(release, /v10_outbound_safety_only_v1/);
