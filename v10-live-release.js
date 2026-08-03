@@ -2,6 +2,14 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V1";
+
+// Gemini Free may remain rate-limited longer than one short retry cycle. These defaults
+// are established before the AI worker is imported so provider pressure cannot exhaust
+// the conversation after only three attempts. Explicit Railway settings still win.
+process.env.AIGUKA_V10_AI_MAX_ATTEMPTS ||= "10";
+process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "12000";
+process.env.AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS ||= "300000";
+
 const FILES = [
   "v10/core/advisory-engine.js",
   "v10/core/conversation-assembler.js",
@@ -33,6 +41,7 @@ requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_onl
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
 requireToken("v10/core/decision-contract.js", "sole business decision maker");
+requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: clean workers, advisory-only rules, AI sole decision, processing lease recovery and V9 pending rehydration`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: strict provider schema, advisory-only rules, AI sole decision, processing lease recovery and pressure-aware retry defaults`);
