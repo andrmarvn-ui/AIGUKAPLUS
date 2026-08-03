@@ -1,7 +1,7 @@
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-queue-janitor";
-const VERSION = "v10_queue_hygiene_v1";
+const VERSION = "v10_queue_hygiene_v2";
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_JANITOR_POLL_MS || 2000));
 const V10 = "v10_ai_sovereign_advisory";
 let running = false;
@@ -50,30 +50,62 @@ async function suppress(row, action, reason) {
   });
 }
 
+async function requeueLegacySource(row) {
+  if (!row.source_event_id) return false;
+  const now = new Date().toISOString();
+  const jobs = await core(`v9_jobs?select=id,status&source_event_id=eq.${encodeURIComponent(row.source_event_id)}&job_type=eq.decision_shadow&limit=1`);
+  const job = jobs?.[0];
+  if (!job?.id) return false;
+  const updated = await core(`v9_jobs?id=eq.${job.id}`, {
+    method: "PATCH",
+    prefer: "return=representation",
+    body: {
+      status: "queued",
+      run_after: now,
+      attempts: 0,
+      locked_by: null,
+      locked_at: null,
+      completed_at: null,
+      last_error: "V10_REHYDRATE_LEGACY_PENDING",
+      result: {
+        rehydrated_by: NAME,
+        legacy_decision_id: row.id,
+        reason: "Rebuild the latest pending conversation with the V10 full-conversation assembler.",
+      },
+      updated_at: now,
+    },
+  });
+  return Boolean(updated?.length);
+}
+
 async function cleanup() {
-  const rows = await core("v9_decisions?select=id,page_id,sender_id,status,action,input_snapshot,output,created_at,updated_at&status=in.(shadow_context_ready,shadow_ai_processing,shadow_ai_completed,live_delivery_failed)&order=created_at.desc&limit=500");
+  const rows = await core("v9_decisions?select=id,source_event_id,page_id,sender_id,status,action,input_snapshot,output,created_at,updated_at&status=in.(shadow_context_ready,shadow_ai_processing,shadow_ai_completed,live_delivery_failed)&order=created_at.desc&limit=500");
+  let legacyRehydrated = 0;
   let legacyQuarantined = 0;
   let superseded = 0;
-  const v10Rows = [];
+  const latestByConversation = new Map();
 
   for (const row of rows || []) {
-    if (!isV10(row)) {
-      await suppress(row, "legacy_quarantined", "Legacy V9 pending decision quarantined before V10 workers start.");
-      legacyQuarantined += 1;
-    } else {
-      v10Rows.push(row);
-    }
-  }
-
-  const latest = new Map();
-  for (const row of v10Rows) {
     const key = `${row.page_id}:${row.sender_id}`;
-    if (!latest.has(key)) {
-      latest.set(key, row);
+    if (latestByConversation.has(key)) {
+      await suppress(row, "superseded", "A newer pending customer event exists in the same conversation and will carry the full history.");
+      superseded += 1;
       continue;
     }
-    await suppress(row, "superseded", "A newer customer event exists in the same conversation.");
-    superseded += 1;
+    latestByConversation.set(key, row);
+
+    if (!isV10(row)) {
+      const requeued = await requeueLegacySource(row);
+      await suppress(
+        row,
+        requeued ? "legacy_rehydrating" : "legacy_quarantined",
+        requeued
+          ? "Latest V9 pending decision requeued so V10 can rebuild the complete conversation."
+          : "Legacy V9 pending decision quarantined because no durable source job was found.",
+      );
+      if (requeued) legacyRehydrated += 1;
+      else legacyQuarantined += 1;
+    }
   }
 
   const deliveryCutoff = new Date(Date.now() - 2 * 60_000).toISOString();
@@ -93,7 +125,13 @@ async function cleanup() {
     deliveryRecovered += 1;
   }
 
-  return { scanned: rows?.length || 0, legacyQuarantined, superseded, deliveryRecovered };
+  return {
+    scanned: rows?.length || 0,
+    legacyRehydrated,
+    legacyQuarantined,
+    superseded,
+    deliveryRecovered,
+  };
 }
 
 async function heartbeat(status, details = {}, error = null) {
@@ -132,6 +170,6 @@ async function tick() {
 if (!CORE_BASE || !CORE_KEY) {
   console.warn("[AIGUKA V10 janitor] Core configuration missing; disabled");
 } else {
-  console.log("[AIGUKA V10 janitor] queue hygiene started; no business decision authority");
+  console.log("[AIGUKA V10 janitor] queue hygiene and V9 pending rehydration started; no business decision authority");
   await tick();
 }
