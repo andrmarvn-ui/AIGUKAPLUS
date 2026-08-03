@@ -1,0 +1,32 @@
+name: V10 AI Sovereign Architecture
+
+on:
+  pull_request:
+    paths:
+      - "v10/**"
+      - "v10-*.js"
+      - "start.js"
+      - "tests/v10-ai-sovereign-architecture.test.js"
+      - ".github/workflows/v10-ai-sovereign.yml"
+  push:
+    branches: [main]
+    paths:
+      - "v10/**"
+      - "v10-*.js"
+      - "start.js"
+      - "tests/v10-ai-sovereign-architecture.test.js"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check v10-direct-core-worker.js
+      - run: node --check v10-ai-worker.js
+      - run: node --check v10-outbound-worker.js
+      - run: node v10-live-release.js
+      - run: node --test tests/v10-ai-sovereign-architecture.test.js
