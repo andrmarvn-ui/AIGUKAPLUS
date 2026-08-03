@@ -1,6 +1,5 @@
 // Protect database pressure and customer-facing Meta transport before any worker.
 await import("./patch-supabase-load-shed-fetch.js");
-await import("./patch-meta-price-language-fetch.js");
 
 // Establish the isolated V9 Core connection before importing any module that captures
 // Core environment variables at module load time. A real Core service-role key wins;
@@ -82,16 +81,14 @@ await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 
-// Bind the Railway HTTP port before installing the generated V9 worker release.
-// The release must still finish successfully before any V9 customer worker starts,
-// but lengthy file generation or cross-project preparation must not starve healthcheck.
+// Bind Railway HTTP first. V10 is a clean release with no runtime source patch chain.
 await safeImport("./server-fixed.js", true);
-console.log("[AIGUKA startup] HTTP server initialized; installing V9 customer-worker release");
-await safeImport("./v9-live-release-patch.js", true);
-console.log("[AIGUKA startup] V9 customer-worker release installed after HTTP bind");
+console.log("[AIGUKA startup] HTTP server initialized; verifying clean V10 customer-worker release");
+await safeImport("./v10-live-release.js", true);
+console.log("[AIGUKA startup] V10 AI-sovereign release verified after HTTP bind");
 
-// V8 remains a temporary durable webhook source. All V9 state, jobs and decisions
-// use the isolated Core project. The router remains fail-closed if bootstrap fails.
+// V8 remains a temporary durable webhook source. Customer state, jobs and decisions
+// still use the isolated Core project while V10 replaces the V9 decision workers.
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 const v9CoreReady = v9CoreBridgeState.ready === true
   && v9CoreModule?.v9CoreRoutingState?.enabled === true;
@@ -110,7 +107,7 @@ if (v8BackgroundEnabled) {
   startDetached("./meta-profile-sync-worker.js");
   console.warn("[AIGUKA V8] legacy background workers explicitly enabled");
 } else {
-  console.warn("[AIGUKA V8] legacy background workers disabled for V9 migration");
+  console.warn("[AIGUKA V8] legacy background workers disabled for V10 migration");
 }
 
 // These workers only materialize advertising/CRM source data into the Reporting read model.
@@ -119,7 +116,7 @@ const reportingRefreshEnabled = String(process.env.AIGUKA_V9_REPORTING_LEGACY_RE
 if (reportingReady && reportingRefreshEnabled && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   startDetached("./v9-reporting-legacy-refresh-worker-v2.js");
   startDetached("./v9-reporting-conversation-refresh-worker.js");
-  console.log(`[AIGUKA V9 Reporting] resilient legacy read-model and conversation refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
+  console.log(`[AIGUKA Reporting] resilient legacy read-model and conversation refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
 }
 const metaInsightsEnabled = String(process.env.AIGUKA_V9_META_INSIGHTS_ENABLED || "true").trim().toLowerCase() !== "false";
 if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -127,23 +124,25 @@ if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && pr
   startDetached("./v9-meta-ads-insights-worker.js");
   startDetached("./v9-meta-ad-page-resolver-worker.js");
   startDetached("./v9-meta-orphan-ad-resolver-worker.js");
-  console.log("[AIGUKA V9 Reporting] Meta Ads Insights, creative Page and orphan Ad resolver workers started for mapped Page accounts");
+  console.log("[AIGUKA Reporting] Meta Ads Insights, creative Page and orphan Ad resolver workers started for mapped Page accounts");
 }
 
 if (v9CoreReady) {
   startDetached("./v9-legacy-inbox-bridge.js");
-  startDetached("./v9-direct-core-worker.js");
-  startDetached("./v9-ai-shadow-worker.js");
-  startDetached("./v9-live-outbound-worker.js");
+  startDetached("./v8-v9-mode-sync-worker.js");
+  await safeImport("./v10-decision-queue-janitor.js", true);
+  startDetached("./v10-direct-core-worker.js");
+  startDetached("./v10-ai-worker.js");
+  startDetached("./v10-outbound-worker.js");
   startDetached("./v9-reporting-publisher.js");
-  console.log(`[AIGUKA V9] Core workers started via ${v9CoreBridgeState.mode}; live outbound is final-gated and idle until runtime ACTIVE`);
+  console.log(`[AIGUKA V10] clean Core workers started via ${v9CoreBridgeState.mode}; rules and mappings are advisory, AI is the sole business decision maker`);
 
   if (reportingReady) {
     startDetached("./v9-reporting-sync-worker.js");
-    console.log("[AIGUKA V9 Reporting] reporting sync worker started");
+    console.log("[AIGUKA Reporting] reporting sync worker started");
   } else {
-    console.warn("[AIGUKA V9 Reporting] sync disabled: Reporting URL/service-role missing; Core outbox will retain events");
+    console.warn("[AIGUKA Reporting] sync disabled: Reporting URL/service-role missing; Core outbox will retain events");
   }
 } else {
-  console.warn(`[AIGUKA V9] workers not started: isolated Core connection blocked (${v9CoreBridgeState.error || "unknown"})`);
+  console.warn(`[AIGUKA V10] workers not started: isolated Core connection blocked (${v9CoreBridgeState.error || "unknown"})`);
 }

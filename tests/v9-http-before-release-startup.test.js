@@ -10,22 +10,25 @@ function position(token) {
   return value;
 }
 
-test("Railway HTTP server binds before V9 release installation", () => {
+test("Railway HTTP server binds before V10 release verification", () => {
   const server = position('await safeImport("./server-fixed.js", true)');
-  const release = position('await safeImport("./v9-live-release-patch.js", true)');
-  const directWorker = position('startDetached("./v9-direct-core-worker.js")');
-  const aiWorker = position('startDetached("./v9-ai-shadow-worker.js")');
-  const outboundWorker = position('startDetached("./v9-live-outbound-worker.js")');
+  const release = position('await safeImport("./v10-live-release.js", true)');
+  const janitor = position('await safeImport("./v10-decision-queue-janitor.js", true)');
+  const directWorker = position('startDetached("./v10-direct-core-worker.js")');
+  const aiWorker = position('startDetached("./v10-ai-worker.js")');
+  const outboundWorker = position('startDetached("./v10-outbound-worker.js")');
 
-  assert.ok(server < release, "HTTP server must bind before the generated V9 release runs");
-  assert.ok(release < directWorker, "V9 release must finish before Direct Core starts");
-  assert.ok(release < aiWorker, "V9 release must finish before AI starts");
-  assert.ok(release < outboundWorker, "V9 release must finish before Outbound starts");
+  assert.ok(server < release, "HTTP server must bind before V10 verification runs");
+  assert.ok(release < janitor, "V10 release must verify before queue cleanup starts");
+  assert.ok(janitor < directWorker, "queue cleanup must finish before Direct Core starts");
+  assert.ok(janitor < aiWorker, "queue cleanup must finish before AI starts");
+  assert.ok(janitor < outboundWorker, "queue cleanup must finish before Outbound starts");
 });
 
-test("V9 release is no longer part of the pre-server patch array", () => {
+test("V10 release is outside the pre-server patch array and V9 generated release is not started", () => {
   const patchLoopEnd = position("]) await safeImport(patch);");
-  const release = position('await safeImport("./v9-live-release-patch.js", true)');
+  const release = position('await safeImport("./v10-live-release.js", true)');
   assert.ok(release > patchLoopEnd);
-  assert.match(source, /HTTP server initialized; installing V9 customer-worker release/);
+  assert.match(source, /HTTP server initialized; verifying clean V10 customer-worker release/);
+  assert.doesNotMatch(source, /await safeImport\("\.\/v9-live-release-patch\.js", true\)/);
 });

@@ -25,11 +25,14 @@ test("Core URL matching never classifies the legacy project as Core", () => {
 });
 
 
-test("bootstrap runs before Meta token store, server patches and V9 workers", () => {
+test("bootstrap runs before Meta token store, server patches and current Core workers", () => {
   const bootstrapAt = startSource.indexOf("await bootstrapV9CoreBridge()");
   const tokenStoreAt = startSource.indexOf('await import("./meta-token-store.js")');
   const serverAt = startSource.indexOf('await safeImport("./patch-server.js")');
-  const workerAt = startSource.indexOf('startDetached("./v9-direct-core-worker.js")');
+  const workerAt = Math.max(
+    startSource.indexOf('startDetached("./v10-direct-core-worker.js")'),
+    startSource.indexOf('startDetached("./v9-direct-core-worker.js")'),
+  );
   assert.ok(bootstrapAt >= 0);
   assert.ok(tokenStoreAt > bootstrapAt);
   assert.ok(serverAt > tokenStoreAt);

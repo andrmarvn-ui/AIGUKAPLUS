@@ -3,51 +3,36 @@ import fs from "node:fs";
 import test from "node:test";
 
 const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
-const patch = fs.readFileSync(new URL("../v9-live-release-patch.js", import.meta.url), "utf8");
-const worker = fs.readFileSync(new URL("../v9-live-outbound-worker.js", import.meta.url), "utf8");
+const release = fs.readFileSync(new URL("../v10-live-release.js", import.meta.url), "utf8");
+const direct = fs.readFileSync(new URL("../v10-direct-core-worker.js", import.meta.url), "utf8");
+const ai = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
+const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
 
-test("live transport starts only after the isolated Core router", () => {
+test("live transport starts only after the isolated Core router and queue cleanup", () => {
   assert.match(start, /v9-core-fetch-router\.js/);
-  assert.match(start, /startDetached\("\.\/v9-live-outbound-worker\.js"\)/);
-  assert.ok(start.indexOf('v9-core-fetch-router.js') < start.indexOf('v9-live-outbound-worker.js'));
+  assert.match(start, /await safeImport\("\.\/v10-decision-queue-janitor\.js", true\)/);
+  assert.match(start, /startDetached\("\.\/v10-outbound-worker\.js"\)/);
+  assert.ok(start.indexOf("v9-core-fetch-router.js") < start.indexOf("v10-decision-queue-janitor.js"));
+  assert.ok(start.indexOf("v10-decision-queue-janitor.js") < start.indexOf("v10-outbound-worker.js"));
 });
 
 test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () => {
-  assert.match(patch, /\["SHADOW", "ACTIVE"\]\.includes\(mode\)/);
-  assert.match(patch, /V9_MODE_NOT_ALLOWED_FOR_DIRECT_CORE_RELEASE/);
+  assert.match(direct, /\["SHADOW", "ACTIVE"\]\.includes\(mode\)/);
+  assert.match(direct, /V10_MODE_NOT_ALLOWED/);
 });
 
-test("Railway cannot report healthy while silently running stale V9 workers", () => {
-  assert.match(patch, /AIGUKA_V9_LIVE_RELEASE_V8_VERIFIED_FEATURES/);
-  assert.match(patch, /refusing to start Railway with stale workers/);
-  assert.match(patch, /process\.exit\(1\)/);
-  assert.match(patch, /V9_RELEASE_STAGE_FAILED/);
-  assert.match(patch, /RAILWAY_GIT_COMMIT_SHA/);
-  assert.match(patch, /V9_AI_FINAL_VERSION/);
-  assert.match(patch, /V9_AI_SEMANTIC_LOCK/);
-  assert.match(patch, /V9_AI_MULTI_PRODUCT_POLICY/);
-  assert.match(patch, /V9_DIRECT_FINAL_VERSION/);
-  assert.match(patch, /V9_DIRECT_MULTI_PRODUCT_BUILDER/);
-  assert.match(patch, /V9_MULTI_PRODUCT_CONVERSATION_CORE/);
-  assert.match(patch, /V9_MULTI_PRODUCT_DECISION_POLICY/);
-  assert.match(patch, /V9_GEMINI_FREE_CIRCUIT_BREAKER/);
-  assert.match(patch, /V9_OUTBOUND_FINAL_VERSION/);
-  assert.match(patch, /V9_OUTBOUND_MEDIA_AUTHORITY/);
-  assert.match(patch, /V9_OUTBOUND_FRESH_PAGE_GATE/);
-  assert.match(patch, /V9_OUTBOUND_TEXT_FALLBACK/);
-  assert.match(patch, /V9_MEDIA_LIMIT_30/);
-  assert.match(patch, /requireSyntax/);
-  assert.match(patch, /\$\{label\}_NOT_INSTALLED/);
-
-  const largeSlide = patch.indexOf('["large-slide", "./v9-support-large-slide-release-patch.js"]');
-  const root = patch.indexOf('["root-conversation", "./v9-root-conversation-architecture-release-patch.js"]');
-  const noDrop = patch.indexOf('["no-drop", "./v9-no-drop-release-patch.js"]');
-  const multi = patch.indexOf('["multi-product-plan", "./v9-semantic-product-lock-release-patch.js"]');
-  const dashboard = patch.indexOf('applyStage("dashboard-best-effort"');
-  assert.ok(largeSlide >= 0 && largeSlide < root, "root architecture must run after SUPPORT/media patches");
-  assert.ok(root < noDrop, "no-drop must run after root architecture");
-  assert.ok(noDrop < multi, "multi-product plan must be the final customer decision policy");
-  assert.ok(multi < dashboard, "customer workers must be complete before dashboard hotfix");
+test("Railway verifies clean V10 workers instead of generating patched workers", () => {
+  assert.match(release, /AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V1/);
+  assert.match(release, /v10_queue_hygiene_v2/);
+  assert.match(release, /V10_REHYDRATE_LEGACY_PENDING/);
+  assert.match(release, /v10_direct_ai_sovereign_v1/);
+  assert.match(release, /v10_ai_sovereign_lease_v1/);
+  assert.match(release, /v10_outbound_safety_only_v1/);
+  assert.match(release, /spawnSync\(process\.execPath, \["--check", file\]/);
+  assert.doesNotMatch(start, /v9-live-release-patch\.js/);
+  assert.doesNotMatch(release, /replaceOnce|replaceBetween|applyStage/);
+  assert.match(ai, /recoverStaleProcessing/);
+  assert.match(ai, /ai_decision_authority: "sole"/);
 });
 
 test("live outbound requires AIGUKA primary and an explicit activation cutover", () => {
@@ -58,16 +43,19 @@ test("live outbound requires AIGUKA primary and an explicit activation cutover",
   assert.match(worker, /DECISION_TOO_OLD/);
 });
 
-test("base final gate blocks human takeover, verified Page replies and low confidence", () => {
+test("final gate blocks hard safety conditions and does not make business decisions", () => {
+  assert.match(worker, /OPT_OUT/);
   assert.match(worker, /HUMAN_TAKEOVER/);
   assert.match(worker, /PAGE_ALREADY_REPLIED/);
   assert.match(worker, /CONFIDENCE_TOO_LOW/);
+  assert.match(worker, /business_rules_authority: "none"/);
+  assert.doesNotMatch(worker, /CONTACT_ALREADY_CAPTURED/);
 });
 
 test("delivery is idempotent and recorded in Core", () => {
   assert.match(worker, /v9_delivery_bundles\?on_conflict=idempotency_key/);
   assert.match(worker, /v9_delivery_attempts\?on_conflict=bundle_id,attempt_no/);
-  assert.match(worker, /v9-decision:\$\{decision\.id\}/);
+  assert.match(worker, /v10-decision:\$\{decision\.id\}/);
   assert.match(worker, /live_delivered/);
 });
 
