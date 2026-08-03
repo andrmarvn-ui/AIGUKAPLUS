@@ -130,6 +130,7 @@ if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && pr
 if (v9CoreReady) {
   startDetached("./v9-legacy-inbox-bridge.js");
   startDetached("./v8-v9-mode-sync-worker.js");
+  await safeImport("./v10-decision-queue-janitor.js", true);
   startDetached("./v10-direct-core-worker.js");
   startDetached("./v10-ai-worker.js");
   startDetached("./v10-outbound-worker.js");
