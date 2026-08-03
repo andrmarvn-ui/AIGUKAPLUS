@@ -1,6 +1,5 @@
 // Protect database pressure and customer-facing Meta transport before any worker.
 await import("./patch-supabase-load-shed-fetch.js");
-await import("./patch-meta-price-language-fetch.js");
 
 // Establish the isolated V9 Core connection before importing any module that captures
 // Core environment variables at module load time. A real Core service-role key wins;
