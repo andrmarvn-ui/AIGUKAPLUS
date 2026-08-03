@@ -7,6 +7,7 @@ const FILES = [
   "v10/core/conversation-assembler.js",
   "v10/core/decision-contract.js",
   "v10/core/knowledge-advisor.js",
+  "v10-decision-queue-janitor.js",
   "v10-direct-core-worker.js",
   "v10-ai-worker.js",
   "v10-outbound-worker.js",
@@ -23,6 +24,7 @@ for (const file of FILES) {
   if (result.status !== 0) throw new Error(`V10_RELEASE_SYNTAX:${file}:${result.stderr || result.stdout}`);
 }
 
+requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygiene_v1";');
 requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovereign_v1";');
 requireToken("v10-ai-worker.js", 'const VERSION = "v10_ai_sovereign_lease_v1";');
 requireToken("v10-ai-worker.js", "recoverStaleProcessing");
