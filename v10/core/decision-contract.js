@@ -14,6 +14,7 @@ export function decisionSchema() {
       "should_request_contact",
       "confidence",
       "decision_reason",
+      "follow_up_plan",
     ],
     properties: {
       action: { type: "string", enum: ACTIONS },
