@@ -66,7 +66,7 @@ test("missing Core credential blocks legacy V9 access", () => {
   assert.equal(decision.reason, "V9_CORE_CREDENTIAL_REQUIRED");
 });
 
-test("startup gates bridge, Core-only, AI and reporting publisher behind Core", () => {
+test("startup gates bridge, current Core workers and reporting publisher behind Core", () => {
   const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
   const gateStart = start.indexOf("if (v9CoreReady) {");
   const gateEnd = start.indexOf("} else {", gateStart);
@@ -74,16 +74,19 @@ test("startup gates bridge, Core-only, AI and reporting publisher behind Core", 
   const gated = start.slice(gateStart, gateEnd);
   for (const worker of [
     "v9-legacy-inbox-bridge.js",
-    "v9-direct-core-worker.js",
-    "v9-ai-shadow-worker.js",
+    "v10-decision-queue-janitor.js",
+    "v10-direct-core-worker.js",
+    "v10-ai-worker.js",
+    "v10-outbound-worker.js",
     "v9-reporting-publisher.js",
   ]) assert.match(gated, new RegExp(worker.replaceAll(".", "\\.")));
   assert.doesNotMatch(start, /startDetached\("\.\/v9-shadow-worker\.js"\)/);
+  assert.doesNotMatch(start, /startDetached\("\.\/v9-ai-shadow-worker\.js"\)/);
   assert.match(start, /v9CoreRoutingState\?\.enabled === true/);
 });
 
-test("Core-only worker never reads legacy V8 tables", () => {
-  const direct = fs.readFileSync(new URL("../v9-direct-core-worker.js", import.meta.url), "utf8");
+test("current Core-only worker never reads legacy V8 tables", () => {
+  const direct = fs.readFileSync(new URL("../v10-direct-core-worker.js", import.meta.url), "utf8");
   assert.doesNotMatch(direct, /v8_meta_events|v8_messages_raw|v8_customers|v8_message_actor_registry/);
   assert.match(direct, /v9_events/);
   assert.match(direct, /v9_customers/);
