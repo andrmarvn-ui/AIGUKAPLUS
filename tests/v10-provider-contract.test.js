@@ -10,9 +10,21 @@ test("strict provider schema requires every top-level property", () => {
   assert.ok(schema.required.includes("follow_up_plan"));
 });
 
-test("release establishes pressure-safe Gemini Free retry defaults before worker import", () => {
+test("release establishes conservative provider scheduling defaults", () => {
   const source = fs.readFileSync(new URL("../v10-live-release.js", import.meta.url), "utf8");
-  assert.match(source, /AIGUKA_V10_AI_MAX_ATTEMPTS \|\|= "10"/);
-  assert.match(source, /AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS \|\|= "12000"/);
+  assert.match(source, /AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS \|\|= "60000"/);
+  assert.match(source, /AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS \|\|= "120000"/);
   assert.match(source, /AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS \|\|= "300000"/);
+  assert.match(source, /AIGUKA_OPENAI_CREDIT_COOLDOWN_MS \|\|= "21600000"/);
+});
+
+test("provider scheduler does not claim when no AI provider is ready", () => {
+  const source = fs.readFileSync(new URL("../v10-ai-worker-v2.js", import.meta.url), "utf8");
+  const availability = source.indexOf("const availability = providerAvailability(providerRows, now)");
+  const noProvider = source.indexOf("if (!availability.available.length)");
+  const process = source.indexOf("processOne(ready[0], availability.available");
+  assert.ok(availability >= 0 && noProvider > availability && process > noProvider);
+  assert.match(source, /scheduleWithoutClaim/);
+  assert.match(source, /consumeAttempt: !transientOnly/);
+  assert.match(source, /operational_fallback_enabled: false/);
 });

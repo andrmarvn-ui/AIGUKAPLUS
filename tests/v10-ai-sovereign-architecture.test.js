@@ -89,11 +89,15 @@ test("AI decision is structurally validated but not rewritten by advisors", () =
   assert.deepEqual(decision.selected_products, ["chau_voi_rua_bat", "sen_tam"]);
 });
 
-test("worker source contains processing lease recovery and one-at-a-time Gemini flow", () => {
-  const source = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
+test("AI v2 contains lease recovery and provider-aware scheduling before claim", () => {
+  const entry = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../v10-ai-worker-v2.js", import.meta.url), "utf8");
+  assert.match(entry, /v10-ai-worker-v2\.js/);
   assert.match(source, /recoverStaleProcessing/);
-  assert.match(source, /status=eq\.shadow_ai_processing/);
-  assert.match(source, /const result = await processOne\(ready\[0\]/);
+  assert.match(source, /providerAvailability/);
+  assert.match(source, /scheduleWithoutClaim/);
+  assert.ok(source.indexOf("providerAvailability(providerRows, now)") < source.indexOf("processOne(ready[0]"));
+  assert.match(source, /operational_fallback_enabled: false/);
   assert.match(source, /GEMINI_MIN_INTERVAL_MS/);
 });
 
