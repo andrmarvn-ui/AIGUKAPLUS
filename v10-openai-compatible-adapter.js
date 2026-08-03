@@ -1,5 +1,6 @@
-const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v1");
+const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v2");
 const COMPATIBLE_HOSTS = new Set(["api.moonshot.ai", "openrouter.ai"]);
+const DEFAULT_MAX_TOKENS = 1200;
 
 export function isCompatibleResponsesUrl(input) {
   try {
@@ -19,6 +20,12 @@ function inputText(content) {
     if (item?.type === "input_text" || item?.type === "text") return String(item.text || "");
     return "";
   }).join("");
+}
+
+export function compatibleMaxTokens(value = process.env.AIGUKA_V10_COMPAT_MAX_TOKENS) {
+  const parsed = Number(value || DEFAULT_MAX_TOKENS);
+  if (!Number.isFinite(parsed)) return DEFAULT_MAX_TOKENS;
+  return Math.max(256, Math.min(4000, Math.floor(parsed)));
 }
 
 export function toChatCompletionsBody(body = {}) {
@@ -45,6 +52,7 @@ export function toChatCompletionsBody(body = {}) {
   return {
     model: body.model,
     messages,
+    max_tokens: compatibleMaxTokens(),
     ...(tools.length ? { tools } : {}),
     ...(body.tool_choice ? { tool_choice: body.tool_choice === "required" ? "required" : body.tool_choice } : {}),
     ...(body.parallel_tool_calls === undefined ? {} : { parallel_tool_calls: Boolean(body.parallel_tool_calls) }),
@@ -129,8 +137,8 @@ export function installOpenAICompatibleResponsesAdapter() {
   }
 
   globalThis.fetch = adaptedFetch;
-  globalThis[PATCH_MARK] = { version: "v1", hosts: [...COMPATIBLE_HOSTS] };
-  console.log("[AIGUKA V10] OpenAI-compatible /responses adapter v1 enabled for KIMI and OpenRouter");
+  globalThis[PATCH_MARK] = { version: "v2", hosts: [...COMPATIBLE_HOSTS], maxTokens: compatibleMaxTokens() };
+  console.log(`[AIGUKA V10] OpenAI-compatible /responses adapter v2 enabled for KIMI and OpenRouter; max_tokens=${compatibleMaxTokens()}`);
   return globalThis[PATCH_MARK];
 }
 
