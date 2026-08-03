@@ -6,7 +6,7 @@ on:
       - "v10/**"
       - "v10-*.js"
       - "start.js"
-      - "tests/v10-ai-sovereign-architecture.test.js"
+      - "tests/v10-*.test.js"
       - ".github/workflows/v10-ai-sovereign.yml"
   push:
     branches: [main]
@@ -14,7 +14,7 @@ on:
       - "v10/**"
       - "v10-*.js"
       - "start.js"
-      - "tests/v10-ai-sovereign-architecture.test.js"
+      - "tests/v10-*.test.js"
 
 jobs:
   validate:
@@ -29,4 +29,4 @@ jobs:
       - run: node --check v10-ai-worker.js
       - run: node --check v10-outbound-worker.js
       - run: node v10-live-release.js
-      - run: node --test tests/v10-ai-sovereign-architecture.test.js
+      - run: node --test tests/v10-*.test.js
