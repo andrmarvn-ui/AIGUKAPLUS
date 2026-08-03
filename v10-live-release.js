@@ -44,8 +44,9 @@ requireToken("v10-ai-worker-v2.js", "operational_fallback_enabled: false");
 requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
-requireToken("v10/core/decision-contract.js", "sole business decision maker");
+requireToken("v10/core/decision-contract.js", "HIẾN PHÁP MỤC TIÊU");
+requireToken("v10/core/decision-contract.js", "contact_state");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: AI-only customer decisions, provider-aware scheduling, no quota attempt burn, no operational customer fallback`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: AI-only customer decisions, contact-first constitution, provider-aware scheduling, no quota attempt burn, no operational customer fallback`);

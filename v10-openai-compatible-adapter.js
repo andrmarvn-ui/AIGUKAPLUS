@@ -65,6 +65,7 @@ export function toChatCompletionsBody(body = {}) {
     max_tokens: compatibleMaxTokens(),
     ...(tools.length ? { tools } : {}),
     ...(toolChoice ? { tool_choice: toolChoice } : {}),
+    ...(typeof body.parallel_tool_calls === "boolean" ? { parallel_tool_calls: body.parallel_tool_calls } : {}),
   };
 }
 
