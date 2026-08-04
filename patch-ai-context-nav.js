@@ -1,5 +1,7 @@
 import fs from "node:fs";
 
+await import("./patch-ai-provider-page-server-render.js");
+
 const learningFile = "learning-admin-v2.html";
 let learning = fs.readFileSync(learningFile, "utf8");
 if (!learning.includes("AIGUKA_AI_CONTEXT_TAB_V1")) {
