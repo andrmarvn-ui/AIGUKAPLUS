@@ -24,4 +24,8 @@ await import("./patch-v10-decision-integrity-v2.js").catch((error) => {
   console.error(`[AIGUKA V10] corrected integrity scanner failed; worker will not start safely: ${error instanceof Error ? error.message : String(error)}`);
   throw error;
 });
+await import("./patch-v10-quality-observability-v1.js").catch((error) => {
+  console.error(`[AIGUKA V10] quality observability failed; worker will not start safely: ${error instanceof Error ? error.message : String(error)}`);
+  throw error;
+});
 await import("./v10-ai-worker-v2.js");
