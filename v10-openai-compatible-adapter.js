@@ -1,5 +1,10 @@
-const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v3");
-const COMPATIBLE_HOSTS = new Set(["api.moonshot.ai", "openrouter.ai", "api.deepseek.com"]);
+const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v4");
+const COMPATIBLE_HOSTS = new Set([
+  "api.moonshot.ai",
+  "openrouter.ai",
+  "api.deepseek.com",
+  "api.cohere.ai",
+]);
 const DEFAULT_MAX_TOKENS = 1200;
 
 export function isCompatibleResponsesUrl(input) {
@@ -38,7 +43,7 @@ function normalizeToolChoice(choice) {
   return choice;
 }
 
-export function toChatCompletionsBody(body = {}) {
+export function toChatCompletionsBody(body = {}, options = {}) {
   const messages = [];
   if (body.instructions) messages.push({ role: "system", content: String(body.instructions) });
   for (const item of body.input || []) {
@@ -55,21 +60,28 @@ export function toChatCompletionsBody(body = {}) {
         name: tool.name,
         description: tool.description || "",
         parameters: tool.parameters || { type: "object", properties: {} },
+        ...(tool.strict === true ? { strict: true } : {}),
       },
     }));
 
+  const cohereCompatibility = options.cohereCompatibility === true;
   const toolChoice = normalizeToolChoice(body.tool_choice);
   return {
     model: body.model,
     messages,
     max_tokens: compatibleMaxTokens(),
     ...(tools.length ? { tools } : {}),
-    ...(toolChoice ? { tool_choice: toolChoice } : {}),
-    ...(typeof body.parallel_tool_calls === "boolean" ? { parallel_tool_calls: body.parallel_tool_calls } : {}),
+    // Cohere's OpenAI Compatibility API supports tools but rejects tool_choice.
+    ...(!cohereCompatibility && toolChoice ? { tool_choice: toolChoice } : {}),
+    // Cohere explicitly lists parallel_tool_calls as unsupported.
+    ...(!cohereCompatibility && typeof body.parallel_tool_calls === "boolean"
+      ? { parallel_tool_calls: body.parallel_tool_calls }
+      : {}),
+    ...(cohereCompatibility ? { reasoning_effort: "none", temperature: 0 } : {}),
   };
 }
 
-export function toResponsesPayload(payload = {}) {
+export function toResponsesPayload(payload = {}, fallbackToolName = "") {
   const message = payload?.choices?.[0]?.message || {};
   const output = [];
   for (const call of message.tool_calls || []) {
@@ -83,6 +95,28 @@ export function toResponsesPayload(payload = {}) {
       status: "completed",
     });
   }
+
+  // Some OpenAI-compatible providers may return the requested JSON in message.content
+  // instead of tool_calls. Preserve the V10 contract only when the content is valid JSON.
+  if (!output.length && fallbackToolName && typeof message.content === "string") {
+    const text = message.content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    if (text.startsWith("{") && text.endsWith("}")) {
+      try {
+        JSON.parse(text);
+        output.push({
+          type: "function_call",
+          id: payload.id || null,
+          call_id: payload.id || null,
+          name: fallbackToolName,
+          arguments: text,
+          status: "completed",
+        });
+      } catch {
+        // Keep output empty; the worker will fail over to another provider.
+      }
+    }
+  }
+
   return {
     id: payload.id || null,
     object: "response",
@@ -112,9 +146,13 @@ export function installOpenAICompatibleResponsesAdapter() {
     }
     if (!body || typeof body !== "object") return nativeFetch(input, init);
 
+    const hostname = requestUrl.hostname.toLowerCase();
+    const cohereCompatibility = hostname === "api.cohere.ai";
+    const fallbackToolName = String((body.tools || []).find((tool) => tool?.type === "function" && tool?.name)?.name || "");
+
     const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
     headers.set("content-type", "application/json");
-    if (requestUrl.hostname.toLowerCase() === "openrouter.ai") {
+    if (hostname === "openrouter.ai") {
       const referer = String(process.env.OPENROUTER_HTTP_REFERER || process.env.AIGUKA_PUBLIC_URL || "").trim();
       const title = String(process.env.OPENROUTER_X_TITLE || "AIGUKA").trim();
       if (referer) headers.set("HTTP-Referer", referer);
@@ -124,7 +162,7 @@ export function installOpenAICompatibleResponsesAdapter() {
     const response = await nativeFetch(chatUrl, {
       ...init,
       headers,
-      body: JSON.stringify(toChatCompletionsBody(body)),
+      body: JSON.stringify(toChatCompletionsBody(body, { cohereCompatibility })),
     });
     const raw = await response.text();
     let payload;
@@ -139,7 +177,7 @@ export function installOpenAICompatibleResponsesAdapter() {
       });
     }
 
-    return new Response(JSON.stringify(toResponsesPayload(payload)), {
+    return new Response(JSON.stringify(toResponsesPayload(payload, fallbackToolName)), {
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
@@ -147,8 +185,13 @@ export function installOpenAICompatibleResponsesAdapter() {
   }
 
   globalThis.fetch = adaptedFetch;
-  globalThis[PATCH_MARK] = { version: "v3", hosts: [...COMPATIBLE_HOSTS], maxTokens: compatibleMaxTokens() };
-  console.log(`[AIGUKA V10] OpenAI-compatible /responses adapter v3 enabled for KIMI, OpenRouter and DeepSeek; max_tokens=${compatibleMaxTokens()}`);
+  globalThis[PATCH_MARK] = {
+    version: "v4",
+    hosts: [...COMPATIBLE_HOSTS],
+    maxTokens: compatibleMaxTokens(),
+    cohereCompatibility: "omit_tool_choice_and_parallel_tool_calls",
+  };
+  console.log(`[AIGUKA V10] OpenAI-compatible /responses adapter v4 enabled; hosts=${[...COMPATIBLE_HOSTS].join(",")}; max_tokens=${compatibleMaxTokens()}`);
   return globalThis[PATCH_MARK];
 }
 
