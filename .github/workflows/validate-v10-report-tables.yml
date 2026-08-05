@@ -18,21 +18,24 @@ jobs:
           cache: npm
       - run: npm install --ignore-scripts
 
-      - name: Check report runtime syntax
+      - name: Check report and final server syntax
         run: |
           node --check report-handler.js
+          node --check report-handler-v10.js
           node --check dashboard-ui-patch.js
           node --check dashboard-report-v10-patch.js
-          node --check patch-server.js
+          node --check v10-server-release.js
+          node --check server-v10-final.js
 
       - name: Run V10 report table tests
-        run: node --test tests/v10-report-tables-live-facts.test.js
+        run: node --test tests/v10-report-tables-live-facts.test.js tests/v10-direct-meta-dashboard.test.js
 
-      - name: Smoke server patch integration
+      - name: Confirm report integration is committed in final server
         run: |
-          cp server-fixed.js /tmp/server-fixed.js
-          node patch-server.js
-          node --check server-fixed.js
-          grep -q 'dashboard-report-v10-patch.js' server-fixed.js
-          grep -q 'patchV10ReportTablesUi(html)' server-fixed.js
-          mv /tmp/server-fixed.js server-fixed.js
+          grep -q 'dashboard-report-v10-patch.js' server-v10-final.js
+          grep -q 'patchV10ReportTablesUi(html)' server-v10-final.js
+          grep -q 'installReportRoutes(app' server-v10-final.js
+          grep -q 'installV10AdminDashboard(app)' server-v10-final.js
+          grep -q 'server-v10-final.js' v10-server-release.js
+          ! grep -q 'safeImport("./patch-server.js"' start.js
+          ! grep -q 'safeImport("./patch-direct-meta-dashboard.js"' start.js

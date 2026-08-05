@@ -52,8 +52,8 @@ try {
   console.error("[AIGUKA] Could not load saved Meta OAuth connection:", error.message);
 }
 
-// Active source materialization patches. Retired V7 Pancake runtime patches were
-// removed because their service was never imported by the V10 process.
+// Active feature-source compatibility patches. These patch feature modules only;
+// the Railway HTTP server and AI worker are committed checksummed artifacts.
 for (const patch of [
   "./patch-learning-client.js",
   "./patch-bot-page-mode-save.js",
@@ -72,8 +72,6 @@ for (const patch of [
   "./patch-mapping-meta-midnight-delivery.js",
 ]) await safeImport(patch);
 
-await safeImport("./patch-server.js");
-await safeImport("./patch-direct-meta-dashboard.js", true);
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
 await safeImport("./patch-outbound-binary-image-upload.js");
@@ -82,9 +80,9 @@ await safeImport("./patch-outbound-marketing-notifications.js");
 await safeImport("./patch-ai-brain-internal-auth.js");
 await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 
-// Bind Railway HTTP before background workers.
-await safeImport("./server-fixed.js", true);
-console.log("[AIGUKA startup] HTTP server initialized; verifying V10 release contract");
+// Bind the checksummed Railway HTTP server before background workers.
+await safeImport("./v10-server-release.js", true);
+console.log("[AIGUKA startup] final V10 HTTP server initialized; verifying V10 AI release contract");
 await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
 

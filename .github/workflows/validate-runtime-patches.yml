@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -15,9 +18,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Check runtime and active patch syntax
+      - name: Check V10 runtime syntax
         run: |
           node --check start.js
+          node --check v10-server-release.js
+          node --check server-v10-final.js
           node --check v10-mode-compat-worker.js
           for file in \
             patch-drive-slide-manager-v2.js \
@@ -39,6 +44,20 @@ jobs:
             test ! -f "$file" || node --check "$file"
           done
 
+      - name: Verify committed server matches historical patch output
+        run: |
+          tmp="$(mktemp -d)"
+          cp server-fixed.js patch-server.js patch-direct-meta-dashboard.js "$tmp/"
+          (cd "$tmp" && node patch-server.js && node patch-direct-meta-dashboard.js)
+          node --check "$tmp/server-fixed.js"
+          cmp -s "$tmp/server-fixed.js" server-v10-final.js
+          expected="$(sha256sum server-v10-final.js | awk '{print $1}')"
+          test "$expected" = "$(tr -d '\n\r ' < server-v10-final.sha256)"
+          grep -Fq 'installV10AdminDashboard' server-v10-final.js
+          grep -Fq 'installReportRoutes' server-v10-final.js
+          grep -Fq 'installAiProviderManager' server-v10-final.js
+          grep -Fq 'installMappingCenter' server-v10-final.js
+
       - name: Confirm retired runtime paths cannot restart
         run: |
           node - <<'NODE'
@@ -53,6 +72,9 @@ jobs:
             'startDetached("./outbound-worker.js")',
             'startDetached("./meta-profile-sync-worker.js")',
             'startDetached("./v8-v9-mode-sync-worker.js")',
+            'safeImport("./patch-server.js"',
+            'safeImport("./patch-direct-meta-dashboard.js"',
+            'safeImport("./server-fixed.js"',
           ];
           for (const token of forbidden) {
             if (source.includes(token)) throw new Error(`RETIRED_RUNTIME_PATH_ACTIVE:${token}`);
@@ -66,8 +88,11 @@ jobs:
           ]) {
             if (fs.existsSync(file)) throw new Error(`RETIRED_FILE_STILL_PRESENT:${file}`);
           }
-          if (!source.includes('startDetached("./v10-mode-compat-worker.js")')) {
-            throw new Error('V10_MODE_COMPAT_NOT_STARTED');
+          for (const required of [
+            'await safeImport("./v10-server-release.js", true)',
+            'startDetached("./v10-mode-compat-worker.js")',
+          ]) {
+            if (!source.includes(required)) throw new Error(`REQUIRED_RUNTIME_PATH_MISSING:${required}`);
           }
           NODE
 
@@ -103,9 +128,7 @@ jobs:
               throw new Error(`PARTIAL_LEGACY_RUNTIME_CHAIN:${names.filter((_, i) => positions[i] < 0).join(',')}`);
             }
             for (let i = 1; i < positions.length; i += 1) {
-              if (positions[i] <= positions[i - 1]) {
-                throw new Error(`INVALID_RUNTIME_PATCH_ORDER:${names[i]}`);
-              }
+              if (positions[i] <= positions[i - 1]) throw new Error(`INVALID_RUNTIME_PATCH_ORDER:${names[i]}`);
             }
           }
           NODE

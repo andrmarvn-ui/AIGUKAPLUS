@@ -6,6 +6,8 @@ on:
       - "v9/**"
       - "v10/**"
       - "v10-*.js"
+      - "server-v10-final.js"
+      - "server-v10-final.sha256"
       - "v9-shadow-worker.js"
       - "v9-legacy-inbox-bridge.js"
       - "v9-core-fetch-router.js"
@@ -26,6 +28,8 @@ on:
       - "v9/**"
       - "v10/**"
       - "v10-*.js"
+      - "server-v10-final.js"
+      - "server-v10-final.sha256"
       - "v9-shadow-worker.js"
       - "v9-legacy-inbox-bridge.js"
       - "v9-core-fetch-router.js"
@@ -43,21 +47,28 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Run Core regression tests
-        run: node --test tests/v9-*.test.js
+      - name: Run Core regression tests individually
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in tests/v9-*.test.js; do
+            echo "::group::$file"
+            node --test "$file"
+            echo "::endgroup::"
+          done
       - name: Restore clean workspace after mutating patch tests
         run: |
           git reset --hard HEAD
           git clean -fd
       - name: Run V10 regression tests
         run: node --test tests/v10-*.test.js
-      - name: Validate current worker syntax
+      - name: Validate current worker and release syntax
         run: |
           node --check v9-core-bridge-bootstrap.js
           node --check v9-legacy-inbox-bridge.js
@@ -66,10 +77,12 @@ jobs:
           node --check v9-reporting-sync-worker.js
           node --check v9/core/legacy-inbox-normalizer.js
           node --check v9/core/reporting-contract.js
+          node --check v10-server-release.js
+          node --check server-v10-final.js
           node --check v10-decision-queue-janitor.js
           node --check v10-direct-core-worker.js
           node --check v10-ai-worker.js
-          node --check v10-ai-worker-v2.js
+          node --check v10-ai-worker-final.js
           node --check v10-outbound-worker.js
           node --check v10/core/advisory-engine.js
           node --check v10/core/conversation-assembler.js
@@ -78,9 +91,10 @@ jobs:
           node --check v10-live-release.js
           node --check meta-token-store.js
           node --check start.js
-      - name: Confirm direct Core and V10 startup wiring
+      - name: Confirm direct Core and final V10 startup wiring
         run: |
           grep -F 'await bootstrapV9CoreBridge();' start.js
+          grep -F 'await safeImport("./v10-server-release.js", true)' start.js
           grep -F 'await safeImport("./v9-core-fetch-router.js")' start.js
           grep -F 'startDetached("./v9-legacy-inbox-bridge.js")' start.js
           grep -F 'await safeImport("./v10-decision-queue-janitor.js", true)' start.js
@@ -94,18 +108,23 @@ jobs:
           ! grep -F 'startDetached("./v9-ai-shadow-worker.js")' start.js
           ! grep -F 'startDetached("./v9-live-outbound-worker.js")' start.js
           ! grep -F 'v9-live-release-patch.js' start.js
+          ! grep -F 'safeImport("./patch-server.js"' start.js
+          ! grep -F 'safeImport("./patch-direct-meta-dashboard.js"' start.js
+          ! grep -F 'safeImport("./server-fixed.js"' start.js
           ! grep -E 'v8_meta_events|v8_messages_raw|v8_customers|v8_message_actor_registry' v10-direct-core-worker.js
           grep -F 'rpc/v9_claim_jobs' v10-direct-core-worker.js
           grep -F 'rpc/v9_ingest_meta_batch' v9-legacy-inbox-bridge.js
           grep -F 'outbound_enabled: false' v9-legacy-inbox-bridge.js
-          grep -F 'recoverStaleProcessing' v10-ai-worker-v2.js
-          grep -F 'ai_decision_authority: "sole"' v10-ai-worker-v2.js
-          grep -F 'advisor_authority: "non_binding"' v10-ai-worker-v2.js
+          grep -F 'recoverStaleProcessing' v10-ai-worker-final.js
+          grep -F 'ai_decision_authority: "sole"' v10-ai-worker-final.js
+          grep -F 'advisor_authority: "non_binding"' v10-ai-worker-final.js
           grep -F 'business_decision_authority: "none"' v10-decision-queue-janitor.js
           grep -F 'business_rules_authority: "none"' v10-outbound-worker.js
           grep -F 'AIGUKA_V9_CORE_SERVICE_ROLE_KEY' v9-core-fetch-router.js
           grep -F 'v9_integrations' meta-token-store.js
-          ! grep -F 'graph.facebook.com' v10-ai-worker.js v10-ai-worker-v2.js
+          grep -F 'server-v10-final.js' v10-server-release.js
+          grep -F 'v10-ai-worker-final.js' v10-ai-worker.js
+          ! grep -F 'graph.facebook.com' v10-ai-worker.js v10-ai-worker-final.js
       - name: Confirm database-only Core bridge safety
         run: |
           grep -F 'rpc/v9_get_core_bridge_bootstrap' v9-core-bridge-bootstrap.js

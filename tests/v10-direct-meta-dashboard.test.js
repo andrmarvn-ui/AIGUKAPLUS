@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -75,12 +76,25 @@ test("report entrypoint has one V10 implementation with direct sources", () => {
   assert.match(reportHandler, /snapshot_workers_required: false/);
 });
 
-test("server materialization installs dashboard shell after legacy routes", () => {
-  assert.ok(
-    start.indexOf('safeImport("./patch-direct-meta-dashboard.js"') >
-    start.indexOf('safeImport("./patch-server.js"'),
-  );
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aiguka-direct-dashboard-"));
+test("final server is checksummed and matches the historical patch output", () => {
+  assert.match(start, /safeImport\("\.\/v10-server-release\.js", true\)/);
+  assert.doesNotMatch(start, /safeImport\("\.\/patch-server\.js"/);
+  assert.doesNotMatch(start, /safeImport\("\.\/patch-direct-meta-dashboard\.js"/);
+  assert.doesNotMatch(start, /safeImport\("\.\/server-fixed\.js"/);
+
+  const finalBytes = fs.readFileSync("server-v10-final.js");
+  const expected = fs.readFileSync("server-v10-final.sha256", "utf8").trim();
+  const actual = crypto.createHash("sha256").update(finalBytes).digest("hex");
+  assert.equal(actual, expected);
+
+  const finalServer = finalBytes.toString("utf8");
+  assert.match(finalServer, /installV10AdminDashboard/);
+  assert.doesNotMatch(finalServer, /installStableReportDashboard/);
+  assert.match(finalServer, /dashboard-v10-admin-shell\.js/);
+  assert.match(finalServer, /127\.0\.0\.1:\$\{PORT\}\/functions\/v1\/aiguka-v8-report-api\?action=filters/);
+  assert.match(finalServer, /2\.1\.1-v10-admin-navigation/);
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aiguka-final-server-"));
   for (const file of ["server-fixed.js", "patch-server.js", "patch-direct-meta-dashboard.js"]) {
     fs.copyFileSync(file, path.join(tmp, file));
   }
@@ -88,10 +102,5 @@ test("server materialization installs dashboard shell after legacy routes", () =
   assert.equal(run.status, 0, run.stderr || run.stdout);
   run = spawnSync(process.execPath, ["patch-direct-meta-dashboard.js"], { cwd: tmp, encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr || run.stdout);
-  const server = fs.readFileSync(path.join(tmp, "server-fixed.js"), "utf8");
-  assert.match(server, /installV10AdminDashboard/);
-  assert.doesNotMatch(server, /installStableReportDashboard/);
-  assert.match(server, /dashboard-v10-admin-shell\.js/);
-  assert.match(server, /127\.0\.0\.1:\$\{PORT\}\/functions\/v1\/aiguka-v8-report-api\?action=filters/);
-  assert.match(server, /2\.1\.1-v10-admin-navigation/);
+  assert.deepEqual(fs.readFileSync(path.join(tmp, "server-fixed.js")), finalBytes);
 });

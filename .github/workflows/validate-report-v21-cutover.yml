@@ -9,7 +9,9 @@ on:
       - "meta-direct-inventory.js"
       - "v10-report-sources.js"
       - "dashboard-v10-stable.js"
-      - "patch-direct-meta-dashboard.js"
+      - "server-v10-final.js"
+      - "server-v10-final.sha256"
+      - "v10-server-release.js"
       - "v10-customer-profile-worker.js"
       - "start.js"
       - "tests/report-v21-handler.test.js"
@@ -28,7 +30,9 @@ on:
       - "meta-direct-inventory.js"
       - "v10-report-sources.js"
       - "dashboard-v10-stable.js"
-      - "patch-direct-meta-dashboard.js"
+      - "server-v10-final.js"
+      - "server-v10-final.sha256"
+      - "v10-server-release.js"
       - "v10-customer-profile-worker.js"
       - "start.js"
       - "tests/report-v21-handler.test.js"
@@ -49,7 +53,7 @@ jobs:
         with:
           node-version: "20"
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - name: Validate report runtime syntax
+      - name: Validate report and final server syntax
         run: |
           node --check report-handler.js
           node --check report-handler-v10.js
@@ -57,7 +61,8 @@ jobs:
           node --check meta-direct-inventory.js
           node --check v10-report-sources.js
           node --check dashboard-v10-stable.js
-          node --check patch-direct-meta-dashboard.js
+          node --check v10-server-release.js
+          node --check server-v10-final.js
           node --check v10-customer-profile-worker.js
           node --check start.js
       - name: Run live report route tests
@@ -73,10 +78,14 @@ jobs:
           grep -F 'v10_report_filter_registry' v10-report-sources.js
           grep -F 'snapshot_workers_required: false' report-handler-v10.js
           grep -F 'stored("leads"' report-handler-v10.js
-          grep -F 'installV10AdminDashboard' patch-direct-meta-dashboard.js
+          grep -F 'installV10AdminDashboard(app)' server-v10-final.js
+          grep -F 'installReportRoutes(app' server-v10-final.js
+          grep -F 'server-v10-final.js' v10-server-release.js
           grep -F 'startDetached("./v10-customer-profile-worker.js")' start.js
           grep -F 'AIGUKA_V9_REPORTING_LEGACY_REFRESH || "false"' start.js
           grep -F 'AIGUKA_V9_META_INSIGHTS_ENABLED || "false"' start.js
+          ! grep -F 'safeImport("./patch-server.js"' start.js
+          ! grep -F 'safeImport("./patch-direct-meta-dashboard.js"' start.js
           ! grep -F 'v8_report_summary_v21' report-handler-v10.js
           ! grep -F 'v8_report_ads_v21' report-handler-v10.js
           ! grep -F 'v8_report_daily_v21' report-handler-v10.js
