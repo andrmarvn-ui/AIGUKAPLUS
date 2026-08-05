@@ -40,8 +40,8 @@ await import("./patch-v10-provider-load-balancer-v5.js").catch((error) => {
 await import("./patch-v10-provider-load-balancer-v6.js").catch((error) => {
   console.error(`[AIGUKA V10] load balancer v6 routing failed; continuing with v5: ${error instanceof Error ? error.message : String(error)}`);
 });
-await import("./patch-v10-decision-integrity-v3.js").catch(async (error) => {
-  console.error(`[AIGUKA V10] consolidated decision integrity v3 failed; worker will not start unsafely: ${error instanceof Error ? error.message : String(error)}`);
+await import("./patch-v10-decision-integrity-v4.js").catch(async (error) => {
+  console.error(`[AIGUKA V10] decision integrity v4 failed; worker will not start unsafely: ${error instanceof Error ? error.message : String(error)}`);
   await reportQualityPatchFailure(error);
   throw error;
 });
