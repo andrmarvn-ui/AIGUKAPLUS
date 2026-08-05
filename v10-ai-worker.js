@@ -45,4 +45,9 @@ await import("./patch-v10-decision-integrity-v4.js").catch(async (error) => {
   await reportQualityPatchFailure(error);
   throw error;
 });
+await import("./patch-v10-decision-integrity-v5.js").catch(async (error) => {
+  console.error(`[AIGUKA V10] decision integrity v5 failed; worker will not start unsafely: ${error instanceof Error ? error.message : String(error)}`);
+  await reportQualityPatchFailure(error);
+  throw error;
+});
 await import("./v10-ai-worker-v2.js");
