@@ -46,6 +46,7 @@ for (const patch of [
   "./patch-v10-decision-integrity-v6.js",
   "./patch-v10-decision-integrity-v7.js",
   "./patch-v10-decision-integrity-v8.js",
+  "./patch-v10-decision-integrity-v9.js",
 ]) {
   await import(patch).catch(async (error) => {
     console.error(`[AIGUKA V10] ${patch} failed; worker will not start unsafely: ${error instanceof Error ? error.message : String(error)}`);
