@@ -49,10 +49,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Run Core and V10 regression tests
+      - name: Run Core regression tests
+        run: node --test tests/v9-*.test.js
+      - name: Restore clean workspace after mutating patch tests
         run: |
-          node --test tests/v9-*.test.js
-          node --test tests/v10-*.test.js
+          git reset --hard HEAD
+          git clean -fd
+      - name: Run V10 regression tests
+        run: node --test tests/v10-*.test.js
       - name: Validate current worker syntax
         run: |
           node --check v9-core-bridge-bootstrap.js
@@ -65,6 +69,7 @@ jobs:
           node --check v10-decision-queue-janitor.js
           node --check v10-direct-core-worker.js
           node --check v10-ai-worker.js
+          node --check v10-ai-worker-v2.js
           node --check v10-outbound-worker.js
           node --check v10/core/advisory-engine.js
           node --check v10/core/conversation-assembler.js
@@ -93,14 +98,14 @@ jobs:
           grep -F 'rpc/v9_claim_jobs' v10-direct-core-worker.js
           grep -F 'rpc/v9_ingest_meta_batch' v9-legacy-inbox-bridge.js
           grep -F 'outbound_enabled: false' v9-legacy-inbox-bridge.js
-          grep -F 'recoverStaleProcessing' v10-ai-worker.js
-          grep -F 'ai_decision_authority: "sole"' v10-ai-worker.js
-          grep -F 'advisor_authority: "non_binding"' v10-ai-worker.js
+          grep -F 'recoverStaleProcessing' v10-ai-worker-v2.js
+          grep -F 'ai_decision_authority: "sole"' v10-ai-worker-v2.js
+          grep -F 'advisor_authority: "non_binding"' v10-ai-worker-v2.js
           grep -F 'business_decision_authority: "none"' v10-decision-queue-janitor.js
           grep -F 'business_rules_authority: "none"' v10-outbound-worker.js
           grep -F 'AIGUKA_V9_CORE_SERVICE_ROLE_KEY' v9-core-fetch-router.js
           grep -F 'v9_integrations' meta-token-store.js
-          ! grep -F 'graph.facebook.com' v10-ai-worker.js
+          ! grep -F 'graph.facebook.com' v10-ai-worker.js v10-ai-worker-v2.js
       - name: Confirm database-only Core bridge safety
         run: |
           grep -F 'rpc/v9_get_core_bridge_bootstrap' v9-core-bridge-bootstrap.js

@@ -30,12 +30,20 @@ export function installReportRoutes(app,{supabaseUrl,publishableKey}){
     };
   }
 
+  function sourceLabel(row={}){
+    if(row.customer_source_type==="comment")return "Bình luận Facebook";
+    if(row.ad_id)return "Quảng cáo Meta";
+    if(row.source_channel==="legacy_webhook_inbox"||row.customer_source_type==="message")return "Messenger / tự nhiên";
+    return row.source_channel||row.identity_source||"Tự nhiên / chưa xác định";
+  }
+
   function exportRows(rows,type){
     if(type==="ads")return rows.map(x=>({
       "Tài khoản QC":x.ad_account_name||"","ID tài khoản":x.ad_account_id||"",
       "Chiến dịch":x.campaign_name||"","ID chiến dịch":x.campaign_id||"",
       "Nhóm quảng cáo":x.adset_name||"","ID nhóm quảng cáo":x.adset_id||"",
       "Quảng cáo":x.ad_name||"","ID quảng cáo":x.ad_id||"","Trạng thái":x.effective_status||x.ad_status||"",
+      "Đối chiếu dữ liệu":x.data_match_status||"",
       "Chi tiêu chưa VAT":+x.spend||0,"VAT":+x.tax_amount||0,"Chi tiêu có VAT":+x.spend_with_tax||0,
       "Hiển thị":+x.impressions||0,"Tiếp cận":+x.reach||0,"Click":+x.clicks||0,"Click liên kết":+x.link_clicks||0,
       "Hội thoại Meta":+x.meta_conversations||0,"Hội thoại thực":+x.conversations||0,"Có SĐT/Zalo":+x.contacts||0,
@@ -43,19 +51,22 @@ export function installReportRoutes(app,{supabaseUrl,publishableKey}){
       "Cost/Hội thoại":+x.cost_per_conversation||0,"Cost/SĐT":+x.cost_per_contact||0
     }));
     if(type==="daily")return rows.map(x=>({
-      "Ngày":x.report_date||"","Page":x.page_name||"","Tài khoản QC":x.ad_account_name||"",
+      "Ngày":x.report_date||"","Page":x.page_name||"","Tài khoản QC":x.ad_account_name||"Tự nhiên / chưa xác định",
+      "Trạng thái dữ liệu":x.data_status||"",
       "Chi tiêu chưa VAT":+x.spend||0,"VAT":+x.tax_amount||0,"Chi tiêu có VAT":+x.spend_with_tax||0,
       "Hội thoại":+x.conversations||0,"Có SĐT/Zalo":+x.contacts||0,"Tỷ lệ lấy số (%)":+x.contact_rate||0,
-      "Khách nóng":+x.hot_leads||0,"Cost/Hội thoại":+x.cost_per_conversation||0,"Cost/SĐT":+x.cost_per_contact||0
+      "Khách nóng":+x.hot_leads||0,"Số tin khách":+x.message_count||0,
+      "Cost/Hội thoại":+x.cost_per_conversation||0,"Cost/SĐT":+x.cost_per_contact||0
     }));
     return rows.map(x=>({
       "Ngày":x.report_date||"","Khách hàng":x.customer_name||"","ID khách":x.customer_id||x.sender_id||"",
+      "Loại khách":x.customer_source_type==="comment"?"Khách comment":"Khách nhắn tin",
       "SĐT":x.phone||"","Zalo":x.zalo||"","Đã có liên hệ":x.has_contact?"Có":"Không",
       "Page":x.page_name||"","ID Page":x.page_id||"","Tài khoản QC":x.ad_account_name||"",
       "Chiến dịch":x.campaign_name||"","Nhóm quảng cáo":x.adset_name||"","Quảng cáo":x.ad_name||"",
       "Trạng thái QC":x.ad_status||x.effective_status||"","Sản phẩm":x.product_label||x.product_group||"",
-      "Nguồn":x.source_channel||x.identity_source||"","Tag Pancake":Array.isArray(x.pancake_tags)?x.pancake_tags.map(t=>t?.text||t?.name||String(t||"")).filter(Boolean).join(", "):"",
-      "Nhân viên":x.pancake_employee||"","Tin cuối":x.last_snippet||"","Số tin":+x.message_count||0,
+      "Nguồn":sourceLabel(x),"Tag Pancake":Array.isArray(x.pancake_tags)?x.pancake_tags.map(t=>t?.text||t?.name||String(t||"")).filter(Boolean).join(", "):"",
+      "Nhân viên":x.pancake_employee||"","Tin cuối":x.last_snippet||"","Số tin/bình luận":+x.message_count||0,
       "Thời gian":x.last_customer_at||x.conversation_started_at||""
     }));
   }
@@ -63,7 +74,7 @@ export function installReportRoutes(app,{supabaseUrl,publishableKey}){
   app.get("/functions/v1/aiguka-v8-report-api",async(req,res)=>{
     const action=String(req.query.action||"health").toLowerCase();
     try{
-      if(action==="health")return res.json({ok:true,service:"aiguka-v8-report-railway",version:2});
+      if(action==="health")return res.json({ok:true,service:"aiguka-v8-report-railway",version:3,report_source:"v10_live_reporting_unified"});
       if(action==="filters")return res.json(await rpc("v8_report_filters_test"));
       if(action==="summary"){
         const a=args(req.query);delete a.p_limit;delete a.p_offset;

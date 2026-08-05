@@ -13,6 +13,7 @@ import { installBotControlUi } from "./bot-control-ui.js";
 import { installMetaFacebookLogin } from "./meta-facebook-login.js";
 import { patchLearningUi } from "./learning-ui-patch.js";
 import { patchDashboardUi } from "./dashboard-ui-patch.js";
+import { patchV10ReportTablesUi } from "./dashboard-report-v10-patch.js";
 import { repairExtraUiHtml } from "./repair-ui.js";
 import { installAiProviderManager } from "./ai-provider-manager.js";
 import { installAiContextCenterV3 } from "./ai-context-center-v3.js";
@@ -36,6 +37,7 @@ if (!source.includes('from "./report-handler.js"')) {
     if (!source.includes('from "./v9-report-benchmark-api.js"')) source = source.replace('import { installV9AdminReportApiV2 } from "./v9-admin-report-api-v2.js";', 'import { installV9AdminReportApiV2 } from "./v9-admin-report-api-v2.js";\nimport { installV9ReportBenchmarkApi } from "./v9-report-benchmark-api.js";');
     if (!source.includes('from "./v9-admin-ui-v2.js"')) source = source.replace('import { installV9ReportBenchmarkApi } from "./v9-report-benchmark-api.js";', 'import { installV9ReportBenchmarkApi } from "./v9-report-benchmark-api.js";\nimport { installV9AdminUiV2 } from "./v9-admin-ui-v2.js";');
   }
+  if (!source.includes('from "./dashboard-report-v10-patch.js"')) source = source.replace('import { patchDashboardUi } from "./dashboard-ui-patch.js";', 'import { patchDashboardUi } from "./dashboard-ui-patch.js";\nimport { patchV10ReportTablesUi } from "./dashboard-report-v10-patch.js";');
 }
 
 source = source.replace(/^import \{ installStableV7Dashboard \} from "\.\/v7-dashboard-stable\.js";\n/m, "");
@@ -84,11 +86,12 @@ else if (!source.includes("installV9AdminAuth(app)")) {
 if (!source.includes("repairExtraUiHtml(html)")) source = source.replace("html = repairBrokenInterpolations(html);", "html = repairBrokenInterpolations(html);\n  html = repairExtraUiHtml(html);");
 if (!source.includes("patchLearningUi(html)")) source = source.replace("html = injectTestBootstrap(html);", 'html = injectTestBootstrap(html);\n  if(slug === "aiguka-v8-learning-ui-v18") html = patchLearningUi(html);');
 if (!source.includes("patchDashboardUi(html)")) source = source.replace('if(slug === "aiguka-v8-learning-ui-v18") html = patchLearningUi(html);', 'if(slug === "aiguka-v8-learning-ui-v18") html = patchLearningUi(html);\n  if(slug === "aiguka-v8-admin") html = patchDashboardUi(html);');
+if (!source.includes("patchV10ReportTablesUi(html)")) source = source.replace('if(slug === "aiguka-v8-admin") html = patchDashboardUi(html);', 'if(slug === "aiguka-v8-admin") html = patchDashboardUi(html);\n  if(slug === "aiguka-v8-admin") html = patchV10ReportTablesUi(html);');
 
 // The visible V7.5 dashboard uses the active V8 report API. Do not health-check the
 // Basic-auth protected V9 admin endpoint, which produced a false red disconnected badge.
 source = source.replace('const url = `http://127.0.0.1:${PORT}/api/v9/admin/overview`;', 'const url = `${SUPABASE_URL}/functions/v1/aiguka-v8-report-api?action=filters`;');
-for (const version of ["1.0.3-test-no-browser-key","1.0.4-test-rpc-data","1.0.5-learning-tags","1.0.6-control-center-fix","1.0.7-all-ui-green","1.1.0-v7-dashboard-bridge","1.1.1-v7-import-pending","1.2.0-v7-stable-dashboard","1.2.1-reviewed-learning-restored","1.2.2-reviewed-learning-startup-fix","1.3.0-facebook-login","1.3.1-facebook-callback-fixed","1.3.2-v7-all-account-filter-fixed","1.3.3-card-and-column-filters","1.3.4-practical-lead-filters","1.3.5-filter-card-fixed","1.4.0-learning-bot-control-restored","1.4.1-learning-data-complete","1.5.0-ai-context-manager","1.6.0-drive-context-lead-stable","1.6.1-lead-v4-drive-recursive","1.6.2-context-restore-drive-sync","1.6.3-all-actions-verified","1.6.4-aiguka-context-center","1.6.5-drive-v4-meta-messaging","1.6.6-valid-meta-scopes","1.6.7-messenger-carousel","1.7.0-unified-mapping-center","1.7.2-original-dashboard-hard-route","1.7.4-pre-v21-report-ui-lazy","1.7.5-supabase-pre-v21-report-ui","2.0.0-v9-admin-report-priority","2.0.2-v9-vat-benchmark","2.0.3-live-dashboard-vat-cards"]) source = source.replaceAll(version,"2.0.4-v9-admin-fail-soft");
+for (const version of ["1.0.3-test-no-browser-key","1.0.4-test-rpc-data","1.0.5-learning-tags","1.0.6-control-center-fix","1.0.7-all-ui-green","1.1.0-v7-dashboard-bridge","1.1.1-v7-import-pending","1.2.0-v7-stable-dashboard","1.2.1-reviewed-learning-restored","1.2.2-reviewed-learning-startup-fix","1.3.0-facebook-login","1.3.1-facebook-callback-fixed","1.3.2-v7-all-account-filter-fixed","1.3.3-card-and-column-filters","1.3.4-practical-lead-filters","1.3.5-filter-card-fixed","1.4.0-learning-bot-control-restored","1.4.1-learning-data-complete","1.5.0-ai-context-manager","1.6.0-drive-context-lead-stable","1.6.1-lead-v4-drive-recursive","1.6.2-context-restore-drive-sync","1.6.3-all-actions-verified","1.6.4-aiguka-context-center","1.6.5-drive-v4-meta-messaging","1.6.6-valid-meta-scopes","1.6.7-messenger-carousel","1.7.0-unified-mapping-center","1.7.2-original-dashboard-hard-route","1.7.4-pre-v21-report-ui-lazy","1.7.5-supabase-pre-v21-report-ui","2.0.0-v9-admin-report-priority","2.0.2-v9-vat-benchmark","2.0.3-live-dashboard-vat-cards","2.0.4-v9-admin-fail-soft"]) source = source.replaceAll(version,"2.0.5-v10-report-tables-live-facts");
 
 fs.writeFileSync(file,source);
-console.log("[AIGUKA] Live reports stay on Dashboard; missing V9 admin secret redirects UI safely while APIs remain locked");
+console.log("[AIGUKA] V10 report tables use live customer facts, comments and explicit organic rows");
