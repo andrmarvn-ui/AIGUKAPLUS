@@ -18,17 +18,12 @@ begin
   perform set_config('statement_timeout', '12000', true);
 
   with valid_events as (
-    select
-      e.id,
-      e.page_id,
-      e.customer_id,
-      e.occurred_at,
+    select e.id, e.page_id, e.customer_id, e.occurred_at,
       (e.occurred_at at time zone 'Asia/Ho_Chi_Minh')::date as event_date
     from public.v9_events e
     where e.actor_type = 'customer'
       and e.event_type in ('customer_message','customer_comment')
-      and e.customer_id is not null
-      and btrim(e.customer_id) <> ''
+      and e.customer_id is not null and btrim(e.customer_id) <> ''
       and e.customer_id <> e.page_id
       and e.occurred_at >= (v_from::timestamp at time zone 'Asia/Ho_Chi_Minh')
       and e.occurred_at < ((v_to + 1)::timestamp at time zone 'Asia/Ho_Chi_Minh')
@@ -36,80 +31,55 @@ begin
   ),
   first_touch as (
     select distinct on (page_id, customer_id)
-      page_id,
-      customer_id,
-      event_date as report_date,
-      occurred_at as first_customer_at
+      page_id, customer_id, event_date as report_date, occurred_at as first_customer_at
     from valid_events
     order by page_id, customer_id, occurred_at asc, id asc
   ),
   first_referral as (
     select distinct on (e.page_id, e.customer_id)
-      e.page_id,
-      e.customer_id,
-      nullif(btrim(e.referral->>'ad_id'),'') as ad_id,
+      e.page_id, e.customer_id, nullif(btrim(e.referral->>'ad_id'),'') as ad_id,
       e.occurred_at as referral_at
     from public.v9_events e
-    join first_touch f
-      on f.page_id = e.page_id and f.customer_id = e.customer_id
-    where e.customer_id is not null
-      and e.customer_id <> e.page_id
+    join first_touch f on f.page_id = e.page_id and f.customer_id = e.customer_id
+    where e.customer_id is not null and e.customer_id <> e.page_id
       and nullif(btrim(e.referral->>'ad_id'),'') is not null
       and e.occurred_at < ((v_to + 1)::timestamp at time zone 'Asia/Ho_Chi_Minh')
     order by e.page_id, e.customer_id, e.occurred_at asc, e.id asc
   ),
   message_counts as (
     select page_id, customer_id, count(*)::bigint as message_count
-    from valid_events
-    group by page_id, customer_id
+    from valid_events group by page_id, customer_id
   ),
   contact_customers as (
     select distinct c.page_id, c.customer_id
     from public.v9_contacts c
-    join first_touch f
-      on f.page_id = c.page_id and f.customer_id = c.customer_id
-    where c.captured_at >= (v_from::timestamp at time zone 'Asia/Ho_Chi_Minh')
-      and c.captured_at < ((v_to + 1)::timestamp at time zone 'Asia/Ho_Chi_Minh')
+    join first_touch f on f.page_id = c.page_id and f.customer_id = c.customer_id
+    where c.captured_at < ((v_to + 1)::timestamp at time zone 'Asia/Ho_Chi_Minh')
   ),
   customer_rows as (
-    select
-      f.report_date,
-      f.page_id,
-      r.ad_id,
-      f.customer_id,
+    select f.report_date, f.page_id, r.ad_id, f.customer_id,
       coalesce(m.message_count,0)::bigint as message_count,
       (c.customer_id is not null) as has_contact
     from first_touch f
-    left join first_referral r
-      on r.page_id = f.page_id and r.customer_id = f.customer_id
-    left join message_counts m
-      on m.page_id = f.page_id and m.customer_id = f.customer_id
-    left join contact_customers c
-      on c.page_id = f.page_id and c.customer_id = f.customer_id
+    left join first_referral r on r.page_id = f.page_id and r.customer_id = f.customer_id
+    left join message_counts m on m.page_id = f.page_id and m.customer_id = f.customer_id
+    left join contact_customers c on c.page_id = f.page_id and c.customer_id = f.customer_id
     where nullif(btrim(p_ad_id),'') is null or r.ad_id = p_ad_id
   ),
   aggregated as (
-    select
-      report_date,
-      page_id,
-      ad_id,
+    select report_date, page_id, ad_id,
       count(*)::bigint as conversations,
       count(*) filter (where has_contact)::bigint as contacts,
       count(*) filter (where has_contact)::bigint as hot_leads,
       coalesce(sum(message_count),0)::bigint as message_count
-    from customer_rows
-    group by report_date, page_id, ad_id
+    from customer_rows group by report_date, page_id, ad_id
   )
   select jsonb_build_object(
     'ok', true,
-    'data', coalesce(
-      (select jsonb_agg(to_jsonb(a) order by a.report_date desc, a.page_id, a.ad_id nulls last) from aggregated a),
-      '[]'::jsonb
-    ),
+    'data', coalesce((select jsonb_agg(to_jsonb(a) order by a.report_date desc, a.page_id, a.ad_id nulls last) from aggregated a), '[]'::jsonb),
     'source', 'v10_core_live_customer_metrics',
     'range', jsonb_build_object('from', v_from, 'to', v_to)
   ) into v_result;
-
   return v_result;
 end;
 $function$;

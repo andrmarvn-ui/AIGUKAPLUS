@@ -4,39 +4,45 @@ on:
   pull_request:
     paths:
       - "report-handler.js"
+      - "report-handler-v10.js"
       - "meta-direct-reporting.js"
+      - "meta-direct-inventory.js"
+      - "v10-report-sources.js"
       - "dashboard-v10-stable.js"
       - "patch-direct-meta-dashboard.js"
       - "v10-customer-profile-worker.js"
-      - "dashboard-report-v10-patch.js"
-      - "report-v21-worker.js"
+      - "start.js"
       - "tests/report-v21-handler.test.js"
       - "tests/v10-report-tables-live-facts.test.js"
       - "tests/v10-direct-meta-dashboard.test.js"
       - "tests/v10-customer-profile-worker.test.js"
-      - "supabase/migrations/20260805152*.sql"
+      - "supabase/migrations/20260806193000_v10_direct_customer_report_metrics.sql"
+      - "supabase/migrations/20260806201000_v10_report_filter_registry.sql"
       - ".github/workflows/validate-report-v21-cutover.yml"
   push:
     branches: [main]
     paths:
       - "report-handler.js"
+      - "report-handler-v10.js"
       - "meta-direct-reporting.js"
+      - "meta-direct-inventory.js"
+      - "v10-report-sources.js"
       - "dashboard-v10-stable.js"
       - "patch-direct-meta-dashboard.js"
       - "v10-customer-profile-worker.js"
-      - "dashboard-report-v10-patch.js"
-      - "report-v21-worker.js"
+      - "start.js"
       - "tests/report-v21-handler.test.js"
       - "tests/v10-report-tables-live-facts.test.js"
       - "tests/v10-direct-meta-dashboard.test.js"
       - "tests/v10-customer-profile-worker.test.js"
-      - "supabase/migrations/20260805152*.sql"
+      - "supabase/migrations/20260806193000_v10_direct_customer_report_metrics.sql"
+      - "supabase/migrations/20260806201000_v10_report_filter_registry.sql"
       - ".github/workflows/validate-report-v21-cutover.yml"
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,24 +52,31 @@ jobs:
       - name: Validate report runtime syntax
         run: |
           node --check report-handler.js
+          node --check report-handler-v10.js
           node --check meta-direct-reporting.js
+          node --check meta-direct-inventory.js
+          node --check v10-report-sources.js
           node --check dashboard-v10-stable.js
           node --check patch-direct-meta-dashboard.js
           node --check v10-customer-profile-worker.js
-          node --check report-v21-worker.js
-          node --check dashboard-report-v10-patch.js
+          node --check start.js
       - name: Run live report route tests
         run: node --test tests/report-v21-handler.test.js tests/v10-report-tables-live-facts.test.js tests/v10-direct-meta-dashboard.test.js tests/v10-customer-profile-worker.test.js
-      - name: Confirm direct Meta owns budget and retired V2.1 cannot reclaim production
+      - name: Confirm direct sources own normal reporting
         run: |
-          grep -F 'createMetaDirectReporting' report-handler.js
-          grep -F 'meta_live_plus_customer_facts' report-handler.js
-          grep -F 'supabase_customer_history' report-handler.js
-          grep -F 'v8_report_daily_test' report-handler.js
-          grep -F 'v8_report_ads_test' report-handler.js
-          grep -F 'v8_report_leads_test' report-handler.js
-          grep -F 'installStableReportDashboard' patch-direct-meta-dashboard.js
+          grep -F 'report-handler-v10.js' report-handler.js
+          grep -F 'createMetaDirectReporting' report-handler-v10.js
+          grep -F 'createMetaDirectInventory' report-handler-v10.js
+          grep -F 'createV10ReportSources' report-handler-v10.js
+          grep -F 'meta_live_plus_core_customer_metrics' report-handler-v10.js
+          grep -F 'v10_report_customer_metrics' v10-report-sources.js
+          grep -F 'v10_report_filter_registry' v10-report-sources.js
+          grep -F 'snapshot_workers_required: false' report-handler-v10.js
+          grep -F 'stored("leads"' report-handler-v10.js
+          grep -F 'installV10AdminDashboard' patch-direct-meta-dashboard.js
           grep -F 'startDetached("./v10-customer-profile-worker.js")' start.js
-          ! grep -F 'v8_report_summary_v21' report-handler.js
-          ! grep -F 'v8_report_ads_v21' report-handler.js
-          ! grep -F 'v8_report_daily_v21' report-handler.js
+          grep -F 'AIGUKA_V9_REPORTING_LEGACY_REFRESH || "false"' start.js
+          grep -F 'AIGUKA_V9_META_INSIGHTS_ENABLED || "false"' start.js
+          ! grep -F 'v8_report_summary_v21' report-handler-v10.js
+          ! grep -F 'v8_report_ads_v21' report-handler-v10.js
+          ! grep -F 'v8_report_daily_v21' report-handler-v10.js

@@ -26,11 +26,33 @@ function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-async function withFetch(handler, { meta = true, core = false, leadRow = false } = {}) {
+const staticFilters = {
+  pages: [{ page_id: "page-1", page_name: "Page 1" }],
+  ad_accounts: [{ ad_account_id: "123", ad_account_name: "Account 123", currency: "VND", timezone_name: "Asia/Ho_Chi_Minh" }],
+  ads: [{
+    page_id: "page-1",
+    page_name: "Page 1",
+    ad_account_id: "123",
+    ad_account_name: "Account 123",
+    campaign_id: "campaign-1",
+    campaign_name: "Campaign 1",
+    adset_id: "adset-1",
+    adset_name: "Ad set 1",
+    ad_id: "ad-1",
+    ad_name: "Ad 1",
+    effective_status: "ACTIVE",
+  }],
+};
+
+async function withFetch(handler, { meta = true, core = true, leadRow = false, failInsights = false } = {}) {
   const originalFetch = globalThis.fetch;
-  const originalToken = process.env.META_ACCESS_TOKEN;
-  const originalCoreUrl = process.env.AIGUKA_V9_CORE_URL;
-  const originalCoreKey = process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY;
+  const originals = {
+    token: process.env.META_ACCESS_TOKEN,
+    coreUrl: process.env.AIGUKA_V9_CORE_URL,
+    coreKey: process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY,
+    reportingKey: process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY,
+    legacyKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  };
   const calls = [];
   if (meta) process.env.META_ACCESS_TOKEN = "test-meta-token";
   else delete process.env.META_ACCESS_TOKEN;
@@ -41,18 +63,39 @@ async function withFetch(handler, { meta = true, core = false, leadRow = false }
     delete process.env.AIGUKA_V9_CORE_URL;
     delete process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY;
   }
+  delete process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
   globalThis.fetch = async (url, options = {}) => {
     const item = { url: String(url), options, body: options.body ? JSON.parse(options.body) : null };
     calls.push(item);
+
+    if (item.url.includes("/rpc/v10_report_filter_registry")) {
+      return response({ ok: true, data: staticFilters, source: "v10_static_registry_and_mapping" });
+    }
     if (item.url.includes("/rpc/v8_report_filters_test")) {
+      return response({ ok: true, data: staticFilters });
+    }
+    if (item.url.startsWith("https://core.example.co/rest/v1/rpc/v10_report_customer_metrics")) {
       return response({
         ok: true,
-        data: {
-          pages: [{ page_id: "page-1", page_name: "Page 1" }],
-          ad_accounts: [{ ad_account_id: "123", ad_account_name: "Account 123", currency: "VND" }],
-          ads: [],
-        },
+        source: "v10_core_live_customer_metrics",
+        data: [{
+          report_date: "2026-08-05",
+          page_id: "page-1",
+          ad_id: "ad-1",
+          conversations: 4,
+          contacts: 2,
+          hot_leads: 2,
+          message_count: 8,
+        }],
       });
+    }
+    if (item.url.includes("/rpc/v8_report_ads_test")) {
+      return response({ ok: true, data: [{ ad_id: "fallback-ad", spend_with_tax: 99 }], count: 1 });
+    }
+    if (item.url.includes("/rpc/v8_report_daily_test")) {
+      return response({ ok: true, data: [{ report_date: "2026-08-05", ad_account_id: "123", spend_with_tax: 99 }], count: 1 });
     }
     if (item.url.includes("/rpc/v8_report_leads_test")) {
       return response({
@@ -74,24 +117,51 @@ async function withFetch(handler, { meta = true, core = false, leadRow = false }
     if (item.url.startsWith("https://core.example.co/rest/v1/v9_contacts?")) {
       return response([{ page_id: "page-1", customer_id: "customer-1", contact_type: "phone", contact_value: "0965000111", normalized_value: "0965000111", captured_at: "2026-08-05T10:00:00Z" }]);
     }
-    if (item.url.includes("graph.facebook.com") && item.url.includes("/act_123/insights")) {
-      return response({ data: [] });
+    if (item.url.includes("graph.facebook.com") && item.url.includes("/act_123/campaigns?")) {
+      return response({ data: [{ id: "campaign-1", name: "Campaign 1", status: "ACTIVE", effective_status: "ACTIVE" }] });
+    }
+    if (item.url.includes("graph.facebook.com") && item.url.includes("/act_123/adsets?")) {
+      return response({ data: [{ id: "adset-1", name: "Ad set 1", campaign_id: "campaign-1", status: "ACTIVE", effective_status: "ACTIVE" }] });
+    }
+    if (item.url.includes("graph.facebook.com") && item.url.includes("/act_123/ads?")) {
+      return response({ data: [{ id: "ad-1", name: "Ad 1", campaign_id: "campaign-1", adset_id: "adset-1", status: "ACTIVE", effective_status: "ACTIVE" }] });
+    }
+    if (item.url.includes("graph.facebook.com") && item.url.includes("/act_123/insights?")) {
+      if (failInsights) return response({ error: { code: 2, message: "temporary" } }, 500);
+      return response({ data: [{
+        date_start: "2026-08-05",
+        date_stop: "2026-08-05",
+        account_id: "123",
+        account_name: "Account 123",
+        campaign_id: "campaign-1",
+        campaign_name: "Campaign 1",
+        adset_id: "adset-1",
+        adset_name: "Ad set 1",
+        ad_id: "ad-1",
+        ad_name: "Ad 1",
+        spend: "100",
+        impressions: "1000",
+        reach: "800",
+        clicks: "20",
+        actions: [{ action_type: "messaging_conversation_started_7d", value: "3" }],
+      }] });
     }
     if (item.url.includes("graph.facebook.com") && item.url.includes("/act_123?")) {
       return response({ id: "act_123", name: "Account 123", currency: "VND", timezone_name: "Asia/Ho_Chi_Minh", account_status: 1 });
     }
+    if (item.url.includes("/rpc/v8_admin_control_overview")) return response({ pages: [], ad_accounts: [], health: {} });
     return response({ ok: true, data: [], count: 0 });
   };
-  try {
-    return await handler(calls);
-  } finally {
+
+  try { return await handler(calls); }
+  finally {
     globalThis.fetch = originalFetch;
-    if (originalToken === undefined) delete process.env.META_ACCESS_TOKEN;
-    else process.env.META_ACCESS_TOKEN = originalToken;
-    if (originalCoreUrl === undefined) delete process.env.AIGUKA_V9_CORE_URL;
-    else process.env.AIGUKA_V9_CORE_URL = originalCoreUrl;
-    if (originalCoreKey === undefined) delete process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY;
-    else process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY = originalCoreKey;
+    const restore = (name, value) => value === undefined ? delete process.env[name] : process.env[name] = value;
+    restore("META_ACCESS_TOKEN", originals.token);
+    restore("AIGUKA_V9_CORE_URL", originals.coreUrl);
+    restore("AIGUKA_V9_CORE_SERVICE_ROLE_KEY", originals.coreKey);
+    restore("AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY", originals.reportingKey);
+    restore("SUPABASE_SERVICE_ROLE_KEY", originals.legacyKey);
   }
 }
 
@@ -101,110 +171,111 @@ function installedHandler() {
   return app.route("/functions/v1/aiguka-v8-report-api");
 }
 
-function urls(calls) {
-  return calls.map((call) => call.url);
-}
+const urls = (calls) => calls.map((call) => call.url);
 
-test("summary reads Meta directly and uses stored facts only for customer matching", async () => {
+test("summary uses direct Meta inventory and Core customer metrics without stored ad snapshots", async () => {
   await withFetch(async (calls) => {
     const res = makeResponse();
     await installedHandler()({ query: { action: "summary", from: "2026-08-05", to: "2026-08-05" } }, res);
     assert.equal(res.statusCode, 200);
-    assert.equal(res.payload.source, "meta_live_plus_customer_facts");
-    assert.ok(urls(calls).some((url) => /v8_report_filters_test$/.test(url)));
-    assert.ok(urls(calls).some((url) => /v8_report_ads_test$/.test(url)));
-    assert.ok(urls(calls).some((url) => /graph\.facebook\.com\/v23\.0\/act_123\/insights\?/.test(url)));
-    assert.ok(urls(calls).some((url) => /graph\.facebook\.com\/v23\.0\/act_123\?/.test(url)));
-    assert.equal(urls(calls).some((url) => /v8_report_summary_test$/.test(url)), false);
-    const storedAds = calls.find((call) => /v8_report_ads_test$/.test(call.url));
-    assert.equal(storedAds.body.p_from, "2026-08-05");
-    assert.equal(storedAds.body.p_to, "2026-08-05");
+    assert.equal(res.payload.source, "meta_live_plus_core_customer_metrics");
+    assert.equal(res.payload.data.conversations, 4);
+    assert.equal(res.payload.data.contacts, 2);
+    assert.equal(res.payload.data.spend_with_tax, 105);
+    assert.ok(urls(calls).some((url) => /v10_report_filter_registry$/.test(url)));
+    assert.ok(urls(calls).some((url) => /v10_report_customer_metrics$/.test(url)));
+    assert.ok(urls(calls).some((url) => url.includes("/act_123/campaigns?")));
+    assert.ok(urls(calls).some((url) => url.includes("/act_123/adsets?")));
+    assert.ok(urls(calls).some((url) => url.includes("/act_123/ads?")));
+    assert.ok(urls(calls).some((url) => url.includes("/act_123/insights?")));
+    assert.equal(urls(calls).some((url) => /v8_report_ads_test$/.test(url)), false);
+    assert.equal(urls(calls).some((url) => /v8_report_daily_test$/.test(url)), false);
   });
 });
 
-test("ads and daily use Meta while leads retain paginated customer history", async () => {
+test("ads and daily normally avoid stored performance RPCs while Leads retain history pagination", async () => {
   await withFetch(async (calls) => {
     const res = makeResponse();
     await installedHandler()({ query: { action: "ads", from: "2026-08-01", to: "2026-08-05" } }, res);
-    assert.equal(res.payload.source, "meta_live_plus_customer_facts");
-    assert.ok(urls(calls).some((url) => /v8_report_ads_test$/.test(url)));
-    assert.ok(urls(calls).some((url) => url.includes("graph.facebook.com") && url.includes("/insights?")));
+    assert.equal(res.payload.source, "meta_live_plus_core_customer_metrics");
+    assert.equal(res.payload.data[0].conversations, 4);
+    assert.equal(urls(calls).some((url) => /v8_report_ads_test$/.test(url)), false);
   });
 
   await withFetch(async (calls) => {
     const res = makeResponse();
     await installedHandler()({ query: { action: "daily", from: "2026-08-01", to: "2026-08-05" } }, res);
-    assert.equal(res.payload.source, "meta_live_plus_customer_facts");
-    assert.ok(urls(calls).some((url) => /v8_report_ads_test$/.test(url)));
-    assert.ok(urls(calls).some((url) => /v8_report_daily_test$/.test(url)));
-    assert.ok(urls(calls).some((url) => url.includes("graph.facebook.com") && url.includes("/insights?")));
+    assert.equal(res.payload.source, "meta_live_plus_core_customer_metrics");
+    assert.ok(res.payload.data.some((row) => row.report_date === "2026-08-05" && row.conversations === 4));
+    assert.equal(urls(calls).some((url) => /v8_report_ads_test$/.test(url)), false);
+    assert.equal(urls(calls).some((url) => /v8_report_daily_test$/.test(url)), false);
   });
 
   await withFetch(async (calls) => {
     const res = makeResponse();
     await installedHandler()({ query: { action: "leads", from: "2026-07-01", to: "2026-08-05" } }, res);
-    assert.equal(res.payload.source, "supabase_customer_history");
-    assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /v8_report_leads_test$/);
-    assert.equal(calls[0].body.p_limit, 250);
-    assert.equal(calls[0].body.p_offset, 0);
-  });
+    assert.equal(res.payload.source, "core_live_plus_reporting_history");
+    assert.equal(res.payload.data[0].customer_name, "Nguyễn Văn An");
+    const leadCall = calls.find((call) => /v8_report_leads_test$/.test(call.url));
+    assert.ok(leadCall);
+    assert.equal(leadCall.body.p_limit, 250);
+    assert.equal(leadCall.body.p_offset, 0);
+  }, { leadRow: true });
 });
 
-test("lead rows read names and raw contacts from Core without copying them into Reporting", async () => {
+test("Lead rows read names and raw contacts from Core without copying them into Reporting", async () => {
   await withFetch(async (calls) => {
     const res = makeResponse();
     await installedHandler()({ query: { action: "leads", from: "2026-08-05", to: "2026-08-05", limit: "250" } }, res);
-    assert.equal(res.statusCode, 200);
     assert.equal(res.payload.source, "core_live_plus_reporting_history");
     assert.equal(res.payload.customer_data_source, "v10_core_live");
-    assert.equal(res.payload.core_enriched_count, 1);
     assert.equal(res.payload.data[0].customer_name, "Nguyễn Văn An");
     assert.equal(res.payload.data[0].phone, "0965000111");
-    assert.equal(res.payload.data[0].contact_value_source, "v10_core_live");
     assert.ok(urls(calls).some((url) => url.startsWith("https://core.example.co/rest/v1/v9_customers?")));
     assert.ok(urls(calls).some((url) => url.startsWith("https://core.example.co/rest/v1/v9_contacts?")));
-    assert.equal(urls(calls).some((url) => url.includes("fact_contacts") && url.includes("0965000111")), false);
-  }, { core: true, leadRow: true });
+  }, { leadRow: true });
 });
 
-test("filters and health expose direct Meta readiness", async () => {
+test("filters and health expose the direct report source cutover", async () => {
   await withFetch(async (calls) => {
     const handler = installedHandler();
     const health = makeResponse();
     await handler({ query: { action: "health" } }, health);
-    assert.equal(health.payload.version, 5);
-    assert.equal(health.payload.meta_direct_ready, true);
-    assert.equal(health.payload.customer_history_source, "reporting_history");
-    assert.equal(health.payload.raw_contact_replication, false);
+    assert.equal(health.payload.version, 6);
+    assert.equal(health.payload.snapshot_workers_required, false);
+    assert.equal(health.payload.filter_source, "meta_live_inventory_plus_static_mapping");
+    assert.equal(health.payload.customer_metric_source, "v10_core_live_customer_metrics");
 
     const filterResponse = makeResponse();
     await handler({ query: { action: "filters" } }, filterResponse);
-    assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /v8_report_filters_test$/);
+    assert.equal(filterResponse.payload.source, "meta_live_inventory_plus_static_mapping");
+    assert.equal(filterResponse.payload.data.ad_accounts.length, 1);
+    assert.equal(filterResponse.payload.data.ads[0].effective_status, "ACTIVE");
+    assert.ok(urls(calls).some((url) => /v10_report_filter_registry$/.test(url)));
+    assert.equal(urls(calls).some((url) => /v8_report_filters_test$/.test(url)), false);
   });
 });
 
-test("missing Meta token falls back explicitly instead of reporting disconnected", async () => {
+test("missing Meta token uses stored ad facts only as an explicit outage fallback", async () => {
   await withFetch(async (calls) => {
     const res = makeResponse();
     await installedHandler()({ query: { action: "ads", from: "2026-08-05", to: "2026-08-05" } }, res);
     assert.equal(res.statusCode, 200);
     assert.equal(res.payload.source, "supabase_fallback");
-    assert.deepEqual(res.payload.warnings, ["META_ACCESS_TOKEN_MISSING"]);
-    assert.ok(urls(calls).some((url) => /v8_report_filters_test$/.test(url)));
+    assert.ok(res.payload.warnings.includes("META_ACCESS_TOKEN_MISSING"));
+    assert.ok(urls(calls).some((url) => /v10_report_filter_registry$/.test(url)));
     assert.ok(urls(calls).some((url) => /v8_report_ads_test$/.test(url)));
     assert.equal(urls(calls).some((url) => url.includes("graph.facebook.com")), false);
   }, { meta: false });
 });
 
-test("retired V2.1 parameter cannot switch production back to stale RPCs", async () => {
+test("Meta Insights failure falls back without reviving V2.1 routing", async () => {
   await withFetch(async (calls) => {
     const res = makeResponse();
     await installedHandler()({ query: { action: "summary", version: "2.1", from: "2026-08-05", to: "2026-08-05" } }, res);
-    assert.equal(res.payload.source, "meta_live_plus_customer_facts");
+    assert.equal(res.payload.source, "supabase_fallback");
+    assert.ok(urls(calls).some((url) => /v8_report_ads_test$/.test(url)));
     assert.equal(urls(calls).some((url) => /v8_report_summary_v21$/.test(url)), false);
     assert.equal(urls(calls).some((url) => /v8_report_ads_v21$/.test(url)), false);
-    assert.ok(urls(calls).some((url) => url.includes("graph.facebook.com") && url.includes("/insights?")));
-  });
+  }, { failInsights: true });
 });

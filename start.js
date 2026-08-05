@@ -102,22 +102,26 @@ if (String(process.env.AIGUKA_V8_BACKGROUND_WORKERS || "false").trim().toLowerCa
   console.error("[AIGUKA V10] AIGUKA_V8_BACKGROUND_WORKERS is ignored: legacy customer workers are permanently retired");
 }
 
-// Compatibility read-model refresh. It has no Messenger transport and remains until
-// live Meta filters and Core customer metrics fully replace stored report snapshots.
-const reportingRefreshEnabled = String(process.env.AIGUKA_V9_REPORTING_LEGACY_REFRESH || "true").trim().toLowerCase() !== "false";
+// Legacy report rebuilds are opt-in fallback only. Normal reporting reads live Meta
+// inventory/insights and Core customer metrics, so these duplicate DB writes stay off.
+const reportingRefreshEnabled = String(process.env.AIGUKA_V9_REPORTING_LEGACY_REFRESH || "false").trim().toLowerCase() === "true";
 if (reportingReady && reportingRefreshEnabled && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   startDetached("./v9-reporting-legacy-refresh-worker-v2.js");
   startDetached("./v9-reporting-conversation-refresh-worker.js");
-  console.log(`[AIGUKA Reporting] compatibility read-model refresh started${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
+  console.warn(`[AIGUKA Reporting] legacy read-model refresh explicitly enabled${temporaryReportingHost ? " on temporary Knowledge host" : ""}`);
+} else {
+  console.log("[AIGUKA Reporting] legacy read-model refresh disabled; direct Meta/Core sources active");
 }
 
-const metaInsightsEnabled = String(process.env.AIGUKA_V9_META_INSIGHTS_ENABLED || "true").trim().toLowerCase() !== "false";
+const metaInsightsEnabled = String(process.env.AIGUKA_V9_META_INSIGHTS_ENABLED || "false").trim().toLowerCase() === "true";
 if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   await safeImport("./v9-postgrest-uniform-batch.js");
   startDetached("./v9-meta-ads-insights-worker.js");
   startDetached("./v9-meta-ad-page-resolver-worker.js");
   startDetached("./v9-meta-orphan-ad-resolver-worker.js");
-  console.log("[AIGUKA Reporting] compatibility Meta snapshot workers started");
+  console.warn("[AIGUKA Reporting] compatibility Meta snapshot workers explicitly enabled");
+} else {
+  console.log("[AIGUKA Reporting] Meta snapshot workers disabled; dashboard queries Meta directly");
 }
 
 if (v9CoreReady) {
@@ -135,7 +139,7 @@ if (v9CoreReady) {
 
   if (reportingReady) {
     startDetached("./v9-reporting-sync-worker.js");
-    console.log("[AIGUKA Reporting] reporting sync worker started");
+    console.log("[AIGUKA Reporting] reporting sync worker started for Lead history and exports");
   } else {
     console.warn("[AIGUKA Reporting] sync disabled: Reporting URL/service-role missing; Core outbox will retain events");
   }

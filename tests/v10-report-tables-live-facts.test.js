@@ -8,7 +8,7 @@ const rpcSql = fs.readFileSync("supabase/migrations/20260805152600_v10_report_li
 const leadsSql = fs.readFileSync("supabase/migrations/20260805152700_v10_report_leads_messages_comments.sql", "utf8");
 const zeroDeliverySql = fs.readFileSync("supabase/migrations/20260805152800_v10_report_daily_zero_delivery_accounts.sql", "utf8");
 const serverPatch = fs.readFileSync("patch-server.js", "utf8");
-const handler = fs.readFileSync("report-handler.js", "utf8");
+const handler = fs.readFileSync("report-handler-v10.js", "utf8");
 
 test("performance view joins Meta spend to live V10 customer facts", () => {
   assert.match(viewSql, /from public\.fact_daily_ad_performance/i);
@@ -60,12 +60,13 @@ test("legacy dashboard patch still preserves completed labels for fallback", () 
   assert.match(serverPatch, /patchV10ReportTablesUi/);
 });
 
-test("exports preserve customer labels and direct Meta source separation", () => {
+test("exports preserve customer labels and direct Meta/Core source separation", () => {
   assert.match(handler, /Bình luận Facebook/);
   assert.match(handler, /Messenger \/ tự nhiên/);
   assert.match(handler, /Loại khách/);
   assert.match(handler, /Tự nhiên \/ chưa xác định/);
-  assert.match(handler, /meta_live_plus_customer_facts/);
-  assert.match(handler, /supabase_customer_history/);
+  assert.match(handler, /meta_live_plus_core_customer_metrics/);
+  assert.match(handler, /core_live_plus_reporting_history/);
+  assert.match(handler, /supabase_fallback/);
   assert.match(handler, /funding_source_display/);
 });

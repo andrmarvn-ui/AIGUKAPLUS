@@ -24,9 +24,18 @@ These cannot be removed yet without replacing their live source contract:
 - `v9-reporting-publisher.js` and `v9-reporting-sync-worker.js` — publish privacy-safe Core history into the Reporting read model used for long-range Lead pagination and export.
 - `patch-server.js` and `patch-direct-meta-dashboard.js` — currently materialize the Railway HTTP server and direct-Meta dashboard. They need consolidation, but deleting them now would remove routes.
 
-## Compatibility reporting scheduled for retirement
+## Report source cutover
 
-These workers duplicate data already available from direct Meta/Core paths. They remain temporarily enabled until dashboard filters and customer metrics are fully independent of stored ad snapshots:
+Normal report requests no longer require refreshed ad-performance snapshots:
+
+- `meta-direct-inventory.js` reads current campaign, ad set, ad name and effective status directly from Meta Graph API.
+- `v10_report_filter_registry()` scopes Meta calls to Page-linked reporting accounts and preserves mapped historical ads.
+- `v10_report_customer_metrics()` reads customer/ad/day counts directly from Core and excludes Page actors.
+- `report-handler-v10.js` uses direct Meta inventory/Insights plus Core customer metrics during normal operation.
+- `v8_report_ads_test` and `v8_report_daily_test` remain outage fallback only.
+- `v8_report_leads_test` remains the Reporting history source for paginated Lead lists and Excel export; names and raw contacts are enriched from Core at read time.
+
+The following duplicate snapshot workers are disabled by default and can run only through explicit emergency opt-in environment flags:
 
 - `v9-reporting-legacy-refresh-worker-v2.js`
 - `v9-reporting-conversation-refresh-worker.js`
@@ -34,12 +43,7 @@ These workers duplicate data already available from direct Meta/Core paths. They
 - `v9-meta-ad-page-resolver-worker.js`
 - `v9-meta-orphan-ad-resolver-worker.js`
 
-Retirement gate:
-
-1. Filter inventory comes directly from Meta Graph API.
-2. Customer/ad/day metrics come from `v10_report_customer_metrics` in Core.
-3. Long-range Lead history and Excel export continue to pass tests without `fact_daily_ad_performance` refresh.
-4. Meta outage fallback is explicitly defined and tested.
+Their source files remain during the observation period so a Meta outage fallback can be rebuilt deliberately. They no longer start automatically.
 
 ## Permanently retired in this audit
 
@@ -60,15 +64,19 @@ The live entrypoint no longer executes provider-load-balancer or decision-integr
 
 The old patch files and `v10-ai-worker-v2.js` remain temporarily as build history only. CI reconstructs the historical output in a temporary directory and requires byte-for-byte equality with the committed final worker. They have no runtime import path. After an observation period, these build-history files can be moved to an archive or deleted together with parity tests.
 
+### Report snapshot authority
+
+Direct Meta and Core now own normal report data. Snapshot workers are opt-in fallback only, not parallel authorities.
+
 ## Known architecture debt still open
 
 ### HTTP server patch chain
 
 The Railway server is still materialized by sequential server/UI patches. Routes are working, but source ownership is unclear. The target is a single committed server entrypoint with no startup source rewriting.
 
-### Reporting snapshot compatibility
+### Lead history read model
 
-Direct Meta supplies live ad spend and delivery metrics, and Core now exposes `v10_report_customer_metrics`. Filter inventory and fallback behavior still depend on stored Reporting facts, so the snapshot workers remain until the retirement gate above is complete.
+Long-range Lead pagination/export still uses the Reporting read model. This is intentional: Core owns live identity/contact truth, while Reporting stores privacy-safe historical rows. Publisher and sync cannot be removed until a direct Core history API provides equivalent pagination and export performance.
 
 ### Legacy schema names
 
@@ -81,3 +89,4 @@ Core tables and several RPCs retain `v9_`/`v8_` names for schema compatibility. 
 - Historical delivery constraint and Meta `#551` error bursts had stopped before this audit; current delivery bundles continue to be sent.
 - The old mode-sync worker reported page changes every poll because it compared JSON containing a newly generated timestamp. The V10 compatibility worker removes volatile timestamps from equality checks; production subsequently reported `changed_pages: 0` and `runtime_changed: false`.
 - Provider configuration remained present after restart. An empty provider list in the AI heartbeat occurred before any post-restart decision job; the worker loads provider rows lazily when it has work to process.
+- The static report registry resolves two active Pages, two configured reporting accounts (`fff` and `Nguyệt Bếp`) and 81 mapped ads without scanning performance facts.
