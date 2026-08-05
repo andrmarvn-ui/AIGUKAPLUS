@@ -1,4 +1,4 @@
-const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v4");
+const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v5");
 const COMPATIBLE_HOSTS = new Set([
   "api.moonshot.ai",
   "openrouter.ai",
@@ -27,6 +27,31 @@ function inputText(content) {
   }).join("");
 }
 
+function responseMessages(body = {}) {
+  const messages = [];
+  if (body.instructions) messages.push({ role: "system", content: String(body.instructions) });
+  for (const item of body.input || []) {
+    const content = inputText(item?.content);
+    if (!content) continue;
+    messages.push({ role: item?.role === "assistant" ? "assistant" : "user", content });
+  }
+  return messages;
+}
+
+function responseTools(body = {}) {
+  return (body.tools || [])
+    .filter((tool) => tool?.type === "function" && tool?.name)
+    .map((tool) => ({
+      type: "function",
+      function: {
+        name: tool.name,
+        description: tool.description || "",
+        parameters: tool.parameters || { type: "object", properties: {} },
+        ...(tool.strict === true ? { strict: true } : {}),
+      },
+    }));
+}
+
 export function compatibleMaxTokens(value = process.env.AIGUKA_V10_COMPAT_MAX_TOKENS) {
   const parsed = Number(value || DEFAULT_MAX_TOKENS);
   if (!Number.isFinite(parsed)) return DEFAULT_MAX_TOKENS;
@@ -43,61 +68,60 @@ function normalizeToolChoice(choice) {
   return choice;
 }
 
-export function toChatCompletionsBody(body = {}, options = {}) {
-  const messages = [];
-  if (body.instructions) messages.push({ role: "system", content: String(body.instructions) });
-  for (const item of body.input || []) {
-    const content = inputText(item?.content);
-    if (!content) continue;
-    messages.push({ role: item?.role === "assistant" ? "assistant" : "user", content });
-  }
-
-  const tools = (body.tools || [])
-    .filter((tool) => tool?.type === "function" && tool?.name)
-    .map((tool) => ({
-      type: "function",
-      function: {
-        name: tool.name,
-        description: tool.description || "",
-        parameters: tool.parameters || { type: "object", properties: {} },
-        ...(tool.strict === true ? { strict: true } : {}),
-      },
-    }));
-
-  const cohereCompatibility = options.cohereCompatibility === true;
+export function toChatCompletionsBody(body = {}) {
+  const tools = responseTools(body);
   const toolChoice = normalizeToolChoice(body.tool_choice);
   return {
     model: body.model,
-    messages,
+    messages: responseMessages(body),
     max_tokens: compatibleMaxTokens(),
     ...(tools.length ? { tools } : {}),
-    // Cohere's OpenAI Compatibility API supports tools but rejects tool_choice.
-    ...(!cohereCompatibility && toolChoice ? { tool_choice: toolChoice } : {}),
-    // Cohere explicitly lists parallel_tool_calls as unsupported.
-    ...(!cohereCompatibility && typeof body.parallel_tool_calls === "boolean"
-      ? { parallel_tool_calls: body.parallel_tool_calls }
-      : {}),
-    ...(cohereCompatibility ? { reasoning_effort: "none", temperature: 0 } : {}),
+    ...(toolChoice ? { tool_choice: toolChoice } : {}),
+    ...(typeof body.parallel_tool_calls === "boolean" ? { parallel_tool_calls: body.parallel_tool_calls } : {}),
+  };
+}
+
+export function toCohereV2Body(body = {}) {
+  const tools = responseTools(body).map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+    },
+  }));
+  return {
+    model: body.model,
+    messages: responseMessages(body),
+    stream: false,
+    max_tokens: compatibleMaxTokens(),
+    temperature: 0,
+    ...(tools.length ? {
+      tools,
+      tool_choice: "REQUIRED",
+      strict_tools: true,
+    } : {}),
+  };
+}
+
+function functionOutput(call = {}) {
+  const args = call?.function?.arguments;
+  return {
+    type: "function_call",
+    id: call.id || null,
+    call_id: call.id || null,
+    name: call?.function?.name || "",
+    arguments: typeof args === "string" ? args : JSON.stringify(args || {}),
+    status: "completed",
   };
 }
 
 export function toResponsesPayload(payload = {}, fallbackToolName = "") {
   const message = payload?.choices?.[0]?.message || {};
-  const output = [];
-  for (const call of message.tool_calls || []) {
-    if (call?.type !== "function" || !call?.function?.name) continue;
-    output.push({
-      type: "function_call",
-      id: call.id || null,
-      call_id: call.id || null,
-      name: call.function.name,
-      arguments: call.function.arguments || "{}",
-      status: "completed",
-    });
-  }
+  const output = (message.tool_calls || [])
+    .filter((call) => call?.type === "function" && call?.function?.name)
+    .map(functionOutput);
 
-  // Some OpenAI-compatible providers may return the requested JSON in message.content
-  // instead of tool_calls. Preserve the V10 contract only when the content is valid JSON.
   if (!output.length && fallbackToolName && typeof message.content === "string") {
     const text = message.content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     if (text.startsWith("{") && text.endsWith("}")) {
@@ -112,7 +136,7 @@ export function toResponsesPayload(payload = {}, fallbackToolName = "") {
           status: "completed",
         });
       } catch {
-        // Keep output empty; the worker will fail over to another provider.
+        // Leave empty so the worker can fail over.
       }
     }
   }
@@ -127,6 +151,18 @@ export function toResponsesPayload(payload = {}, fallbackToolName = "") {
   };
 }
 
+export function cohereV2ToResponsesPayload(payload = {}) {
+  const calls = payload?.message?.tool_calls || [];
+  return {
+    id: payload.id || null,
+    object: "response",
+    created_at: Math.floor(Date.now() / 1000),
+    model: payload.model || null,
+    output: calls.filter((call) => call?.function?.name).map(functionOutput),
+    usage: payload.usage || null,
+  };
+}
+
 export function installOpenAICompatibleResponsesAdapter() {
   if (globalThis[PATCH_MARK]) return globalThis[PATCH_MARK];
   const nativeFetch = globalThis.fetch.bind(globalThis);
@@ -135,9 +171,6 @@ export function installOpenAICompatibleResponsesAdapter() {
     if (!isCompatibleResponsesUrl(input)) return nativeFetch(input, init);
 
     const requestUrl = new URL(input instanceof Request ? input.url : String(input));
-    const chatUrl = new URL(requestUrl.toString());
-    chatUrl.pathname = chatUrl.pathname.replace(/\/responses\/?$/i, "/chat/completions");
-
     let body;
     try {
       body = typeof init.body === "string" ? JSON.parse(init.body) : init.body;
@@ -147,11 +180,23 @@ export function installOpenAICompatibleResponsesAdapter() {
     if (!body || typeof body !== "object") return nativeFetch(input, init);
 
     const hostname = requestUrl.hostname.toLowerCase();
-    const cohereCompatibility = hostname === "api.cohere.ai";
-    const fallbackToolName = String((body.tools || []).find((tool) => tool?.type === "function" && tool?.name)?.name || "");
-
     const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
     headers.set("content-type", "application/json");
+
+    let targetUrl;
+    let requestBody;
+    let cohereNative = false;
+    if (hostname === "api.cohere.ai") {
+      targetUrl = new URL("https://api.cohere.ai/v2/chat");
+      requestBody = toCohereV2Body(body);
+      cohereNative = true;
+      headers.set("X-Client-Name", "AIGUKA");
+    } else {
+      targetUrl = new URL(requestUrl.toString());
+      targetUrl.pathname = targetUrl.pathname.replace(/\/responses\/?$/i, "/chat/completions");
+      requestBody = toChatCompletionsBody(body);
+    }
+
     if (hostname === "openrouter.ai") {
       const referer = String(process.env.OPENROUTER_HTTP_REFERER || process.env.AIGUKA_PUBLIC_URL || "").trim();
       const title = String(process.env.OPENROUTER_X_TITLE || "AIGUKA").trim();
@@ -159,10 +204,10 @@ export function installOpenAICompatibleResponsesAdapter() {
       if (title) headers.set("X-Title", title);
     }
 
-    const response = await nativeFetch(chatUrl, {
+    const response = await nativeFetch(targetUrl, {
       ...init,
       headers,
-      body: JSON.stringify(toChatCompletionsBody(body, { cohereCompatibility })),
+      body: JSON.stringify(requestBody),
     });
     const raw = await response.text();
     let payload;
@@ -177,7 +222,12 @@ export function installOpenAICompatibleResponsesAdapter() {
       });
     }
 
-    return new Response(JSON.stringify(toResponsesPayload(payload, fallbackToolName)), {
+    const fallbackToolName = String((body.tools || []).find((tool) => tool?.type === "function" && tool?.name)?.name || "");
+    const normalized = cohereNative
+      ? cohereV2ToResponsesPayload(payload)
+      : toResponsesPayload(payload, fallbackToolName);
+
+    return new Response(JSON.stringify(normalized), {
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
@@ -186,12 +236,12 @@ export function installOpenAICompatibleResponsesAdapter() {
 
   globalThis.fetch = adaptedFetch;
   globalThis[PATCH_MARK] = {
-    version: "v4",
+    version: "v5",
     hosts: [...COMPATIBLE_HOSTS],
     maxTokens: compatibleMaxTokens(),
-    cohereCompatibility: "omit_tool_choice_and_parallel_tool_calls",
+    cohereCompatibility: "native_v2_chat_required_tools",
   };
-  console.log(`[AIGUKA V10] OpenAI-compatible /responses adapter v4 enabled; hosts=${[...COMPATIBLE_HOSTS].join(",")}; max_tokens=${compatibleMaxTokens()}`);
+  console.log(`[AIGUKA V10] OpenAI-compatible adapter v5 enabled; Cohere uses native v2/chat; hosts=${[...COMPATIBLE_HOSTS].join(",")}`);
   return globalThis[PATCH_MARK];
 }
 
