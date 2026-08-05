@@ -4,34 +4,34 @@ import fs from "node:fs";
 
 const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
 
-test("legacy V8 background workers default to disabled", () => {
+test("historical V8 background flag is ignored instead of opening a rollback gate", () => {
   assert.match(start, /AIGUKA_V8_BACKGROUND_WORKERS\s*\|\|\s*"false"/);
-  assert.match(start, /if \(v8BackgroundEnabled\) \{/);
+  assert.match(start, /AIGUKA_V8_BACKGROUND_WORKERS is ignored/);
+  assert.doesNotMatch(start, /const v8BackgroundEnabled/);
+  assert.doesNotMatch(start, /if \(v8BackgroundEnabled\) \{/);
 });
 
-test("all five legacy workers are inside the rollback gate", () => {
-  const gateStart = start.indexOf("if (v8BackgroundEnabled) {");
-  const gateEnd = start.indexOf("} else {", gateStart);
-  assert.ok(gateStart >= 0 && gateEnd > gateStart);
-  const gated = start.slice(gateStart, gateEnd);
+test("legacy customer workers have no startup path", () => {
   for (const worker of [
-    "webhook-inbox-worker.js",
-    "meta-recovery-loader.js",
-    "ai-dispatch-worker.js",
-    "outbound-worker.js",
-    "meta-profile-sync-worker.js",
-  ]) assert.match(gated, new RegExp(worker.replaceAll(".", "\\.")));
+    'startDetached("./webhook-inbox-worker.js")',
+    'startDetached("./meta-recovery-loader.js")',
+    'startDetached("./ai-dispatch-worker.js")',
+    'startDetached("./outbound-worker.js")',
+    'startDetached("./meta-profile-sync-worker.js")',
+  ]) assert.equal(start.includes(worker), false, worker);
 });
 
-test("current direct workers remain outside the V8 rollback gate", () => {
-  const gateEnd = start.indexOf("} else {", start.indexOf("if (v8BackgroundEnabled) {"));
+test("current V10 workers remain behind the isolated Core gate", () => {
+  const gateStart = start.indexOf("if (v9CoreReady) {");
+  assert.ok(gateStart >= 0);
   for (const worker of [
     'startDetached("./v9-legacy-inbox-bridge.js")',
+    'startDetached("./v10-mode-compat-worker.js")',
     'await safeImport("./v10-decision-queue-janitor.js", true)',
     'startDetached("./v10-direct-core-worker.js")',
     'startDetached("./v10-ai-worker.js")',
     'startDetached("./v10-outbound-worker.js")',
-  ]) assert.ok(start.indexOf(worker) > gateEnd);
+  ]) assert.ok(start.indexOf(worker) > gateStart, worker);
   assert.doesNotMatch(start, /startDetached\("\.\/v9-shadow-worker\.js"\)/);
   assert.doesNotMatch(start, /startDetached\("\.\/v9-ai-shadow-worker\.js"\)/);
 });

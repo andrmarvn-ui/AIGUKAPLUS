@@ -1,15 +1,16 @@
 {
-  "name": "aiguka-v8-railway-admin",
-  "version": "1.4.3",
+  "name": "aiguka-v10-runtime",
+  "version": "10.0.0",
   "private": true,
   "type": "module",
-  "description": "AIGUKA V8 core with stable V7 reporting and Facebook connection",
+  "description": "AIGUKA V10 audited AI-sovereign Messenger runtime with direct Meta reporting and isolated Core/Reporting data flows",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node start.js",
     "test": "node --test tests/*.test.js",
+    "test:v10": "node --test tests/v10-*.test.js",
     "test:mapping-center": "node --test tests/mapping-center-route.test.js"
   },
   "dependencies": {

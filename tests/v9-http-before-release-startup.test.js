@@ -29,6 +29,7 @@ test("V10 release is outside the pre-server patch array and V9 generated release
   const patchLoopEnd = position("]) await safeImport(patch);");
   const release = position('await safeImport("./v10-live-release.js", true)');
   assert.ok(release > patchLoopEnd);
-  assert.match(source, /HTTP server initialized; verifying clean V10 customer-worker release/);
+  assert.match(source, /HTTP server initialized; verifying V10 release contract/);
+  assert.doesNotMatch(source, /verifying clean V10 customer-worker release/);
   assert.doesNotMatch(source, /await safeImport\("\.\/v9-live-release-patch\.js", true\)/);
 });

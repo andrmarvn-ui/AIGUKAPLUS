@@ -25,7 +25,9 @@ jobs:
         run: |
           node --check start.js
           node --check v10-live-release.js
+          node --check v10-mode-compat-worker.js
           node --check v10-direct-core-worker.js
+          node --check v10-customer-profile-worker.js
           node --check v10-ai-worker.js
           node --check v10-ai-worker-v2.js
           node --check v10-outbound-worker.js
@@ -70,10 +72,24 @@ jobs:
           grep -Fq 'AIGUKA_V10_DECISION_INTEGRITY_V9' "$tmp/v10-ai-worker-v2.js"
           grep -Fq 'v10_ai_quality_guard_v12' "$tmp/v10-ai-worker-v2.js"
 
-      - name: Validate contact acknowledgement migration
+      - name: Validate production migrations
         run: |
-          file='supabase/migrations/20260805123500_v10_enqueue_new_contact_ack_job.sql'
-          test -f "$file"
-          grep -q 'after insert on public.v9_contacts' "$file"
-          grep -q "'goal', 'acknowledge_contact'" "$file"
-          grep -q 'on conflict(source_event_id, job_type) do nothing' "$file"
+          contact='supabase/migrations/20260805123500_v10_enqueue_new_contact_ack_job.sql'
+          metrics='supabase/migrations/20260806193000_v10_direct_customer_report_metrics.sql'
+          test -f "$contact"
+          grep -q 'after insert on public.v9_contacts' "$contact"
+          grep -q "'goal', 'acknowledge_contact'" "$contact"
+          grep -q 'on conflict(source_event_id, job_type) do nothing' "$contact"
+          test -f "$metrics"
+          grep -q 'create or replace function public.v10_report_customer_metrics' "$metrics"
+          grep -q 'customer_id <> e.page_id' "$metrics"
+          grep -q 'v10_core_live_customer_metrics' "$metrics"
+
+      - name: Confirm retired runtime cannot return
+        run: |
+          ! grep -q 'startDetached("./v8-v9-mode-sync-worker.js")' start.js
+          ! grep -q 'startDetached("./ai-dispatch-worker.js")' start.js
+          ! grep -q 'startDetached("./outbound-worker.js")' start.js
+          grep -q 'startDetached("./v10-mode-compat-worker.js")' start.js
+          test ! -e v7-pancake-service.cjs
+          test ! -e patch-v7-pancake-history.js

@@ -15,13 +15,13 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Check runtime and patch syntax
+      - name: Check runtime and active patch syntax
         run: |
           node --check start.js
+          node --check v10-mode-compat-worker.js
           for file in \
             patch-drive-slide-manager-v2.js \
             patch-catalog-key-rename.js \
-            patch-v7-pancake-history.js \
             patch-v7-pancake-toggle.js \
             patch-v7-daily-grouped.js \
             patch-v7-daily-staff-aligned.js \
@@ -38,6 +38,38 @@ jobs:
           do
             test ! -f "$file" || node --check "$file"
           done
+
+      - name: Confirm retired runtime paths cannot restart
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const source = fs.readFileSync('start.js', 'utf8');
+          const forbidden = [
+            'patch-v7-pancake-classifier.js',
+            'patch-v7-pancake-history.js',
+            'patch-v7-pancake-tag-parser.js',
+            'startDetached("./webhook-inbox-worker.js")',
+            'startDetached("./ai-dispatch-worker.js")',
+            'startDetached("./outbound-worker.js")',
+            'startDetached("./meta-profile-sync-worker.js")',
+            'startDetached("./v8-v9-mode-sync-worker.js")',
+          ];
+          for (const token of forbidden) {
+            if (source.includes(token)) throw new Error(`RETIRED_RUNTIME_PATH_ACTIVE:${token}`);
+          }
+          for (const file of [
+            'v7-pancake-service.cjs',
+            'patch-v7-pancake-classifier.js',
+            'patch-v7-pancake-history.js',
+            'patch-v7-pancake-tag-parser.js',
+            'patch-v7-pancake-tag-final.js',
+          ]) {
+            if (fs.existsSync(file)) throw new Error(`RETIRED_FILE_STILL_PRESENT:${file}`);
+          }
+          if (!source.includes('startDetached("./v10-mode-compat-worker.js")')) {
+            throw new Error('V10_MODE_COMPAT_NOT_STARTED');
+          }
+          NODE
 
       - name: Validate active legacy patch chains only
         run: |
