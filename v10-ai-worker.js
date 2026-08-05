@@ -2,4 +2,7 @@
 // /ai-providers; the runtime policy enforces that contract before any decision is claimed.
 await import("./v10-provider-runtime-policy.js");
 await import("./v10-openai-compatible-adapter.js");
+await import("./patch-v10-provider-load-balancer.js").catch((error) => {
+  console.error(`[AIGUKA V10] quota-aware load balancer patch failed; continuing with legacy scheduler: ${error instanceof Error ? error.message : String(error)}`);
+});
 await import("./v10-ai-worker-v2.js");
