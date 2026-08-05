@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import test from "node:test";
 
@@ -6,7 +7,7 @@ const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
 const release = fs.readFileSync(new URL("../v10-live-release.js", import.meta.url), "utf8");
 const direct = fs.readFileSync(new URL("../v10-direct-core-worker.js", import.meta.url), "utf8");
 const aiEntry = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
-const ai = fs.readFileSync(new URL("../v10-ai-worker-v2.js", import.meta.url), "utf8");
+const ai = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
 const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
 
 test("live transport starts only after the isolated Core router and queue cleanup", () => {
@@ -22,21 +23,27 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
   assert.match(direct, /V10_MODE_NOT_ALLOWED/);
 });
 
-test("Railway verifies clean V10 workers instead of generating patched workers", () => {
-  assert.match(release, /AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V2/);
+test("Railway verifies a checksummed final AI worker instead of patching source", () => {
+  assert.match(release, /AIGUKA_V10_AI_SOVEREIGN_FINAL_WORKER_V1/);
   assert.match(release, /v10_queue_hygiene_v2/);
   assert.match(release, /V10_REHYDRATE_LEGACY_PENDING/);
   assert.match(release, /v10_direct_ai_sovereign_v1/);
-  assert.match(release, /v10_ai_sovereign_scheduler_v2/);
+  assert.match(release, /v10_ai_quality_guard_v12/);
   assert.match(release, /v10_outbound_safety_only_v1/);
-  assert.match(release, /spawnSync\(process\.execPath, \["--check", file\]/);
+  assert.match(release, /createHash\("sha256"\)/);
+  assert.match(release, /V10_FINAL_AI_WORKER_CHECKSUM_MISMATCH/);
   assert.doesNotMatch(start, /v9-live-release-patch\.js/);
   assert.doesNotMatch(release, /replaceOnce|replaceBetween|applyStage/);
-  assert.match(aiEntry, /v10-ai-worker-v2\.js/);
+  assert.match(aiEntry, /v10-ai-worker-final\.js/);
+  assert.doesNotMatch(aiEntry, /patch-v10-/);
   assert.match(ai, /recoverStaleProcessing/);
   assert.match(ai, /providerAvailability/);
   assert.match(ai, /ai_decision_authority: "sole"/);
   assert.match(ai, /operational_fallback_enabled: false/);
+
+  const expected = fs.readFileSync(new URL("../v10-ai-worker-final.sha256", import.meta.url), "utf8").trim();
+  const actual = crypto.createHash("sha256").update(fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url))).digest("hex");
+  assert.equal(actual, expected);
 });
 
 test("live outbound requires AIGUKA primary and an explicit activation cutover", () => {

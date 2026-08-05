@@ -1,7 +1,8 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_ADVISORY_V2";
+const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_FINAL_WORKER_V1";
 
 // Conservative defaults for Gemini Free. The AI scheduler does not claim customer work
 // while every provider is unavailable, so cooldown never consumes a decision attempt.
@@ -18,29 +19,48 @@ const FILES = [
   "v10-decision-queue-janitor.js",
   "v10-direct-core-worker.js",
   "v10-ai-worker.js",
-  "v10-ai-worker-v2.js",
+  "v10-ai-worker-final.js",
   "v10-outbound-worker.js",
 ];
 
+function sourceOf(file) {
+  if (!fs.existsSync(file)) throw new Error(`V10_RELEASE_FILE_MISSING:${file}`);
+  return fs.readFileSync(file, "utf8");
+}
+
 function requireToken(file, token) {
-  const source = fs.readFileSync(file, "utf8");
+  const source = sourceOf(file);
   if (!source.includes(token)) throw new Error(`V10_RELEASE_TOKEN_MISSING:${file}:${token}`);
 }
 
+function forbidToken(file, token) {
+  const source = sourceOf(file);
+  if (source.includes(token)) throw new Error(`V10_RELEASE_RETIRED_TOKEN_PRESENT:${file}:${token}`);
+}
+
 for (const file of FILES) {
-  if (!fs.existsSync(file)) throw new Error(`V10_RELEASE_FILE_MISSING:${file}`);
   const result = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`V10_RELEASE_SYNTAX:${file}:${result.stderr || result.stdout}`);
+}
+
+const expectedChecksum = sourceOf("v10-ai-worker-final.sha256").trim();
+const actualChecksum = crypto.createHash("sha256").update(fs.readFileSync("v10-ai-worker-final.js")).digest("hex");
+if (!/^[a-f0-9]{64}$/.test(expectedChecksum) || expectedChecksum !== actualChecksum) {
+  throw new Error(`V10_FINAL_AI_WORKER_CHECKSUM_MISMATCH:${expectedChecksum}:${actualChecksum}`);
 }
 
 requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygiene_v2";');
 requireToken("v10-decision-queue-janitor.js", "V10_REHYDRATE_LEGACY_PENDING");
 requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovereign_v1";');
-requireToken("v10-ai-worker.js", 'await import("./v10-ai-worker-v2.js")');
-requireToken("v10-ai-worker-v2.js", 'const VERSION = "v10_ai_sovereign_scheduler_v2";');
-requireToken("v10-ai-worker-v2.js", "providerAvailability");
-requireToken("v10-ai-worker-v2.js", "recoverStaleProcessing");
-requireToken("v10-ai-worker-v2.js", "operational_fallback_enabled: false");
+requireToken("v10-ai-worker.js", 'await import("./v10-ai-worker-final.js")');
+requireToken("v10-ai-worker.js", "runtime_source_patching: false");
+forbidToken("v10-ai-worker.js", "patch-v10-provider-load-balancer");
+forbidToken("v10-ai-worker.js", "patch-v10-decision-integrity");
+requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_quality_guard_v12";');
+requireToken("v10-ai-worker-final.js", "providerSettings(provider).max_input_chars");
+requireToken("v10-ai-worker-final.js", "AIGUKA_V10_DECISION_INTEGRITY_V9");
+requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
+requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
@@ -49,4 +69,4 @@ requireToken("v10/core/decision-contract.js", "contact_state");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: AI-only customer decisions, contact-first constitution, provider-aware scheduling, no quota attempt burn, no operational customer fallback`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: checksummed final AI worker, no runtime source patching, AI-only customer decisions, provider-aware scheduling and no operational customer fallback`);

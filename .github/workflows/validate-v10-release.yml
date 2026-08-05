@@ -7,6 +7,9 @@ on:
       - fix/v10-release-stabilization-20260805
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   validate-v10:
     runs-on: ubuntu-latest
@@ -29,14 +32,14 @@ jobs:
           node --check v10-direct-core-worker.js
           node --check v10-customer-profile-worker.js
           node --check v10-ai-worker.js
-          node --check v10-ai-worker-v2.js
+          node --check v10-ai-worker-final.js
           node --check v10-outbound-worker.js
           node --check v10-decision-queue-janitor.js
           node --check v10/core/decision-contract.js
           node --check v10/core/conversation-assembler.js
           node --check v10/core/knowledge-advisor.js
 
-      - name: Materialize final V10 AI worker patch chain
+      - name: Verify committed AI worker matches the historical patch chain
         run: |
           tmp="$(mktemp -d)"
           cp v10-ai-worker-v2.js "$tmp/"
@@ -68,9 +71,19 @@ jobs:
             (cd "$tmp" && node "./$patch")
           done
           node --check "$tmp/v10-ai-worker-v2.js"
-          grep -Fq 'providerSettings(provider).max_input_chars' "$tmp/v10-ai-worker-v2.js"
-          grep -Fq 'AIGUKA_V10_DECISION_INTEGRITY_V9' "$tmp/v10-ai-worker-v2.js"
-          grep -Fq 'v10_ai_quality_guard_v12' "$tmp/v10-ai-worker-v2.js"
+          cmp -s "$tmp/v10-ai-worker-v2.js" v10-ai-worker-final.js
+          grep -Fq 'providerSettings(provider).max_input_chars' v10-ai-worker-final.js
+          grep -Fq 'AIGUKA_V10_DECISION_INTEGRITY_V9' v10-ai-worker-final.js
+          grep -Fq 'v10_ai_quality_guard_v12' v10-ai-worker-final.js
+          expected="$(sha256sum v10-ai-worker-final.js | awk '{print $1}')"
+          test "$expected" = "$(tr -d '\n\r ' < v10-ai-worker-final.sha256)"
+
+      - name: Confirm entrypoint has no runtime source patching
+        run: |
+          grep -q 'v10-ai-worker-final.js' v10-ai-worker.js
+          ! grep -q 'patch-v10-provider-load-balancer' v10-ai-worker.js
+          ! grep -q 'patch-v10-decision-integrity' v10-ai-worker.js
+          grep -q 'runtime_source_patching: false' v10-ai-worker.js
 
       - name: Validate production migrations
         run: |
