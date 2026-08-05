@@ -1,6 +1,7 @@
 import fs from "node:fs";
 
 await import("./patch-cohere-provider-compat.js");
+await import("./patch-v10-conversation-quality-v1.js");
 
 // AI provider management is owned by ai-provider-manager.js.
 // Do not import the old server-render hotfix here: it replaces the CRUD page
