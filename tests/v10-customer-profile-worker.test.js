@@ -13,6 +13,16 @@ test("profile worker derives useful customer names and gender", () => {
   assert.equal(__private__.normalizeGender("female"), "female");
 });
 
+test("Meta profile name unavailability is an expected skip, not a transport failure", () => {
+  assert.equal(__private__.isProfileUnavailable(new Error("META_PROFILE_NAME_UNAVAILABLE")), true);
+  assert.equal(__private__.isProfileUnavailable(new Error("META_190:token expired")), false);
+  assert.match(source, /profile_sync_status: "unavailable"/);
+  assert.match(source, /UNAVAILABLE_RETRY_MS/);
+  assert.match(source, /details\.unavailable \+= 1/);
+  assert.match(source, /details\.failed \? "degraded" : "healthy"/);
+  assert.match(source, /v10_customer_profile_v3/);
+});
+
 test("profile worker is Core-only and has no outbound Messenger path", () => {
   assert.match(source, /v9_customers/);
   assert.match(source, /display_name/);

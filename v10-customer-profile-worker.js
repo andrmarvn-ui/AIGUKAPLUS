@@ -4,10 +4,11 @@ const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, ""
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const GRAPH_VERSION = String(process.env.META_GRAPH_VERSION || "v23.0").replace(/^\/?/, "");
 const WORKER = "aiguka-v10-customer-profile";
-const VERSION = "v10_customer_profile_v2";
+const VERSION = "v10_customer_profile_v3";
 const POLL_MS = Math.max(15_000, Number(process.env.AIGUKA_V10_PROFILE_POLL_MS || 20_000));
 const BATCH_SIZE = Math.max(1, Math.min(15, Number(process.env.AIGUKA_V10_PROFILE_BATCH || 5)));
 const RETRY_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_PROFILE_RETRY_MS || 6 * 60 * 60_000));
+const UNAVAILABLE_RETRY_MS = Math.max(24 * 60 * 60_000, Number(process.env.AIGUKA_V10_PROFILE_UNAVAILABLE_RETRY_MS || 7 * 24 * 60 * 60_000));
 
 let running = false;
 let timer;
@@ -113,6 +114,10 @@ function applyParticipantName(profile, participantName) {
   };
 }
 
+function isProfileUnavailable(error) {
+  return clean(error?.message || error) === "META_PROFILE_NAME_UNAVAILABLE";
+}
+
 async function participantName(pageId, customerId, token) {
   try {
     const data = await graph(`${pageId}/conversations`, token, {
@@ -190,6 +195,25 @@ async function saveSuccess(row, result) {
   });
 }
 
+async function saveUnavailable(row) {
+  const timestamp = nowIso();
+  const next = new Date(Date.now() + UNAVAILABLE_RETRY_MS).toISOString();
+  await core(`v9_customers?id=eq.${encodeURIComponent(row.id)}`, {
+    method: "PATCH",
+    prefer: "return=minimal",
+    body: {
+      profile: {
+        ...(row.profile || {}),
+        profile_sync_status: "unavailable",
+        profile_sync_attempted_at: timestamp,
+        profile_sync_error: "META_PROFILE_NAME_UNAVAILABLE",
+        profile_sync_next_at: next,
+      },
+      updated_at: timestamp,
+    },
+  }).catch(() => {});
+}
+
 async function saveFailure(row, error) {
   const next = new Date(Date.now() + RETRY_MS).toISOString();
   await core(`v9_customers?id=eq.${encodeURIComponent(row.id)}`, {
@@ -229,7 +253,7 @@ async function heartbeat(status, details = {}, error = null) {
 async function tick() {
   if (!configured() || running) return;
   running = true;
-  const details = { selected: 0, synced: 0, failed: 0 };
+  const details = { selected: 0, synced: 0, unavailable: 0, failed: 0 };
   try {
     const rows = await candidates();
     details.selected = rows.length;
@@ -241,12 +265,18 @@ async function tick() {
         details.synced += 1;
         localCooldown.delete(key);
       } catch (error) {
-        details.failed += 1;
-        localCooldown.set(key, Date.now() + RETRY_MS);
-        await saveFailure(row, error);
+        if (isProfileUnavailable(error)) {
+          details.unavailable += 1;
+          localCooldown.set(key, Date.now() + UNAVAILABLE_RETRY_MS);
+          await saveUnavailable(row);
+        } else {
+          details.failed += 1;
+          localCooldown.set(key, Date.now() + RETRY_MS);
+          await saveFailure(row, error);
+        }
       }
     }
-    await heartbeat(details.failed ? "degraded" : "healthy", details, details.failed ? `${details.failed} profile(s) failed` : null);
+    await heartbeat(details.failed ? "degraded" : "healthy", details, details.failed ? `${details.failed} profile transport/system error(s)` : null);
   } catch (error) {
     await heartbeat("degraded", details, error?.message || error).catch(() => {});
   } finally {
@@ -267,6 +297,12 @@ export async function startV10CustomerProfileWorker() {
   tick().catch(() => {});
 }
 
-export const __private__ = { displayName, normalizeGender, applyParticipantName, retryAt };
+export const __private__ = {
+  displayName,
+  normalizeGender,
+  applyParticipantName,
+  isProfileUnavailable,
+  retryAt,
+};
 
 await startV10CustomerProfileWorker();
