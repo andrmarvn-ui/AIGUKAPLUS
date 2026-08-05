@@ -50,7 +50,7 @@ test("lead RPC includes comments and excludes Page self activity", () => {
   assert.match(leadsSql, /Bình luận|bình luận/);
 });
 
-test("dashboard UI exposes message and comment counters and organic daily rows", () => {
+test("legacy dashboard patch still preserves completed labels for fallback", () => {
   const html = patchV10ReportTablesUi("<html><body></body></html>");
   assert.match(html, /Khách nhắn tin/);
   assert.match(html, /Khách comment/);
@@ -60,10 +60,12 @@ test("dashboard UI exposes message and comment counters and organic daily rows",
   assert.match(serverPatch, /patchV10ReportTablesUi/);
 });
 
-test("exports preserve completed source labels", () => {
+test("exports preserve customer labels and direct Meta source separation", () => {
   assert.match(handler, /Bình luận Facebook/);
   assert.match(handler, /Messenger \/ tự nhiên/);
   assert.match(handler, /Loại khách/);
   assert.match(handler, /Tự nhiên \/ chưa xác định/);
-  assert.match(handler, /v10_live_reporting_unified/);
+  assert.match(handler, /meta_live_plus_customer_facts/);
+  assert.match(handler, /supabase_customer_history/);
+  assert.match(handler, /funding_source_display/);
 });

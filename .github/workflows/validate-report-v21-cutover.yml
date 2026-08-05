@@ -4,20 +4,32 @@ on:
   pull_request:
     paths:
       - "report-handler.js"
+      - "meta-direct-reporting.js"
+      - "dashboard-v10-stable.js"
+      - "patch-direct-meta-dashboard.js"
+      - "v10-customer-profile-worker.js"
       - "dashboard-report-v10-patch.js"
       - "report-v21-worker.js"
       - "tests/report-v21-handler.test.js"
       - "tests/v10-report-tables-live-facts.test.js"
+      - "tests/v10-direct-meta-dashboard.test.js"
+      - "tests/v10-customer-profile-worker.test.js"
       - "supabase/migrations/20260805152*.sql"
       - ".github/workflows/validate-report-v21-cutover.yml"
   push:
     branches: [main]
     paths:
       - "report-handler.js"
+      - "meta-direct-reporting.js"
+      - "dashboard-v10-stable.js"
+      - "patch-direct-meta-dashboard.js"
+      - "v10-customer-profile-worker.js"
       - "dashboard-report-v10-patch.js"
       - "report-v21-worker.js"
       - "tests/report-v21-handler.test.js"
       - "tests/v10-report-tables-live-facts.test.js"
+      - "tests/v10-direct-meta-dashboard.test.js"
+      - "tests/v10-customer-profile-worker.test.js"
       - "supabase/migrations/20260805152*.sql"
       - ".github/workflows/validate-report-v21-cutover.yml"
 
@@ -34,14 +46,24 @@ jobs:
       - name: Validate report runtime syntax
         run: |
           node --check report-handler.js
+          node --check meta-direct-reporting.js
+          node --check dashboard-v10-stable.js
+          node --check patch-direct-meta-dashboard.js
+          node --check v10-customer-profile-worker.js
           node --check report-v21-worker.js
           node --check dashboard-report-v10-patch.js
       - name: Run live report route tests
-        run: node --test tests/report-v21-handler.test.js tests/v10-report-tables-live-facts.test.js
-      - name: Confirm retired V2.1 cannot reclaim the production route
+        run: node --test tests/report-v21-handler.test.js tests/v10-report-tables-live-facts.test.js tests/v10-direct-meta-dashboard.test.js tests/v10-customer-profile-worker.test.js
+      - name: Confirm direct Meta owns budget and retired V2.1 cannot reclaim production
         run: |
-          grep -F 'v8_report_summary_test' report-handler.js
+          grep -F 'createMetaDirectReporting' report-handler.js
+          grep -F 'meta_live_plus_customer_facts' report-handler.js
+          grep -F 'supabase_customer_history' report-handler.js
           grep -F 'v8_report_daily_test' report-handler.js
           grep -F 'v8_report_ads_test' report-handler.js
           grep -F 'v8_report_leads_test' report-handler.js
+          grep -F 'installStableReportDashboard' patch-direct-meta-dashboard.js
+          grep -F 'startDetached("./v10-customer-profile-worker.js")' start.js
           ! grep -F 'v8_report_summary_v21' report-handler.js
+          ! grep -F 'v8_report_ads_v21' report-handler.js
+          ! grep -F 'v8_report_daily_v21' report-handler.js

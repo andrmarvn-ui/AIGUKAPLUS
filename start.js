@@ -73,6 +73,7 @@ for (const patch of [
 ]) await safeImport(patch);
 
 await safeImport("./patch-server.js");
+await safeImport("./patch-direct-meta-dashboard.js", true);
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
 await safeImport("./patch-outbound-binary-image-upload.js");
@@ -132,6 +133,7 @@ if (v9CoreReady) {
   startDetached("./v8-v9-mode-sync-worker.js");
   await safeImport("./v10-decision-queue-janitor.js", true);
   startDetached("./v10-direct-core-worker.js");
+  startDetached("./v10-customer-profile-worker.js");
   startDetached("./v10-ai-worker.js");
   startDetached("./v10-outbound-worker.js");
   startDetached("./v9-reporting-publisher.js");
