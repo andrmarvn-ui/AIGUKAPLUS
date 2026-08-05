@@ -6,6 +6,7 @@ import { patchV10ReportTablesUi } from "../dashboard-report-v10-patch.js";
 const viewSql = fs.readFileSync("supabase/migrations/20260805152500_v10_report_live_fact_view.sql", "utf8");
 const rpcSql = fs.readFileSync("supabase/migrations/20260805152600_v10_report_live_fact_rpcs.sql", "utf8");
 const leadsSql = fs.readFileSync("supabase/migrations/20260805152700_v10_report_leads_messages_comments.sql", "utf8");
+const zeroDeliverySql = fs.readFileSync("supabase/migrations/20260805152800_v10_report_daily_zero_delivery_accounts.sql", "utf8");
 const serverPatch = fs.readFileSync("patch-server.js", "utf8");
 const handler = fs.readFileSync("report-handler.js", "utf8");
 
@@ -27,6 +28,16 @@ test("daily and ads RPCs share the unified facts without organic ads pollution",
   assert.match(rpcSql, /where ad_id is not null/);
   assert.match(rpcSql, /cost_per_conversation/);
   assert.match(rpcSql, /cost_per_contact/);
+});
+
+test("daily table retains active accounts when Meta returns no delivery rows", () => {
+  assert.match(zeroDeliverySql, /from public\.v8_meta_ad_accounts aa/i);
+  assert.match(zeroDeliverySql, /from public\.v8_meta_page_ad_accounts l/i);
+  assert.match(zeroDeliverySql, /generate_series\(v_from,v_to,interval '1 day'\)/);
+  assert.match(zeroDeliverySql, /zero_delivery/);
+  assert.match(zeroDeliverySql, /Meta không ghi nhận phân phối trong ngày/);
+  assert.match(zeroDeliverySql, /aa\.reporting_enabled=true/);
+  assert.match(zeroDeliverySql, /aa\.is_active=true/);
 });
 
 test("lead RPC includes comments and excludes Page self activity", () => {
