@@ -1,0 +1,79 @@
+name: Validate V10 release
+
+on:
+  push:
+    branches:
+      - main
+      - fix/v10-release-stabilization-20260805
+  pull_request:
+
+jobs:
+  validate-v10:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm install --ignore-scripts
+
+      - name: Run V10 unit tests
+        run: node --test tests/v10-*.test.js
+
+      - name: Check V10 runtime syntax
+        run: |
+          node --check start.js
+          node --check v10-live-release.js
+          node --check v10-direct-core-worker.js
+          node --check v10-ai-worker.js
+          node --check v10-ai-worker-v2.js
+          node --check v10-outbound-worker.js
+          node --check v10-decision-queue-janitor.js
+          node --check v10/core/decision-contract.js
+          node --check v10/core/conversation-assembler.js
+          node --check v10/core/knowledge-advisor.js
+
+      - name: Materialize final V10 AI worker patch chain
+        run: |
+          tmp="$(mktemp -d)"
+          cp v10-ai-worker-v2.js "$tmp/"
+          cp \
+            patch-v10-provider-load-balancer.js \
+            patch-v10-provider-load-balancer-v4.js \
+            patch-v10-provider-load-balancer-v5.js \
+            patch-v10-provider-load-balancer-v6.js \
+            patch-v10-decision-integrity-v3.js \
+            patch-v10-decision-integrity-v4.js \
+            patch-v10-decision-integrity-v5.js \
+            patch-v10-decision-integrity-v6.js \
+            patch-v10-decision-integrity-v7.js \
+            patch-v10-decision-integrity-v8.js \
+            patch-v10-decision-integrity-v9.js \
+            "$tmp/"
+          for patch in \
+            patch-v10-provider-load-balancer.js \
+            patch-v10-provider-load-balancer-v4.js \
+            patch-v10-provider-load-balancer-v5.js \
+            patch-v10-provider-load-balancer-v6.js \
+            patch-v10-decision-integrity-v4.js \
+            patch-v10-decision-integrity-v5.js \
+            patch-v10-decision-integrity-v6.js \
+            patch-v10-decision-integrity-v7.js \
+            patch-v10-decision-integrity-v8.js \
+            patch-v10-decision-integrity-v9.js
+          do
+            (cd "$tmp" && node "./$patch")
+          done
+          node --check "$tmp/v10-ai-worker-v2.js"
+          grep -Fq 'providerSettings(provider).max_input_chars' "$tmp/v10-ai-worker-v2.js"
+          grep -Fq 'AIGUKA_V10_DECISION_INTEGRITY_V9' "$tmp/v10-ai-worker-v2.js"
+          grep -Fq 'v10_ai_quality_guard_v12' "$tmp/v10-ai-worker-v2.js"
+
+      - name: Validate contact acknowledgement migration
+        run: |
+          file='supabase/migrations/20260805123500_v10_enqueue_new_contact_ack_job.sql'
+          test -f "$file"
+          grep -q 'after insert on public.v9_contacts' "$file"
+          grep -q "'goal', 'acknowledge_contact'" "$file"
+          grep -q 'on conflict(source_event_id, job_type) do nothing' "$file"

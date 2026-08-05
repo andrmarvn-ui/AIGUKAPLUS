@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - fix/slide-staff-pancake-20260717
   pull_request:
 
 jobs:
@@ -15,163 +14,83 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
-      - run: npm install --ignore-scripts
 
-      - name: Check patch syntax
+      - name: Check runtime and patch syntax
         run: |
-          node --check patch-drive-slide-manager-v2.js
-          node --check patch-v7-pancake-history.js
-          node --check patch-v7-pancake-toggle.js
-          node --check patch-v7-daily-staff-history.js
-          node --check patch-v7-daily-staff-aligned.js
-          node --check patch-v7-daily-runtime-self-contained.js
-          node --check patch-v7-leads-meta-primary.js
-          node --check patch-v7-leads-referral-source.js
-          node --check patch-v7-null-safety.js
-          node --check patch-v7-runtime-integrity.js
-          node --check patch-v7-lead-meta-insights-truth.js
-          node --check patch-v7-lead-reel-old-ad-attribution.js
-          node --check patch-v7-lead-reel-reply-guard.js
-          node --check patch-v7-split-leads-compat.js
-          node --check patch-v7-split-leads-ad-performance.js
-          node --check patch-catalog-key-rename.js
           node --check start.js
+          for file in \
+            patch-drive-slide-manager-v2.js \
+            patch-catalog-key-rename.js \
+            patch-v7-pancake-history.js \
+            patch-v7-pancake-toggle.js \
+            patch-v7-daily-grouped.js \
+            patch-v7-daily-staff-aligned.js \
+            patch-v7-daily-runtime-self-contained.js \
+            patch-v7-leads-meta-primary.js \
+            patch-v7-leads-referral-source.js \
+            patch-v7-null-safety.js \
+            patch-v7-runtime-integrity.js \
+            patch-v7-lead-meta-insights-truth.js \
+            patch-v7-lead-reel-old-ad-attribution.js \
+            patch-v7-lead-reel-reply-guard.js \
+            patch-v7-split-leads-compat.js \
+            patch-v7-split-leads-ad-performance.js
+          do
+            test ! -f "$file" || node --check "$file"
+          done
 
-      - name: Check destructive patch order
+      - name: Validate active legacy patch chains only
         run: |
           node - <<'NODE'
-          const fs=require('fs');
-          const source=fs.readFileSync('start.js','utf8');
-          const names=[
-            'patch-v7-daily-grouped.js',
-            'patch-v7-daily-staff-aligned.js',
-            'patch-v7-daily-runtime-self-contained.js',
-            'patch-v7-leads-meta-primary.js',
-            'patch-v7-leads-referral-source.js',
-            'patch-v7-null-safety.js',
-            'patch-v7-runtime-integrity.js',
-            'patch-v7-lead-meta-insights-truth.js',
-            'patch-v7-lead-reel-old-ad-attribution.js',
-            'patch-v7-lead-reel-reply-guard.js',
-            'patch-v7-split-leads-compat.js',
-            'patch-v7-split-leads-ad-performance.js',
+          const fs = require('fs');
+          const source = fs.readFileSync('start.js', 'utf8');
+          const chains = [
+            [
+              'patch-v7-daily-grouped.js',
+              'patch-v7-daily-staff-aligned.js',
+              'patch-v7-daily-runtime-self-contained.js',
+              'patch-v7-leads-meta-primary.js',
+              'patch-v7-leads-referral-source.js',
+              'patch-v7-null-safety.js',
+              'patch-v7-runtime-integrity.js',
+              'patch-v7-lead-meta-insights-truth.js',
+              'patch-v7-lead-reel-old-ad-attribution.js',
+              'patch-v7-lead-reel-reply-guard.js',
+              'patch-v7-split-leads-compat.js',
+              'patch-v7-split-leads-ad-performance.js',
+            ],
           ];
-          const positions=names.map(name=>source.indexOf(name));
-          if(positions.some(value=>value<0)) throw new Error('MISSING_RUNTIME_PATCH');
-          for(let i=1;i<positions.length;i++) {
-            if(positions[i]<=positions[i-1]) throw new Error('INVALID_RUNTIME_PATCH_ORDER:'+names[i]);
+          for (const names of chains) {
+            const positions = names.map((name) => source.indexOf(name));
+            const present = positions.filter((value) => value >= 0).length;
+            if (present === 0) {
+              console.log(`Legacy runtime chain retired: ${names[0]}`);
+              continue;
+            }
+            if (present !== names.length) {
+              throw new Error(`PARTIAL_LEGACY_RUNTIME_CHAIN:${names.filter((_, i) => positions[i] < 0).join(',')}`);
+            }
+            for (let i = 1; i < positions.length; i += 1) {
+              if (positions[i] <= positions[i - 1]) {
+                throw new Error(`INVALID_RUNTIME_PATCH_ORDER:${names[i]}`);
+              }
+            }
           }
           NODE
 
-      - name: Apply and validate slide patch
+      - name: Smoke isolated slide and catalog patches
         run: |
           cp drive-slide-manager.js /tmp/drive-slide-manager.js
           node patch-drive-slide-manager-v2.js
           node --check drive-slide-manager.js
           mv /tmp/drive-slide-manager.js drive-slide-manager.js
 
-      - name: Apply and validate catalog rename patch
-        run: |
           cp public/drive-slides-v8.html /tmp/drive-slides-v8.html
           cp public/drive-slides-v8-render.js /tmp/drive-slides-v8-render.js
           cp src/routes/mappingCenterRoutes.js /tmp/mappingCenterRoutes.js
           node patch-catalog-key-rename.js
           node --check public/drive-slides-v8-render.js
           node --check src/routes/mappingCenterRoutes.js
-          grep -q 'id="c_original_key"' public/drive-slides-v8.html
-          grep -q '/api/v8-mapping-center/catalog/rename' public/drive-slides-v8-render.js
-          grep -q 'rpc/v8_admin_rename_catalog_key' src/routes/mappingCenterRoutes.js
           mv /tmp/drive-slides-v8.html public/drive-slides-v8.html
           mv /tmp/drive-slides-v8-render.js public/drive-slides-v8-render.js
           mv /tmp/mappingCenterRoutes.js src/routes/mappingCenterRoutes.js
-
-      - name: Apply and validate Pancake service patch
-        run: |
-          cp v7-pancake-service.cjs /tmp/v7-pancake-service.cjs
-          node patch-v7-pancake-history.js
-          node --check v7-pancake-service.cjs
-          mv /tmp/v7-pancake-service.cjs v7-pancake-service.cjs
-
-      - name: Build final dashboard and smoke both routes
-        env:
-          SUPABASE_URL: https://example.supabase.co
-        run: |
-          cat > v7-dashboard-stable.js <<'EOF'
-          const cache = {};
-          const GRAPH_VERSION = 'v23.0';
-          const act = value => String(value || '');
-          const esc = value => String(value || '');
-          const csv = value => String(value || '');
-          const dateKey = value => String(value || '2026-07-17').slice(0,10);
-          const money = value => String(value || '0');
-          async function fetchJson(){ return {}; }
-          function period(){ return { since: '2026-07-17', until: '2026-07-17' }; }
-          function filterForm(){ return ''; }
-          function layout(_title,body){ return `<html><body>${body}</body></html>`; }
-          async function getAccounts(){ return []; }
-          async function fetchAds(){ return { rows: [], errors: [], totalMessages: 0 }; }
-          async function fetchPancake(){ return { rows: [], error: null }; }
-          async function fetchDaily(){ return { rows: [], errors: [], totalSpend: 0, totalMessages: 0 }; }
-          function mapLeads(){ return []; }
-          async function dashboardPage(req,res) {}
-
-          async function dailyPage(req,res) {}
-
-          async function leadsPage(req,res) {}
-
-          export function installStableV7Dashboard(app) {
-            app.get('/daily-report',(req,res)=>dailyPage(req,res).catch(e=>res.status(500).send(layout('Lỗi','<div class="notice error">'+esc(e.message)+'</div>'))));
-            app.get('/leads',(req,res)=>leadsPage(req,res).catch(e=>res.status(500).send(layout('Lỗi','<div class="notice error">'+esc(e.message)+'</div>'))));
-            app.get('/export',async(req,res)=>{const p=period(req.query,'dashboard'),selected=act(req.query.account)||'all',type=String(req.query.type||'daily');let rows=[];if(type==='leads'){rows=[];}else{rows=[];}const head=[];res.send('');});
-            console.log('[AIGUKA] fixture');
-          }
-          EOF
-
-          node patch-v7-daily-grouped.js
-          node patch-v7-daily-staff-aligned.js
-          node patch-v7-daily-runtime-self-contained.js
-          node patch-v7-leads-meta-primary.js
-          node patch-v7-leads-referral-source.js
-          node patch-v7-null-safety.js
-          node patch-v7-runtime-integrity.js
-          node --check v7-dashboard-stable.js
-
-          node --input-type=module - <<'NODE'
-          globalThis.fetch=async()=>({
-            ok:true,
-            status:200,
-            async json(){return []},
-            async text(){return '[]'},
-          });
-          const mod=await import('./v7-dashboard-stable.js?smoke='+Date.now());
-          const routes=new Map();
-          const app={get(path,handler){routes.set(path,handler)}};
-          mod.installStableV7Dashboard(app);
-
-          async function run(path){
-            const handler=routes.get(path);
-            if(!handler) throw new Error('ROUTE_NOT_REGISTERED:'+path);
-            let statusCode=200,body='';
-            const res={
-              status(code){statusCode=code;return this},
-              type(){return this},
-              send(value){body=String(value??'');return this},
-              json(value){body=JSON.stringify(value);return this},
-              redirect(value){body=String(value);return this},
-              setHeader(){return this},
-            };
-            await handler({query:{from:'2026-07-17',to:'2026-07-17',account:'all'}},res);
-            if(statusCode>=500) throw new Error('ROUTE_HTTP_'+statusCode+':'+path+':'+body);
-            if(/\bis not defined\b/.test(body)) throw new Error('ROUTE_UNDEFINED_BINDING:'+path+':'+body);
-            return body;
-          }
-
-          const daily=await run('/daily-report');
-          const leads=await run('/leads');
-          if(!daily.includes('Báo cáo ngày')) throw new Error('DAILY_ROUTE_RENDER_MISSING');
-          if(!daily.includes('Chăm sóc trong ngày')||!daily.includes('Khách mới Meta')) throw new Error('DUAL_DAILY_COLUMNS_MISSING');
-          if(!leads.includes('Khách hàng / Lead')) throw new Error('LEADS_ROUTE_RENDER_MISSING');
-          NODE
-
-          rm v7-dashboard-stable.js

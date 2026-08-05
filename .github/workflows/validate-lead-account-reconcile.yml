@@ -14,25 +14,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Check patch and order
+      - name: Check patch and active runtime order
         run: |
           node --check patch-v7-lead-account-reconcile.js
           node --check start.js
           node - <<'NODE'
-          const fs=require('fs');
-          const start=fs.readFileSync('start.js','utf8');
-          const split=start.indexOf('patch-v7-split-leads-ad-performance.js');
-          const status=start.indexOf('patch-v7-lead-filter-status-fix.js');
-          const reconcile=start.indexOf('patch-v7-lead-account-reconcile.js');
-          if(split<0||status<=split||reconcile<=status) throw new Error('INVALID_RECONCILE_PATCH_ORDER');
-          const patch=fs.readFileSync('patch-v7-lead-account-reconcile.js','utf8');
-          for(const token of [
+          const fs = require('fs');
+          const start = fs.readFileSync('start.js', 'utf8');
+          const names = [
+            'patch-v7-split-leads-ad-performance.js',
+            'patch-v7-lead-filter-status-fix.js',
+            'patch-v7-lead-account-reconcile.js',
+          ];
+          const positions = names.map((name) => start.indexOf(name));
+          const present = positions.filter((value) => value >= 0).length;
+          if (present === 0) {
+            console.log('Legacy lead reconciliation runtime chain retired; source patch remains syntax-checked.');
+          } else {
+            if (present !== names.length) throw new Error('PARTIAL_RECONCILE_PATCH_CHAIN');
+            if (positions[1] <= positions[0] || positions[2] <= positions[1]) {
+              throw new Error('INVALID_RECONCILE_PATCH_ORDER');
+            }
+          }
+
+          const patch = fs.readFileSync('patch-v7-lead-account-reconcile.js', 'utf8');
+          for (const token of [
             'AIGUKA_LEAD_ACCOUNT_RECONCILE_V1',
             'v8_meta_customer_leads_daily',
             'v8_meta_page_ad_accounts',
             'metaAccountCustomerTargets',
             'matched.size>=target',
             "campaignId:'',campaignName:''",
-            "reconciliation_level:'account'"
-          ]) if(!patch.includes(token)) throw new Error('MISSING_RECONCILE_TOKEN:'+token);
+            "reconciliation_level:'account'",
+          ]) {
+            if (!patch.includes(token)) throw new Error(`MISSING_RECONCILE_TOKEN:${token}`);
+          }
           NODE

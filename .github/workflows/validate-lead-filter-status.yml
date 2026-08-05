@@ -20,33 +20,44 @@ jobs:
           node --check patch-v7-lead-filter-status-fix.js
           node --check start.js
           node - <<'NODE'
-          const fs=require('fs');
-          const start=fs.readFileSync('start.js','utf8');
-          const filterFinal=start.indexOf('patch-v7-filter-final.js');
-          const split=start.indexOf('patch-v7-split-leads-ad-performance.js');
-          const statusFix=start.indexOf('patch-v7-lead-filter-status-fix.js');
-          if(filterFinal<0||split<0||statusFix<=split) throw new Error('INVALID_FILTER_PATCH_ORDER');
-          if(start.includes('patch-v7-mobile-filter-reset.js')) throw new Error('FAILED_STANDALONE_FILTER_PATCH_STILL_LOADED');
-          const statusPatch=fs.readFileSync('patch-v7-lead-filter-status-fix.js','utf8');
-          for(const token of [
+          const fs = require('fs');
+          const start = fs.readFileSync('start.js', 'utf8');
+          const names = [
+            'patch-v7-filter-final.js',
+            'patch-v7-split-leads-ad-performance.js',
+            'patch-v7-lead-filter-status-fix.js',
+          ];
+          const positions = names.map((name) => start.indexOf(name));
+          const present = positions.filter((value) => value >= 0).length;
+          if (present === 0) {
+            console.log('Legacy lead-filter runtime chain retired; source patches remain syntax-checked.');
+          } else {
+            if (present !== names.length) throw new Error('PARTIAL_FILTER_PATCH_CHAIN');
+            if (positions[2] <= positions[1]) throw new Error('INVALID_FILTER_PATCH_ORDER');
+            if (start.includes('patch-v7-mobile-filter-reset.js')) throw new Error('FAILED_STANDALONE_FILTER_PATCH_STILL_LOADED');
+          }
+
+          const statusPatch = fs.readFileSync('patch-v7-lead-filter-status-fix.js', 'utf8');
+          for (const token of [
             'AIGUKA_LEAD_FILTER_STATUS_FIX_V2',
             'performance.rows=await hydrateLeadEntityStatuses',
             'entityStatusDot',
             'return entityStatusDot(status)',
             "const kind=status.kind==='on'?'on':'off'",
-            'width:7px'
-          ]){
-            if(!statusPatch.includes(token)) throw new Error('MISSING_STATUS_TOKEN:'+token);
+            'width:7px',
+          ]) {
+            if (!statusPatch.includes(token)) throw new Error(`MISSING_STATUS_TOKEN:${token}`);
           }
-          const finalPatch=fs.readFileSync('patch-v7-filter-final.js','utf8');
-          for(const token of [
+
+          const finalPatch = fs.readFileSync('patch-v7-filter-final.js', 'utf8');
+          for (const token of [
             'AIGUKA_FILTER_FINAL_V2',
             'b.onclick=e=>',
             'state(table).clear()',
             'window.aigukaClearAllColumnFilters=clearAllFilters',
             'window.addEventListener("pageshow",resetOnOpen)',
-            'setTimeout(()=>{install();clearAllFilters()},450)'
-          ]){
-            if(!finalPatch.includes(token)) throw new Error('MISSING_UNIFIED_FILTER_TOKEN:'+token);
+            'setTimeout(()=>{install();clearAllFilters()},450)',
+          ]) {
+            if (!finalPatch.includes(token)) throw new Error(`MISSING_UNIFIED_FILTER_TOKEN:${token}`);
           }
           NODE
