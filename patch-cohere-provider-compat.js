@@ -1,7 +1,7 @@
 import fs from "node:fs";
 
 const managerFile = "ai-provider-manager.js";
-const marker = "AIGUKA_COHERE_NATIVE_V2_TEST_V2";
+const marker = "AIGUKA_COHERE_NATIVE_V2_TEST_V3";
 
 if (!fs.existsSync(managerFile)) {
   console.error("[AIGUKA] Cohere provider compatibility patch skipped: manager missing");
@@ -26,7 +26,6 @@ if (!fs.existsSync(managerFile)) {
             { role: "user", content: "Call aiguka_provider_probe now with ok=true, provider='cohere', and reply='ready'." },
           ],
           tools: [{ type: "function", function: tool }],
-          tool_choice: "REQUIRED",
           strict_tools: true,
           temperature: 0,
           max_tokens: 180,
@@ -41,6 +40,6 @@ if (!fs.existsSync(managerFile)) {
     if (!source.includes(before)) throw new Error("COHERE_NATIVE_V2_TEST_PATCH_TARGET_MISSING");
     source = source.replace(before, after);
     fs.writeFileSync(managerFile, source, "utf8");
-    console.log("[AIGUKA] Cohere native v2 provider test installed");
+    console.log("[AIGUKA] Cohere native v2 strict-tools provider test installed");
   }
 }
