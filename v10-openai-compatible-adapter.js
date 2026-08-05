@@ -1,4 +1,4 @@
-const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v5");
+const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v6");
 const COMPATIBLE_HOSTS = new Set([
   "api.moonshot.ai",
   "openrouter.ai",
@@ -98,7 +98,6 @@ export function toCohereV2Body(body = {}) {
     temperature: 0,
     ...(tools.length ? {
       tools,
-      tool_choice: "REQUIRED",
       strict_tools: true,
     } : {}),
   };
@@ -236,12 +235,12 @@ export function installOpenAICompatibleResponsesAdapter() {
 
   globalThis.fetch = adaptedFetch;
   globalThis[PATCH_MARK] = {
-    version: "v5",
+    version: "v6",
     hosts: [...COMPATIBLE_HOSTS],
     maxTokens: compatibleMaxTokens(),
-    cohereCompatibility: "native_v2_chat_required_tools",
+    cohereCompatibility: "native_v2_chat_strict_tools_prompt_forced",
   };
-  console.log(`[AIGUKA V10] OpenAI-compatible adapter v5 enabled; Cohere uses native v2/chat; hosts=${[...COMPATIBLE_HOSTS].join(",")}`);
+  console.log(`[AIGUKA V10] OpenAI-compatible adapter v6 enabled; Cohere uses native v2/chat without unsupported tool_choice; hosts=${[...COMPATIBLE_HOSTS].join(",")}`);
   return globalThis[PATCH_MARK];
 }
 
