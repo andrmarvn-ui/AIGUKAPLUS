@@ -1,3 +1,5 @@
+await import("./patch-v10-conversation-quality-v1.js");
+
 const ROUTER_MARK = Symbol.for("aiguka.v9.core.fetch.router");
 const DEFAULT_CORE_URL = "https://xqcxckyrlsobdrnidtrp.supabase.co";
 
