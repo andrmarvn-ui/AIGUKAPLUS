@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { __private__ as metaPrivate } from "../meta-direct-reporting.js";
 import { __private__ as dashboardPrivate } from "../dashboard-v10-stable.js";
+import { enhanceV10DashboardHtml, __private__ as adminShellPrivate } from "../dashboard-v10-admin-shell.js";
 
 const reportHandler = fs.readFileSync("report-handler.js", "utf8");
 const start = fs.readFileSync("start.js", "utf8");
@@ -34,6 +35,20 @@ test("stable dashboard owns filters, pagination and connection state", () => {
   assert.match(html, /Supabase chỉ đối chiếu khách/);
 });
 
+test("V10 dashboard keeps all management modules directly reachable", () => {
+  const html = enhanceV10DashboardHtml(dashboardPrivate.dashboardHtml());
+  assert.match(html, /aiguka-admin-strip/);
+  for (const item of adminShellPrivate.ADMIN_LINKS) {
+    assert.match(html, new RegExp(`href=["']${item.href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`));
+  }
+  assert.match(html, /Tổng quan quản trị/);
+  assert.match(html, /Điều khiển BOT &amp; lịch|Điều khiển BOT & lịch/);
+  assert.match(html, /Quản trị AI &amp; Prompt|Quản trị AI & Prompt/);
+  assert.match(html, /AI Providers/);
+  assert.match(html, /Mapping &amp; Test Slide|Mapping & Test Slide/);
+  assert.match(adminShellPrivate.adminHubHtml(), /Các chức năng quản trị được giữ độc lập/);
+});
+
 test("report route uses Meta for budget and Supabase for customer history", () => {
   assert.match(reportHandler, /createMetaDirectReporting/);
   assert.match(reportHandler, /meta_live_plus_customer_facts/);
@@ -42,7 +57,7 @@ test("report route uses Meta for budget and Supabase for customer history", () =
   assert.match(reportHandler, /stored\("leads"/);
 });
 
-test("server materialization installs stable dashboard after legacy patch", () => {
+test("server materialization installs dashboard shell after legacy routes", () => {
   assert.ok(
     start.indexOf('safeImport("./patch-direct-meta-dashboard.js"') >
     start.indexOf('safeImport("./patch-server.js"'),
@@ -56,7 +71,9 @@ test("server materialization installs stable dashboard after legacy patch", () =
   run = spawnSync(process.execPath, ["patch-direct-meta-dashboard.js"], { cwd: tmp, encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr || run.stdout);
   const server = fs.readFileSync(path.join(tmp, "server-fixed.js"), "utf8");
-  assert.match(server, /installStableReportDashboard/);
+  assert.match(server, /installV10AdminDashboard/);
+  assert.doesNotMatch(server, /installStableReportDashboard/);
+  assert.match(server, /dashboard-v10-admin-shell\.js/);
   assert.match(server, /127\.0\.0\.1:\$\{PORT\}\/functions\/v1\/aiguka-v8-report-api\?action=filters/);
-  assert.match(server, /2\.1\.0-v10-direct-meta-dashboard/);
+  assert.match(server, /2\.1\.1-v10-admin-navigation/);
 });
