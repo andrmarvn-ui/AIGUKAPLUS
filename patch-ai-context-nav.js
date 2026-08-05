@@ -1,7 +1,8 @@
 import fs from "node:fs";
 
-await import("./patch-ai-provider-page-server-render.js");
-
+// AI provider management is owned by ai-provider-manager.js.
+// Do not import the old server-render hotfix here: it replaces the CRUD page
+// with a read-only status page and removes add/edit/delete/activation controls.
 const learningFile = "learning-admin-v2.html";
 let learning = fs.readFileSync(learningFile, "utf8");
 if (!learning.includes("AIGUKA_AI_CONTEXT_TAB_V1")) {
