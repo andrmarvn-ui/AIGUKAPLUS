@@ -1,3 +1,5 @@
+await import("./patch-ai-provider-tokenrouter.js");
+
 import fs from "node:fs";
 
 const file = "ai-provider-manager.js";
