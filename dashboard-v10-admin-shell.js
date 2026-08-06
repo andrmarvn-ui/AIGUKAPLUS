@@ -13,6 +13,11 @@ const ADMIN_LINKS = Object.freeze([
     description: "Bật, tắt, hỗ trợ, lịch làm việc và quyền gửi tin/slide.",
   },
   {
+    href: "/bot-control#follow-up",
+    label: "Follow-up khách hàng",
+    description: "Bật và theo dõi chăm sóc lại khách đã được trả lời nhưng im lặng ban ngày hoặc buổi tối.",
+  },
+  {
     href: "/learning-reviewed",
     label: "Quản trị AI & Prompt",
     description: "Hội thoại, chỉnh câu trả lời, prompt và nhánh học có kiểm duyệt.",
