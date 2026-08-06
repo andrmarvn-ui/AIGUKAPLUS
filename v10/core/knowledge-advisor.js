@@ -35,6 +35,11 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
   const catalog = Array.isArray(content.catalog) ? content.catalog : [];
   const mappings = Array.isArray(content.ad_mappings) ? content.ad_mappings : [];
   const maxDocuments = Math.max(1, Number(limits.maxDocuments || 8));
+  const maxDocumentChars = Math.max(3000, Math.min(20000, Number(limits.maxDocumentChars || 12000)));
+  const maxTotalDocumentChars = Math.max(
+    maxDocumentChars,
+    Math.min(50000, Number(limits.maxTotalDocumentChars || 24000)),
+  );
   const maxCatalog = Math.max(1, Number(limits.maxCatalog || 12));
   const maxAssets = Math.max(1, Number(limits.maxAssetsPerCatalog || 8));
 
@@ -42,19 +47,32 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
   const candidateKeys = (conversation.advisors?.product_candidates || []).map((item) => item.key);
   const tokens = words(`${conversationText} ${candidateKeys.join(" ")}`);
 
-  const selectedDocuments = documents
+  const rankedDocuments = documents
     .map((document) => ({ document, score: scoreText(documentText(document), tokens) }))
     .sort((a, b) => b.score - a.score)
     .filter((item, index) => item.score > 0 || index < 2)
-    .slice(0, maxDocuments)
-    .map(({ document, score }) => ({
+    .slice(0, maxDocuments);
+
+  const selectedDocuments = [];
+  let usedDocumentChars = 0;
+  for (const { document, score } of rankedDocuments) {
+    const raw = String(document.content || document.text || document.body || "");
+    const remaining = maxTotalDocumentChars - usedDocumentChars;
+    if (remaining <= 0) break;
+    const selectedContent = raw.slice(0, Math.min(maxDocumentChars, remaining));
+    usedDocumentChars += selectedContent.length;
+    selectedDocuments.push({
       document_key: document.document_key,
       version_no: document.version_no,
       title: document.title || null,
-      content: String(document.content || document.text || document.body || "").slice(0, 3000),
+      content: selectedContent,
+      content_chars: selectedContent.length,
+      source_content_chars: raw.length,
+      content_truncated: selectedContent.length < raw.length,
       relevance_score: score,
       advisory_only: true,
-    }));
+    });
+  }
 
   const selectedCatalog = catalog
     .map((node) => {
