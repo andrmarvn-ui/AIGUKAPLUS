@@ -1,6 +1,6 @@
 // Stable V10 AI entrypoint. Provider configuration, readiness and priority are owned by
-// /ai-providers. Compatibility adapters install transport behavior only; they do not
-// rewrite worker source. The worker implementation is a committed, checksummed artifact.
+// /ai-providers. Compatibility adapters install transport behavior. The resilience patch
+// adds per-provider cooldown and automatic recovery before the final worker is imported.
 async function reportStartupFailure(error) {
   try {
     const base = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
@@ -17,13 +17,15 @@ async function reportStartupFailure(error) {
       },
       body: JSON.stringify({
         worker_name: "aiguka-v10-ai",
-        worker_version: "v10_ai_quality_guard_v13",
+        worker_version: "v10_ai_quality_guard_v14",
         status: "degraded",
         mode: "ACTIVE",
         details: {
           final_worker_artifact: true,
-          runtime_source_patching: false,
+          runtime_source_patching: true,
           ai_decision_authority: "sole",
+          provider_cooldown_is_per_key: true,
+          provider_auto_recovery: true,
         },
         last_error: String(error instanceof Error ? error.message : error).slice(0, 800),
         last_seen_at: now,
@@ -41,6 +43,7 @@ await import("./v10-cerebras-runtime-adapter.js");
 await import("./v10-mistral-runtime-adapter.js");
 await import("./v10-openai-compatible-adapter.js");
 await import("./v10-sambanova-runtime-adapter.js");
+await import("./patch-v10-provider-resilience.js");
 
 try {
   await import("./v10-ai-worker-final.js");
