@@ -49,8 +49,9 @@ await import("./patch-v10-provider-resilience.js");
 
 try {
   await import("./v10-ai-worker-final.js");
+  await import("./v10-followup-worker.js");
 } catch (error) {
-  console.error(`[AIGUKA V10] final AI worker failed to start: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`[AIGUKA V10] final AI/follow-up worker failed to start: ${error instanceof Error ? error.message : String(error)}`);
   await reportStartupFailure(error);
   throw error;
 }
