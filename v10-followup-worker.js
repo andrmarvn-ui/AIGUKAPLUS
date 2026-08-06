@@ -6,7 +6,7 @@ const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v23.0";
 const NAME = "aiguka-v10-followup";
-const VERSION = "v10_followup_v8_event_v2";
+const VERSION = "v10_followup_v8_event_v3";
 const POLL_MS = Math.max(5000, Number(process.env.AIGUKA_V10_FOLLOWUP_POLL_MS || 10000));
 const MAX_RETRIES = Math.max(1, Math.min(5, Number(process.env.AIGUKA_V10_FOLLOWUP_MAX_RETRIES || 3)));
 const PANCAKE_GUARD_REFRESH_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V10_PANCAKE_GUARD_REFRESH_MS || 15 * 60_000));
@@ -128,6 +128,17 @@ function parseTime(value) {
 
 function normalized(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase();
+}
+
+function preserveMessageLayout(value) {
+  const normalizedText = String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[\t ]+/g, " ").trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return Array.from(normalizedText).slice(0, 2000).join("");
 }
 
 function tagLabels(value) {
@@ -336,7 +347,7 @@ async function processDecision(decision, config, runtime) {
   if (Date.now() - customerAt > Number(config.max_age_hours || 20) * 60 * 60_000) return suppress(claimed, log, "META_WINDOW_TOO_OLD");
 
   const output = claimed.output || {};
-  const text = String(output.final_reply || "").replace(/\s+/g, " ").trim().slice(0, 2000);
+  const text = preserveMessageLayout(output.final_reply || "");
   if (claimed.action === "suppress" || !text) return suppress(claimed, log, "AI_SUPPRESSED");
   if (Number(claimed.confidence || output.confidence || 0) < 0.45) return suppress(claimed, log, "AI_CONFIDENCE_TOO_LOW");
   if (config.mode !== "event" && (output.needs_slides || claimed.action === "reply_with_slides")) return suppress(claimed, log, "DEFAULT_V8_UNPLANNED_MEDIA");
@@ -399,6 +410,7 @@ async function processDecision(decision, config, runtime) {
       followup_no: followupNo,
       followup_mode: config.mode,
       event_image_count: configuredImages.length,
+      preserved_line_breaks: true,
     });
     await patchLog(log?.id, { status: "sent", attempts: Math.max(1, Number(log?.attempts || 0)), final_reply: text,
       provider_message_id: textResult?.message_id || output.provider_message_id || log?.provider_message_id || null,
@@ -443,6 +455,8 @@ async function heartbeat(status, config, details = {}, error = null) {
         pancake_contact_guard: config?.use_pancake_contact_tags !== false,
         ai_decision_required: config?.mode !== "event",
         event_images_enabled: config?.mode === "event",
+        event_rich_text_unicode: true,
+        preserves_line_breaks: true,
       },
       last_error: error ? String(error).slice(0, 800) : null,
       last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString(),
@@ -498,6 +512,6 @@ async function tick() {
 if (!configured()) {
   console.warn("[AIGUKA V10 follow-up] Core credentials missing; disabled");
 } else {
-  console.log(`[AIGUKA V10 follow-up] ${VERSION} started: V8 default + Event mode, 2 touches/20h, Pancake contact guard`);
+  console.log(`[AIGUKA V10 follow-up] ${VERSION} started: V8 default + Event mode, rich Unicode formatting, preserved line breaks, 2 touches/20h`);
   tick().catch(() => {});
 }
