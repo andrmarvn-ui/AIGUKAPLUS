@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 
 await import("./patch-cohere-provider-compat.js");
 
@@ -45,4 +46,35 @@ if (fs.existsSync(dashboardFile)) {
   }
 }
 
-console.log("[AIGUKA] AI Context navigation installed");
+// AIGUKA_FOLLOWUP_ADMIN_V8_EVENT_V1
+// Install the dedicated Follow-up admin routes through the existing Bot Control
+// feature module before server-v10-final imports it. This keeps one Express app,
+// one Core connection and one official administration surface.
+const botControlUiFile = "bot-control-ui.js";
+if (fs.existsSync(botControlUiFile)) {
+  let botControlUi = fs.readFileSync(botControlUiFile, "utf8");
+  if (!botControlUi.includes("AIGUKA_FOLLOWUP_ADMIN_V8_EVENT_V1")) {
+    const importAnchor = 'import fs from "node:fs";';
+    const functionAnchor = "export function installBotControlUi(app, options) {";
+    if (!botControlUi.includes(importAnchor) || !botControlUi.includes(functionAnchor)) {
+      throw new Error("FOLLOWUP_ADMIN_BOT_CONTROL_ANCHOR_MISSING");
+    }
+    botControlUi = botControlUi
+      .replace(importAnchor, `${importAnchor}\nimport { installFollowupAdminV8 } from "./followup-admin-v8.js";`)
+      .replace(functionAnchor, `${functionAnchor}\n  installFollowupAdminV8(app); // AIGUKA_FOLLOWUP_ADMIN_V8_EVENT_V1`);
+    fs.writeFileSync(botControlUiFile, botControlUi, "utf8");
+    const syntax = spawnSync(process.execPath, ["--check", botControlUiFile], { encoding: "utf8" });
+    if (syntax.status !== 0) throw new Error(`FOLLOWUP_ADMIN_BOT_CONTROL_SYNTAX:${syntax.stderr || syntax.stdout}`);
+  }
+}
+
+const v10AdminShellFile = "dashboard-v10-admin-shell.js";
+if (fs.existsSync(v10AdminShellFile)) {
+  let adminShell = fs.readFileSync(v10AdminShellFile, "utf8");
+  adminShell = adminShell
+    .replace('href: "/bot-control#follow-up",', 'href: "/follow-up-admin",')
+    .replace('description: "Bật và theo dõi chăm sóc lại khách đã được trả lời nhưng im lặng ban ngày hoặc buổi tối.",', 'description: "Mặc định V8 hoặc Event; lịch 3 giờ, tối đa 2 lượt/20 giờ, hỗ trợ ảnh và tag Pancake.",');
+  fs.writeFileSync(v10AdminShellFile, adminShell, "utf8");
+}
+
+console.log("[AIGUKA] AI Context and V8/Event Follow-up administration installed");
