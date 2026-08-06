@@ -50,7 +50,7 @@ if (!source.includes(marker)) {
 `      const lower = message.toLowerCase();
       const temporary = /(?:http_429|rate limit|too many requests|quota|resource exhausted|capacity|timeout|temporar|overloaded|unavailable|network|fetch failed|http_408|http_424|http_499|http_500|http_502|http_503|http_504|payment required|insufficient balance|no credits remaining|add credits)/i.test(lower);
       const billing = /payment required|insufficient balance|no credits remaining|add credits/i.test(lower);
-      const cooldownMs = billing ? 6 * 60 * 60_000 : /timeout|network|fetch failed|http_5\d\d/i.test(lower) ? 2 * 60_000 : 5 * 60_000;
+      const cooldownMs = billing ? 6 * 60 * 60_000 : /timeout|network|fetch failed|http_5[0-9][0-9]/i.test(lower) ? 2 * 60_000 : 5 * 60_000;
       const cooldownUntil = new Date(Date.now() + cooldownMs).toISOString();
       const settings = {
         ...(row.settings || {}),
