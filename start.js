@@ -80,10 +80,6 @@ for (const patch of [
 // SSE aggregator before the HTTP server so both manager smoke tests and the worker use it.
 await safeImport("./v10-tokenrouter-runtime-adapter.js");
 
-// Apply customer-turn supersession and the all-product contact-first/Sale-handoff
-// quality guard before detached AI and outbound workers can read their source files.
-await safeImport("./patch-v10-general-product-sales-handoff.js", true);
-
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
 await safeImport("./patch-outbound-binary-image-upload.js");
@@ -97,6 +93,10 @@ await safeImport("./v10-server-release.js", true);
 console.log("[AIGUKA startup] final V10 HTTP server initialized; verifying V10 AI release contract");
 await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
+
+// The release contract verifies the committed worker and checksum first. Only then apply
+// the validated runtime quality patch before detached AI and outbound workers can start.
+await safeImport("./patch-v10-general-product-sales-handoff.js", true);
 
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 const v9CoreReady = v9CoreBridgeState.ready === true
