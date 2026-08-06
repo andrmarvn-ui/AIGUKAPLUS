@@ -20,6 +20,13 @@ declare
 begin
   perform pg_advisory_xact_lock(hashtext('aiguka_ai_publish_runtime_snapshot'));
 
+  -- Legacy migrations left the sequence behind existing rows. Align it before publishing.
+  perform setval(
+    'public.ai_published_snapshots_version_no_seq',
+    greatest((select coalesce(max(version_no), 0) from public.ai_published_snapshots), 1),
+    true
+  );
+
   select jsonb_build_object(
     'documents', coalesce((
       select jsonb_agg(to_jsonb(d) order by d.priority, d.document_key, d.version_no desc)
@@ -172,7 +179,6 @@ begin
     and v.version_no = v_context.current_version
   limit 1;
 
-  -- Exactly one runtime document per context key may be current.
   update public.ai_documents
   set status = 'archived'
   where document_key = v_context.context_key
@@ -249,7 +255,6 @@ revoke all on function public.ai_publish_runtime_snapshot(text) from public, ano
 revoke all on function public.ai_sync_context_to_runtime(uuid, boolean) from public, anon, authenticated;
 revoke all on function public.ai_context_runtime_sync_trigger() from public, anon, authenticated;
 
--- One-time backfill: align all editable contexts and publish exactly one current snapshot.
 do $$
 declare
   r record;
