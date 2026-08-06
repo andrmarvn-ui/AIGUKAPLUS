@@ -2,14 +2,12 @@
 
 let state = null;
 let dirty = false;
+let configDirty = false;
+let savingAll = false;
 
 const byId = (id) => document.getElementById(id);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[character]));
 
 function setToast(text, ok = true) {
@@ -50,14 +48,21 @@ function splitPageIds(value) {
   return String(value || '').split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean);
 }
 
+function rpcValue(payload) {
+  const value = payload?.data;
+  return Array.isArray(value) ? value[0] || {} : value || {};
+}
+
 function eventTemplate(event = {}, index = 0) {
   const images = Array.isArray(event.image_urls) ? event.image_urls.join('\n') : '';
   const pages = Array.isArray(event.page_ids) ? event.page_ids.join(', ') : '';
   const waitMinutes = Number(event.wait_minutes ?? (index === 0 ? 180 : 360));
-  return `<article class="event" data-event-id="${escapeHtml(event.id || '')}">
+  const persisted = Boolean(event.id);
+  return `<article class="event ${persisted ? 'is-saved' : 'is-dirty'}" data-event-id="${escapeHtml(event.id || '')}" data-dirty="${persisted ? 'false' : 'true'}">
     <div class="event-title-row">
       <div>
         <span class="event-number">Lượt Follow-up ${index + 1}</span>
+        <span class="event-save-state">${persisted ? 'Đã lưu' : 'Chưa lưu'}</span>
         <div class="event-time-explain muted"></div>
       </div>
       <div class="actions">
@@ -67,36 +72,44 @@ function eventTemplate(event = {}, index = 0) {
       </div>
     </div>
     <div class="event-head">
-      <div class="field">
-        <label>Tên Event</label>
-        <input class="e-name" maxlength="160" value="${escapeHtml(event.event_name || `Event ${index + 1}`)}">
-      </div>
-      <div class="field">
-        <label class="e-wait-label">Thời gian chờ (phút)</label>
-        <input class="e-wait" type="number" min="15" max="1200" step="5" value="${waitMinutes}">
-      </div>
+      <div class="field"><label>Tên Event</label><input class="e-name" maxlength="160" value="${escapeHtml(event.event_name || `Event ${index + 1}`)}"></div>
+      <div class="field"><label class="e-wait-label">Thời gian chờ (phút)</label><input class="e-wait" type="number" min="15" max="1200" step="5" value="${waitMinutes}"></div>
       <label class="switch compact"><span><b>Kích hoạt</b><br><small>Cho phép gửi lượt này</small></span><input class="e-enabled" type="checkbox" ${event.enabled !== false ? 'checked' : ''}></label>
     </div>
     <div class="event-body">
-      <div class="field">
-        <label>Nội dung tin nhắn</label>
-        <textarea class="e-text" maxlength="2000" placeholder="Nhập nội dung riêng cho lượt Follow-up này">${escapeHtml(event.message_text || '')}</textarea>
-      </div>
+      <div class="field"><label>Nội dung tin nhắn</label><textarea class="e-text" maxlength="2000" placeholder="Nhập nội dung riêng cho lượt Follow-up này">${escapeHtml(event.message_text || '')}</textarea></div>
       <div>
-        <div class="field">
-          <label>Ảnh kèm theo · mỗi dòng một URL</label>
-          <textarea class="e-images" placeholder="https://...">${escapeHtml(images)}</textarea>
-        </div>
-        <div class="field" style="margin-top:8px">
-          <label>Page ID áp dụng · để trống là tất cả</label>
-          <input class="e-pages" value="${escapeHtml(pages)}" placeholder="104810069068200">
-        </div>
+        <div class="field"><label>Ảnh kèm theo · mỗi dòng một URL</label><textarea class="e-images" placeholder="https://...">${escapeHtml(images)}</textarea></div>
+        <div class="field" style="margin-top:8px"><label>Page ID áp dụng · để trống là tất cả</label><input class="e-pages" value="${escapeHtml(pages)}" placeholder="104810069068200"></div>
       </div>
     </div>
+    <div class="event-footer"><button type="button" class="e-save success">Lưu Event này</button></div>
   </article>`;
 }
 
-function renumberEvents() {
+function setRowSaved(row, saved = true, text = null) {
+  row.dataset.dirty = saved ? 'false' : 'true';
+  row.classList.toggle('is-saved', saved);
+  row.classList.toggle('is-dirty', !saved);
+  const status = row.querySelector('.event-save-state');
+  status.textContent = text || (saved ? 'Đã lưu' : 'Chưa lưu thay đổi');
+  recomputeDirty();
+}
+
+function recomputeDirty() {
+  dirty = configDirty || eventRows().some((row) => row.dataset.dirty === 'true');
+  const text = byId('save-dock-text');
+  if (text) text.textContent = dirty
+    ? 'Có thay đổi chưa lưu. Có thể lưu riêng từng Event hoặc bấm Lưu tất cả.'
+    : 'Tất cả thay đổi đã được lưu.';
+}
+
+function markRowDirty(row) {
+  if (!row) return;
+  setRowSaved(row, false);
+}
+
+function renumberEvents(markMoved = false) {
   const rows = eventRows();
   rows.forEach((row, index) => {
     row.dataset.eventNo = String(index + 1);
@@ -109,47 +122,48 @@ function renumberEvents() {
       : `Chờ sau Event ${index} (phút)`;
     row.querySelector('.e-up').disabled = index === 0;
     row.querySelector('.e-down').disabled = index === rows.length - 1;
-    const name = row.querySelector('.e-name');
-    if (!name.value.trim() || /^Event \d+$/.test(name.value.trim())) name.value = `Event ${index + 1}`;
+    if (markMoved) markRowDirty(row);
   });
   updateEventSummary();
 }
 
 function addEvent(event = {}) {
+  if (eventRows().length >= 20) throw new Error('Chỉ được tối đa 20 Event');
   const index = eventRows().length;
   byId('events').insertAdjacentHTML('beforeend', eventTemplate(event, index));
   renumberEvents();
-  dirty = true;
   const row = eventRows().at(-1);
+  markRowDirty(row);
   row?.querySelector('.e-name')?.focus();
 }
 
-function removeEvent(row) {
-  row.remove();
-  renumberEvents();
-  dirty = true;
-}
-
-function moveEvent(row, direction) {
-  if (direction < 0 && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
-  if (direction > 0 && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
-  renumberEvents();
-  dirty = true;
-}
-
-function collectEvents() {
-  return eventRows().map((row, index) => ({
+function eventFromRow(row, index = eventRows().indexOf(row)) {
+  return {
+    id: row.dataset.eventId || null,
+    event_no: index + 1,
     event_name: row.querySelector('.e-name').value.trim() || `Event ${index + 1}`,
     message_text: row.querySelector('.e-text').value.trim(),
     wait_minutes: Number(row.querySelector('.e-wait').value || (index === 0 ? 180 : 360)),
     image_urls: splitLines(row.querySelector('.e-images').value),
     page_ids: splitPageIds(row.querySelector('.e-pages').value),
     enabled: row.querySelector('.e-enabled').checked,
-  })).filter((event) => event.message_text || event.enabled === true);
+  };
+}
+
+function collectEvents() {
+  return eventRows().map((row, index) => eventFromRow(row, index));
 }
 
 function enabledEvents() {
   return collectEvents().filter((event) => event.enabled);
+}
+
+function validateEvent(event, index) {
+  if (!event.message_text) throw new Error(`Event ${index + 1} chưa có nội dung`);
+  if (!Number.isInteger(event.wait_minutes) || event.wait_minutes < 15 || event.wait_minutes > 1200) {
+    throw new Error(`Thời gian Event ${index + 1} phải từ 15 đến 1200 phút`);
+  }
+  if (event.image_urls.length > 10) throw new Error(`Event ${index + 1} chỉ được tối đa 10 ảnh`);
 }
 
 function updateEventSummary() {
@@ -192,33 +206,23 @@ function configPayload() {
   };
 }
 
-function validateBeforeSave(config, events) {
+function validateConfig(config, events) {
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(config.window_start || '')) throw new Error('Giờ bắt đầu không hợp lệ');
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(config.window_end || '')) throw new Error('Giờ kết thúc không hợp lệ');
   if (config.mode !== 'event') return;
   const enabled = events.filter((event) => event.enabled);
   if (!enabled.length) throw new Error('Chế độ Event cần ít nhất một Event đang bật');
-  for (const [index, event] of events.entries()) {
-    if (event.enabled && !event.message_text) throw new Error(`Event ${index + 1} chưa có nội dung`);
-    if (!Number.isInteger(event.wait_minutes) || event.wait_minutes < 15 || event.wait_minutes > 1200) {
-      throw new Error(`Thời gian Event ${index + 1} phải từ 15 đến 1200 phút`);
-    }
-    if (event.image_urls.length > 10) throw new Error(`Event ${index + 1} chỉ được tối đa 10 ảnh`);
-  }
+  events.forEach(validateEvent);
   const total = enabled.reduce((sum, event) => sum + event.wait_minutes, 0);
   if (total > config.max_age_hours * 60) throw new Error(`Tổng thời gian Event vượt quá ${config.max_age_hours} giờ`);
 }
 
 function renderLogs(logs = []) {
   byId('logs').innerHTML = logs.map((row) => `<tr>
-    <td>${escapeHtml(formatDate(row.queued_at))}</td>
-    <td>${escapeHtml(row.page_name || row.page_id || '')}</td>
-    <td>${escapeHtml(row.sender_id || '')}</td>
-    <td>${escapeHtml(row.followup_no || 1)}</td>
-    <td>${escapeHtml(row.mode || 'default_v8')}</td>
-    <td>${escapeHtml(row.status || '')}</td>
-    <td>${escapeHtml(row.skip_reason || row.last_error || '')}</td>
-    <td>${escapeHtml(row.final_reply || '')}</td>
+    <td>${escapeHtml(formatDate(row.queued_at))}</td><td>${escapeHtml(row.page_name || row.page_id || '')}</td>
+    <td>${escapeHtml(row.sender_id || '')}</td><td>${escapeHtml(row.followup_no || 1)}</td>
+    <td>${escapeHtml(row.mode || 'default_v8')}</td><td>${escapeHtml(row.status || '')}</td>
+    <td>${escapeHtml(row.skip_reason || row.last_error || '')}</td><td>${escapeHtml(row.final_reply || '')}</td>
   </tr>`).join('');
 }
 
@@ -257,7 +261,9 @@ function render(data) {
   byId('live').className = ['healthy', 'idle'].includes(worker.status) ? 'ok' : 'bad';
   byId('live').textContent = `Worker ${worker.status || 'chưa có'} · ${worker.mode || 'OFF'} · chế độ ${config.mode === 'event' ? 'Event' : 'Mặc định V8'} · tag Pancake ${data.guard?.tagged || 0} khách`;
   renderLogs(data.logs || []);
-  dirty = false;
+  configDirty = false;
+  eventRows().forEach((row) => setRowSaved(row, Boolean(row.dataset.eventId)));
+  recomputeDirty();
 }
 
 async function load(force = false) {
@@ -271,22 +277,76 @@ async function load(force = false) {
   }
 }
 
-async function save() {
-  setToast('Đang lưu…');
+async function saveEvent(row, reloadAfter = false) {
+  const index = eventRows().indexOf(row);
+  const event = eventFromRow(row, index);
+  validateEvent(event, index);
+  const button = row.querySelector('.e-save');
+  button.disabled = true;
+  button.textContent = 'Đang lưu…';
+  try {
+    const response = await api('/follow-up-admin/api/event/save', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event }),
+    });
+    const saved = rpcValue(response)?.event || rpcValue(response)?.data?.event || null;
+    if (saved?.id) row.dataset.eventId = saved.id;
+    if (saved?.event_no) row.dataset.eventNo = String(saved.event_no);
+    setRowSaved(row, true, 'Đã lưu');
+    button.textContent = 'Đã lưu Event';
+    setToast(`Đã lưu Event ${index + 1}`);
+    if (reloadAfter) await load(true);
+    return saved;
+  } catch (error) {
+    setRowSaved(row, false, 'Lưu lỗi');
+    setToast(error.message, false);
+    throw error;
+  } finally {
+    button.disabled = false;
+    setTimeout(() => { if (button.isConnected) button.textContent = 'Lưu Event này'; }, 1200);
+  }
+}
+
+async function deleteEvent(row) {
+  const index = eventRows().indexOf(row);
+  if (!window.confirm(`Xóa Event ${index + 1}?`)) return;
+  const eventId = row.dataset.eventId;
+  try {
+    if (eventId) {
+      await api('/follow-up-admin/api/event/delete', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event_id: eventId }),
+      });
+    }
+    row.remove();
+    renumberEvents(true);
+    setToast(`Đã xóa Event ${index + 1}`);
+  } catch (error) {
+    setToast(error.message, false);
+  }
+}
+
+async function saveAll() {
+  if (savingAll) return;
+  savingAll = true;
+  const buttons = [byId('save-top'), byId('save-bottom')].filter(Boolean);
+  buttons.forEach((button) => { button.disabled = true; button.textContent = 'Đang lưu tất cả…'; });
+  setToast('Đang lưu từng Event…');
   try {
     const config = configPayload();
     const events = collectEvents();
-    validateBeforeSave(config, events);
-    await api('/follow-up-admin/api/apply', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ config, events }),
+    validateConfig(config, events);
+    for (const row of eventRows()) await saveEvent(row, false);
+    await api('/follow-up-admin/api/config', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(config),
     });
-    dirty = false;
+    configDirty = false;
+    recomputeDirty();
     await load(true);
-    setToast('Đã lưu và áp dụng');
+    setToast('Đã lưu cấu hình và toàn bộ Event');
   } catch (error) {
     setToast(error.message, false);
+  } finally {
+    savingAll = false;
+    buttons.forEach((button) => { button.disabled = false; button.textContent = button.id === 'save-top' ? 'Lưu tất cả' : 'Lưu cấu hình + tất cả Event'; });
   }
 }
 
@@ -295,50 +355,82 @@ async function requestScan() {
     setToast('Đã yêu cầu quét…');
     await api('/follow-up-admin/api/scan', { method: 'POST' });
     setTimeout(() => load(true), 1200);
-  } catch (error) {
-    setToast(error.message, false);
-  }
+  } catch (error) { setToast(error.message, false); }
 }
 
 async function resetDefault() {
   if (!window.confirm('Khôi phục cấu hình mặc định V8? Nội dung Event vẫn được giữ lại.')) return;
   try {
     await api('/follow-up-admin/api/reset', { method: 'POST' });
-    dirty = false;
+    configDirty = false;
+    recomputeDirty();
     await load(true);
     setToast('Đã khôi phục mặc định V8');
-  } catch (error) {
-    setToast(error.message, false);
-  }
+  } catch (error) { setToast(error.message, false); }
+}
+
+function moveEvent(row, direction) {
+  if (direction < 0 && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
+  if (direction > 0 && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
+  renumberEvents(true);
+  setToast('Thứ tự đã đổi; bấm Lưu tất cả để áp dụng');
 }
 
 function bindEvents() {
   byId('add-event').addEventListener('click', () => {
-    const index = eventRows().length;
-    addEvent({ event_name: `Event ${index + 1}`, wait_minutes: index === 0 ? 180 : 360, enabled: true });
+    try {
+      const index = eventRows().length;
+      addEvent({ event_name: `Event ${index + 1}`, wait_minutes: index === 0 ? 180 : 360, enabled: true });
+      setToast(`Đã thêm Event ${index + 1}; nhập nội dung rồi bấm Lưu Event này`);
+    } catch (error) { setToast(error.message, false); }
   });
-  byId('events').addEventListener('click', (event) => {
+
+  byId('events').addEventListener('click', async (event) => {
     const row = event.target.closest('.event');
     if (!row) return;
-    if (event.target.closest('.e-remove')) removeEvent(row);
-    if (event.target.closest('.e-up')) moveEvent(row, -1);
-    if (event.target.closest('.e-down')) moveEvent(row, 1);
+    if (event.target.closest('.e-save')) await saveEvent(row, false).catch(() => {});
+    else if (event.target.closest('.e-remove')) await deleteEvent(row);
+    else if (event.target.closest('.e-up')) moveEvent(row, -1);
+    else if (event.target.closest('.e-down')) moveEvent(row, 1);
   });
-  byId('events').addEventListener('input', () => { dirty = true; updateEventSummary(); });
-  byId('events').addEventListener('change', () => { dirty = true; updateEventSummary(); });
+
+  byId('events').addEventListener('input', (event) => {
+    markRowDirty(event.target.closest('.event'));
+    updateEventSummary();
+  });
+  byId('events').addEventListener('change', (event) => {
+    markRowDirty(event.target.closest('.event'));
+    updateEventSummary();
+  });
+
   document.querySelectorAll('input[name="mode"]').forEach((input) => input.addEventListener('change', () => {
-    dirty = true;
+    configDirty = true;
     renderMode();
     if (currentMode() === 'event' && !eventRows().length) addEvent({ event_name: 'Event 1', wait_minutes: 180, enabled: true });
+    recomputeDirty();
   }));
+
   document.querySelectorAll('#common-settings input, #default-v8-settings input').forEach((input) => input.addEventListener('change', () => {
-    dirty = true;
+    configDirty = true;
     updateEventSummary();
+    recomputeDirty();
   }));
-  byId('refresh').addEventListener('click', () => load(true));
-  byId('save').addEventListener('click', save);
+
+  byId('refresh').addEventListener('click', () => {
+    if (dirty && !window.confirm('Có thay đổi chưa lưu. Tải lại sẽ bỏ các thay đổi đó. Tiếp tục?')) return;
+    configDirty = false;
+    dirty = false;
+    load(true);
+  });
+  byId('save-top').addEventListener('click', saveAll);
+  byId('save-bottom').addEventListener('click', saveAll);
   byId('scan').addEventListener('click', requestScan);
   byId('reset').addEventListener('click', resetDefault);
+  window.addEventListener('beforeunload', (event) => {
+    if (!dirty) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
 }
 
 function init() {
