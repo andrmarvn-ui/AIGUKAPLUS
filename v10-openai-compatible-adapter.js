@@ -1,9 +1,10 @@
-const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v7");
+const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v8");
 const COMPATIBLE_HOSTS = new Set([
   "api.moonshot.ai",
   "openrouter.ai",
   "api.deepseek.com",
   "api.cohere.ai",
+  "api.tokenrouter.com",
 ]);
 const DEFAULT_MAX_TOKENS = 1200;
 
@@ -75,6 +76,7 @@ export function toChatCompletionsBody(body = {}) {
     model: body.model,
     messages: responseMessages(body),
     max_tokens: compatibleMaxTokens(),
+    stream: false,
     ...(tools.length ? { tools } : {}),
     ...(toolChoice ? { tool_choice: toolChoice } : {}),
     ...(typeof body.parallel_tool_calls === "boolean" ? { parallel_tool_calls: body.parallel_tool_calls } : {}),
@@ -197,6 +199,16 @@ export function installOpenAICompatibleResponsesAdapter() {
       requestBody = toChatCompletionsBody(body);
     }
 
+    if (hostname === "api.tokenrouter.com") {
+      // TokenRouter Kimi K3 currently uses Chat Completions. Keep the schema portable:
+      // its free route may reject the OpenAI-only `strict` extension.
+      requestBody.tools = (requestBody.tools || []).map((tool) => ({
+        ...tool,
+        function: tool?.function ? (({ strict, ...fn }) => fn)(tool.function) : tool.function,
+      }));
+      requestBody.parallel_tool_calls = false;
+    }
+
     if (hostname === "openrouter.ai") {
       const referer = String(process.env.OPENROUTER_HTTP_REFERER || process.env.AIGUKA_PUBLIC_URL || "").trim();
       const title = String(process.env.OPENROUTER_X_TITLE || "AIGUKA").trim();
@@ -236,12 +248,13 @@ export function installOpenAICompatibleResponsesAdapter() {
 
   globalThis.fetch = adaptedFetch;
   globalThis[PATCH_MARK] = {
-    version: "v7",
+    version: "v8",
     hosts: [...COMPATIBLE_HOSTS],
     maxTokens: compatibleMaxTokens(),
     cohereCompatibility: "native_v2_chat_strict_tools_required",
+    tokenRouterCompatibility: "chat_completions_required_tool_without_strict",
   };
-  console.log(`[AIGUKA V10] OpenAI-compatible adapter v7 enabled; Cohere uses native v2/chat with strict_tools and tool_choice=REQUIRED; hosts=${[...COMPATIBLE_HOSTS].join(",")}`);
+  console.log(`[AIGUKA V10] OpenAI-compatible adapter v8 enabled; hosts=${[...COMPATIBLE_HOSTS].join(",")}`);
   return globalThis[PATCH_MARK];
 }
 
