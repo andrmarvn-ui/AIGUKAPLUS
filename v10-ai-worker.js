@@ -22,7 +22,7 @@ async function reportStartupFailure(error) {
         mode: "ACTIVE",
         details: {
           final_worker_artifact: true,
-          runtime_source_patching: true,
+          runtime_source_patching: false,
           ai_decision_authority: "sole",
           provider_cooldown_is_per_key: true,
           provider_auto_recovery: true,
