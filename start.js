@@ -80,6 +80,10 @@ for (const patch of [
 // SSE aggregator before the HTTP server so both manager smoke tests and the worker use it.
 await safeImport("./v10-tokenrouter-runtime-adapter.js");
 
+// Apply customer-turn supersession and the all-product contact-first/Sale-handoff
+// quality guard before detached AI and outbound workers can read their source files.
+await safeImport("./patch-v10-general-product-sales-handoff.js", true);
+
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
 await safeImport("./patch-outbound-binary-image-upload.js");
