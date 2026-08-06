@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_FINAL_WORKER_V1";
+const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_GENERAL_SALES_V2";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -21,6 +21,8 @@ const FILES = [
   "v10-outbound-worker.js",
   "v10-followup-worker.js",
   "v10-pancake-contact-guard-worker.js",
+  "patch-v10-specific-price-contact.js",
+  "patch-v10-general-product-sales-handoff.js",
   "followup-admin-v8.js",
   "followup-admin-v8-client.js",
 ];
@@ -45,6 +47,7 @@ for (const file of FILES) {
   if (result.status !== 0) throw new Error(`V10_RELEASE_SYNTAX:${file}:${result.stderr || result.stdout}`);
 }
 
+// Verify the committed final worker before startup applies the validated runtime quality patches.
 const expectedChecksum = sourceOf("v10-ai-worker-final.sha256").trim();
 const actualChecksum = crypto.createHash("sha256").update(fs.readFileSync("v10-ai-worker-final.js")).digest("hex");
 if (!/^[a-f0-9]{64}$/.test(expectedChecksum) || expectedChecksum !== actualChecksum) {
@@ -57,7 +60,11 @@ requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovere
 requireToken("v10-ai-worker.js", 'await import("./v10-ai-worker-final.js")');
 requireToken("v10-ai-worker.js", 'await import("./v10-pancake-contact-guard-worker.js")');
 requireToken("v10-ai-worker.js", 'await import("./v10-followup-worker.js")');
-requireToken("v10-ai-worker.js", "runtime_source_patching: false");
+requireToken("v10-ai-worker.js", 'await import("./patch-v10-specific-price-contact.js")');
+requireToken("v10-ai-worker.js", 'await import("./patch-v10-general-product-sales-handoff.js")');
+requireToken("v10-ai-worker.js", "runtime_source_patching: true");
+requireToken("v10-ai-worker.js", "general_product_sales_handoff_guard: true");
+requireToken("v10-ai-worker.js", "customer_turn_supersession_guard: true");
 forbidToken("v10-ai-worker.js", "patch-v10-provider-load-balancer");
 forbidToken("v10-ai-worker.js", "patch-v10-decision-integrity");
 requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_quality_guard_v13";');
@@ -67,6 +74,11 @@ requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
 requireToken("v10-outbound-worker.js", "AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1");
+requireToken("patch-v10-specific-price-contact.js", "AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1");
+requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V1");
+requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_CUSTOMER_TURN_SUPERSESSION_V1");
+requireToken("patch-v10-general-product-sales-handoff.js", "CUSTOMER_TURN_SUPERSEDED");
+requireToken("patch-v10-general-product-sales-handoff.js", "sales_handoff_required");
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v3";');
 requireToken("v10-followup-worker.js", "preserveMessageLayout");
 requireToken("v10-followup-worker.js", "preserved_line_breaks");
@@ -92,4 +104,4 @@ requireToken("v10/core/decision-contract.js", "contact_state");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: per-event rich Unicode controls, preserved Messenger line breaks, safe saves, sequential Event timing, live Pancake contact guard and AI-only customer decisions`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: committed checksum, validated all-product Sale handoff, contact-first replies and stale customer-turn supersession`);
