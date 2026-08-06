@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_GENERAL_SALES_V3";
+const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_SMART_SALES_V4";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -67,6 +67,7 @@ requireToken("v10-ai-worker.js", 'await import("./patch-v10-general-product-sale
 requireToken("v10-ai-worker.js", "runtime_source_patching: true");
 requireToken("v10-ai-worker.js", "general_product_sales_handoff_guard: true");
 requireToken("v10-ai-worker.js", "customer_turn_supersession_guard: true");
+requireToken("v10-ai-worker.js", "adaptive_product_reply_repair: true");
 forbidToken("v10-ai-worker.js", "patch-v10-provider-load-balancer");
 forbidToken("v10-ai-worker.js", "patch-v10-decision-integrity");
 requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_quality_guard_v13";');
@@ -77,12 +78,14 @@ requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
 requireToken("v10-outbound-worker.js", "AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1");
 requireToken("patch-v10-specific-price-contact.js", "AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1");
-requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V1");
+requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR");
 requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_CUSTOMER_TURN_SUPERSESSION_V1");
 requireToken("patch-v10-general-product-sales-handoff.js", "CUSTOMER_TURN_SUPERSEDED");
-requireToken("patch-v10-general-product-sales-handoff.js", "sales_handoff_required");
-requireToken("patch-v10-general-product-sales-finalize.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_FINALIZED_V1");
-requireToken("patch-v10-general-product-sales-finalize.js", "v10_ai_quality_guard_v16_general_sales");
+requireToken("patch-v10-general-product-sales-handoff.js", "smart_reply_repair");
+requireToken("patch-v10-general-product-sales-handoff.js", "hard_output_blocking = false");
+requireToken("patch-v10-general-product-sales-handoff.js", "smartSpecialistFallback");
+requireToken("patch-v10-general-product-sales-finalize.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_FINALIZED_V2_SMART_REPAIR");
+requireToken("patch-v10-general-product-sales-finalize.js", "v10_ai_quality_guard_v17_smart_sales_advisory");
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v3";');
 requireToken("v10-followup-worker.js", "preserveMessageLayout");
 requireToken("v10-followup-worker.js", "preserved_line_breaks");
@@ -108,4 +111,4 @@ requireToken("v10/core/decision-contract.js", "contact_state");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: committed checksum, all-product Sale handoff, contact-first replies, CJK firewall and stale customer-turn supersession`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: useful answers are preserved, unsafe claims are repaired, difficult cases escalate to product specialists, contact requests stay contextual and stale customer turns are superseded`);
