@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 
-const VERSION = "v10_server_final_v1";
+const VERSION = "v10_server_final_v2_admin_guards";
 const serverFile = new URL("./server-v10-final.js", import.meta.url);
 const checksumFile = new URL("./server-v10-final.sha256", import.meta.url);
 
@@ -21,6 +21,7 @@ const text = bytes.toString("utf8");
 for (const token of [
   'installReportRoutes(app,{supabaseUrl:SUPABASE_URL,publishableKey:SUPABASE_PUBLIC_KEY})',
   'installV10AdminDashboard(app)',
+  'installLearningAdminV2(app',
   'installBotControlUi(app',
   'installAiProviderManager(app)',
   'installAiContextCenterV3(app)',
@@ -37,6 +38,35 @@ for (const forbidden of [
   if (text.includes(forbidden)) throw new Error(`V10_SERVER_RETIRED_TOKEN_PRESENT:${forbidden}`);
 }
 
+const learning = source(new URL("./learning-admin-v2.js", import.meta.url)).toString("utf8");
+for (const token of [
+  'v10_learning_conversation_list',
+  'v10_learning_conversation_detail',
+  'async function dbRequest(',
+  'Core V10 chưa sẵn sàng; đang dùng V8 dự phòng',
+  'limit=2000',
+]) {
+  if (!learning.includes(token)) throw new Error(`V10_LEARNING_ADMIN_GUARD_MISSING:${token}`);
+}
+for (const forbidden of [
+  'signal:AbortSignal.timeout(60000)',
+  'p_scope:b.scope==="profile"?"profile":"conversation"',
+]) {
+  if (learning.includes(forbidden)) throw new Error(`V10_LEARNING_ADMIN_RETIRED_PATTERN:${forbidden}`);
+}
+
+const botControl = source(new URL("./bot-control-ui.js", import.meta.url)).toString("utf8");
+if (!botControl.includes('async function dbRequest(')) {
+  throw new Error('V10_BOT_CONTROL_DB_REQUEST_GUARD_MISSING');
+}
+for (const forbidden of [
+  'async function request(base, token, path, request = {})',
+  'const rest = (path, request = {}) => request(',
+  'const core = (path, request = {}) => request(',
+]) {
+  if (botControl.includes(forbidden)) throw new Error(`V10_BOT_CONTROL_REQUEST_SHADOW_REGRESSION:${forbidden}`);
+}
+
 globalThis.__AIGUKA_V10_SERVER_RELEASE__ = VERSION;
-console.log(`[AIGUKA V10] ${VERSION} verified: checksummed server, no runtime server source patching`);
+console.log(`[AIGUKA V10] ${VERSION} verified: checksummed server, Core Learning admin and safe management DB clients`);
 await import("./server-v10-final.js");
