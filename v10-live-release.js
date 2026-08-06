@@ -4,9 +4,9 @@ import { spawnSync } from "node:child_process";
 
 const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_FINAL_WORKER_V1";
 
-// Conservative defaults for Gemini Free. The AI scheduler does not claim customer work
-// while every provider is unavailable, so cooldown never consumes a decision attempt.
-process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
+// Gemini pacing is enforced independently for each provider key. A temporary quota
+// error places only that key into cooldown while another provider handles the customer.
+process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
 process.env.AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS ||= "300000";
 process.env.AIGUKA_OPENAI_CREDIT_COOLDOWN_MS ||= "21600000";
