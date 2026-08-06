@@ -68,6 +68,21 @@ if (fs.existsSync(botControlUiFile)) {
   }
 }
 
+// The old embedded controls write only the temporary day/evening fields and can
+// silently override Event media settings. Keep their DOM for legacy JavaScript,
+// but hide the controls and show one link to the official administration page.
+const botControlHtmlFile = "bot-control.html";
+if (fs.existsSync(botControlHtmlFile)) {
+  let botControlHtml = fs.readFileSync(botControlHtmlFile, "utf8");
+  if (!botControlHtml.includes("AIGUKA_FOLLOWUP_LEGACY_PANEL_RETIRED_V1")) {
+    const oldSection = '<section id="follow-up" class="card anchor-offset">';
+    if (!botControlHtml.includes(oldSection)) throw new Error("FOLLOWUP_LEGACY_PANEL_ANCHOR_MISSING");
+    const officialLink = '<section class="card" id="follow-up-official"><div class="notice"><b>Follow-up đã chuyển sang bảng quản trị chính thức.</b> Chế độ Mặc định V8, Event, nội dung, ảnh, 2 lượt/20 giờ và tag Pancake được quản lý tại đây.</div><div class="actions" style="margin-top:10px"><a class="btn primary" href="/follow-up-admin">Mở quản trị Follow-up</a></div><!-- AIGUKA_FOLLOWUP_LEGACY_PANEL_RETIRED_V1 --></section>';
+    botControlHtml = botControlHtml.replace(oldSection, `${officialLink}<section id="follow-up" class="card anchor-offset" style="display:none">`);
+    fs.writeFileSync(botControlHtmlFile, botControlHtml, "utf8");
+  }
+}
+
 const v10AdminShellFile = "dashboard-v10-admin-shell.js";
 if (fs.existsSync(v10AdminShellFile)) {
   let adminShell = fs.readFileSync(v10AdminShellFile, "utf8");
