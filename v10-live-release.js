@@ -24,6 +24,7 @@ const FILES = [
   "v10-followup-worker.js",
   "v10-pancake-contact-guard-worker.js",
   "followup-admin-v8.js",
+  "followup-admin-v8-client.js",
 ];
 
 function sourceOf(file) {
@@ -74,7 +75,11 @@ requireToken("v10-followup-worker.js", "event_image_count");
 requireToken("v10-pancake-contact-guard-worker.js", 'const VERSION = "v10_pancake_contact_guard_v2";');
 requireToken("v10-pancake-contact-guard-worker.js", "pages.fm/api/public_api/v2/pages");
 requireToken("followup-admin-v8.js", "installFollowupAdminV8");
-requireToken("followup-admin-v8.js", "default_v8");
+requireToken("followup-admin-v8.js", "v10_apply_followup_admin");
+requireToken("followup-admin-v8.js", "/follow-up-admin/client.js");
+requireToken("followup-admin-v8-client.js", "byId('add-event')");
+requireToken("followup-admin-v8-client.js", "wait_minutes");
+requireToken("followup-admin-v8-client.js", "Thêm một Event là thêm đúng một lượt Follow-up");
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
 requireToken("v10/core/decision-contract.js", "HIẾN PHÁP MỤC TIÊU");
@@ -82,4 +87,4 @@ requireToken("v10/core/decision-contract.js", "contact_state");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: checksummed final AI worker, V8/Event follow-up runtime, live Pancake contact guard, event media, AI-only customer decisions and no operational customer fallback`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: checksummed final AI worker, sequential V8/Event follow-up administration, live Pancake contact guard, event media, AI-only customer decisions and no operational customer fallback`);
