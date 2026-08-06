@@ -1,4 +1,5 @@
 import { __private__ as reportDashboard } from "./dashboard-v10-stable.js";
+import { enhanceSmartLeadUi } from "./dashboard-smart-lead-ui.js";
 
 const ADMIN_LINKS = Object.freeze([
   {
@@ -62,13 +63,14 @@ function adminShellStyles() {
 
 export function enhanceV10DashboardHtml(html) {
   const source = String(html || "");
-  if (source.includes("aiguka-v10-admin-navigation-style")) return source;
+  if (source.includes("aiguka-v10-admin-navigation-style")) return enhanceSmartLeadUi(source);
   if (!source.includes("</head>") || !source.includes("</header>")) {
     throw new Error("V10_DASHBOARD_ADMIN_NAVIGATION_ANCHOR_MISSING");
   }
-  return source
+  const withAdmin = source
     .replace("</head>", `${adminShellStyles()}</head>`)
     .replace("</header>", `</header>\n${adminStripHtml()}`);
+  return enhanceSmartLeadUi(withAdmin);
 }
 
 function adminHubHtml() {
