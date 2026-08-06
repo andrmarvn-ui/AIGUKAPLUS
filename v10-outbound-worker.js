@@ -201,6 +201,22 @@ function latestCustomerAt(decision) {
   return Math.max(0, ...messages.filter((message) => message.role === "customer").map((message) => Date.parse(message.occurred_at || "")).filter(Number.isFinite));
 }
 
+function pageReplyAfterLatestCustomerInOrder(messages = []) {
+  let latestCustomerIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index] && messages[index].role === "customer") {
+      latestCustomerIndex = index;
+      break;
+    }
+  }
+  if (latestCustomerIndex < 0) return false;
+  return messages.slice(latestCustomerIndex + 1).some(function (message) {
+    return message && ["human", "bot", "automation", "page"].includes(message.role);
+  });
+}
+
+// AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1
+
 async function finalGate(decision, config) {
   if (String(config.mode || "").toUpperCase() !== "ACTIVE") return { allowed: false, reason: "RUNTIME_NOT_ACTIVE" };
   if (String(config.ingest_mode || "").toUpperCase() !== "DIRECT_CORE") return { allowed: false, reason: "INGEST_NOT_DIRECT_CORE" };
@@ -216,7 +232,7 @@ async function finalGate(decision, config) {
 
   const conversation = decision?.input_snapshot?.conversation || {};
   if (conversation?.safety?.opt_out) return { allowed: false, reason: "OPT_OUT" };
-  if (conversation?.safety?.verified_page_reply_after_latest_customer) return { allowed: false, reason: "PAGE_ALREADY_REPLIED" };
+  const snapshotPageReplyAfterLatestCustomer = pageReplyAfterLatestCustomerInOrder(conversation?.messages || []);
   const output = decision.output || {};
   let text = String(output.final_reply || "").trim();
   if (!text || decision.action === "suppress") return { allowed: false, reason: "NO_SEND_ACTION" };
@@ -227,7 +243,9 @@ async function finalGate(decision, config) {
   if (state.human_takeover && (!Number.isFinite(takeoverUntil) || takeoverUntil > Date.now())) return { allowed: false, reason: "HUMAN_TAKEOVER" };
   const customerAt = latestCustomerAt(decision);
   const pageAt = Date.parse(state.last_page_event_at || "");
-  if (customerAt > 0 && Number.isFinite(pageAt) && pageAt >= customerAt) return { allowed: false, reason: "PAGE_ALREADY_REPLIED" };
+  const pageClearlyAfterCustomer = customerAt > 0 && Number.isFinite(pageAt) && pageAt > customerAt + 1000;
+  const pageOrderedAfterCustomer = customerAt > 0 && Number.isFinite(pageAt) && pageAt >= customerAt && snapshotPageReplyAfterLatestCustomer;
+  if (pageClearlyAfterCustomer || pageOrderedAfterCustomer) return { allowed: false, reason: "PAGE_ALREADY_REPLIED" };
 
   const contactKnown = Boolean(state.phone || state.zalo || ["captured", "verified"].includes(String(state.contact_status || "").toLowerCase()));
   if (contactKnown && output.should_request_contact) {

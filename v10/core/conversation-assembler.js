@@ -27,7 +27,10 @@ function normalizeEvent(event = {}) {
 }
 
 function selectSession(messages, { maxEvents = 60, sessionGapMinutes = 360 } = {}) {
-  const sorted = [...messages].sort((a, b) => asTime(a.occurred_at) - asTime(b.occurred_at));
+  const sorted = messages
+    .map((message, input_order) => ({ ...message, input_order }))
+    .sort((a, b) => asTime(a.occurred_at) - asTime(b.occurred_at) || a.input_order - b.input_order)
+    .map(({ input_order, ...message }) => message);
   const capped = sorted.slice(-Math.max(10, maxEvents));
   if (capped.length < 2) return capped;
   const maxGapMs = Math.max(30, sessionGapMinutes) * 60_000;
@@ -45,10 +48,18 @@ function latestByRole(messages, roles) {
 }
 
 function verifiedPageReplyAfterLatestCustomer(messages) {
-  const latestCustomer = latestByRole(messages, ["customer"]);
-  if (!latestCustomer) return false;
-  const customerAt = asTime(latestCustomer.occurred_at);
-  return messages.some((message) => ["human", "bot", "automation", "page"].includes(message.role) && asTime(message.occurred_at) >= customerAt);
+  let latestCustomerIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "customer") {
+      latestCustomerIndex = index;
+      break;
+    }
+  }
+  if (latestCustomerIndex < 0) return false;
+
+  return messages.slice(latestCustomerIndex + 1).some((message) =>
+    ["human", "bot", "automation", "page"].includes(message?.role)
+  );
 }
 
 function carryReferral(messages) {
@@ -101,6 +112,7 @@ export function buildConversationContext(events = [], options = {}) {
     requires_ai: !hardStopReason,
     policy: {
       latest_message_is_not_authoritative: true,
+      page_reply_requires_message_after_latest_customer: true,
       rules_are_advisory_only: true,
       ai_is_sole_business_decision_maker: true,
     },

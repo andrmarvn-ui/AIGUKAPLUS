@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - fix/v10-release-stabilization-20260805
+      - fix/v10-conversation-correctness-20260806
   pull_request:
 
 permissions:
@@ -38,6 +39,8 @@ jobs:
           node --check v10/core/decision-contract.js
           node --check v10/core/conversation-assembler.js
           node --check v10/core/knowledge-advisor.js
+          node --check patch-v10-decision-integrity-v10.js
+          node --check patch-v10-outbound-reply-order-v1.js
 
       - name: Verify committed AI worker matches the historical patch chain
         run: |
@@ -55,6 +58,7 @@ jobs:
             patch-v10-decision-integrity-v7.js \
             patch-v10-decision-integrity-v8.js \
             patch-v10-decision-integrity-v9.js \
+            patch-v10-decision-integrity-v10.js \
             "$tmp/"
           for patch in \
             patch-v10-provider-load-balancer.js \
@@ -66,15 +70,17 @@ jobs:
             patch-v10-decision-integrity-v6.js \
             patch-v10-decision-integrity-v7.js \
             patch-v10-decision-integrity-v8.js \
-            patch-v10-decision-integrity-v9.js
+            patch-v10-decision-integrity-v9.js \
+            patch-v10-decision-integrity-v10.js
           do
             (cd "$tmp" && node "./$patch")
           done
           node --check "$tmp/v10-ai-worker-v2.js"
           cmp -s "$tmp/v10-ai-worker-v2.js" v10-ai-worker-final.js
           grep -Fq 'providerSettings(provider).max_input_chars' v10-ai-worker-final.js
-          grep -Fq 'AIGUKA_V10_DECISION_INTEGRITY_V9' v10-ai-worker-final.js
-          grep -Fq 'v10_ai_quality_guard_v12' v10-ai-worker-final.js
+          grep -Fq 'AIGUKA_V10_DECISION_INTEGRITY_V10' v10-ai-worker-final.js
+          grep -Fq 'currentCustomerClusterText' v10-ai-worker-final.js
+          grep -Fq 'v10_ai_quality_guard_v13' v10-ai-worker-final.js
           expected="$(sha256sum v10-ai-worker-final.js | awk '{print $1}')"
           test "$expected" = "$(tr -d '\n\r ' < v10-ai-worker-final.sha256)"
 

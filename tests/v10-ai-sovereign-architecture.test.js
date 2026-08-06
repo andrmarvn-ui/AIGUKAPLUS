@@ -95,7 +95,7 @@ test("final AI worker contains lease recovery and provider-aware scheduling befo
   const source = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
   assert.match(entry, /v10-ai-worker-final\.js/);
   assert.doesNotMatch(entry, /patch-v10-/);
-  assert.match(source, /const VERSION = "v10_ai_quality_guard_v12"/);
+  assert.match(source, /const VERSION = "v10_ai_quality_guard_v13"/);
   assert.match(source, /recoverStaleProcessing/);
   const availability = source.indexOf("const availability = providerAvailability(providerRows, Date.now())");
   const wait = source.indexOf("scheduleWithoutClaim(row, availability.nextAvailableAt", availability);
@@ -103,7 +103,7 @@ test("final AI worker contains lease recovery and provider-aware scheduling befo
   assert.ok(availability >= 0 && wait > availability && process > wait);
   assert.match(source, /operational_fallback_enabled: false/);
   assert.match(source, /GEMINI_MIN_INTERVAL_MS/);
-  assert.match(source, /AIGUKA_V10_DECISION_INTEGRITY_V9/);
+  assert.match(source, /AIGUKA_V10_DECISION_INTEGRITY_V10/);
 });
 
 test("final AI worker checksum matches committed artifact", () => {
