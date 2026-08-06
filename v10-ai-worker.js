@@ -17,7 +17,7 @@ async function reportStartupFailure(error) {
       },
       body: JSON.stringify({
         worker_name: "aiguka-v10-ai",
-        worker_version: "v10_ai_quality_guard_v15",
+        worker_version: "v10_ai_quality_guard_v16_general_sales",
         status: "degraded",
         mode: "ACTIVE",
         details: {
@@ -27,6 +27,8 @@ async function reportStartupFailure(error) {
           provider_cooldown_is_per_key: true,
           provider_auto_recovery: true,
           specific_product_price_contact_guard: true,
+          general_product_sales_handoff_guard: true,
+          customer_turn_supersession_guard: true,
         },
         last_error: String(error instanceof Error ? error.message : error).slice(0, 800),
         last_seen_at: now,
@@ -48,6 +50,7 @@ await import("./v10-together-runtime-adapter.js");
 await import("./v10-sambanova-runtime-adapter.js");
 await import("./patch-v10-provider-resilience.js");
 await import("./patch-v10-specific-price-contact.js");
+await import("./patch-v10-general-product-sales-handoff.js");
 
 try {
   await import("./v10-ai-worker-final.js");
