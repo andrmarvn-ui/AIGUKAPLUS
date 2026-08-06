@@ -13,13 +13,13 @@ export function installBotControlUi(app, options) {
     "x-aiguka-admin-secret": "AIGUKA_RAILWAY_TEST_MODE",
   });
 
-  async function request(base, token, path, request = {}) {
+  async function dbRequest(base, token, path, options = {}) {
     if (!base || !token) throw new Error("MISSING_DATABASE_SERVICE_ROLE_KEY");
     const response = await fetch(`${base}/rest/v1/${path}`, {
-      method: request.method || "GET",
-      headers: { ...headers(token), Prefer: request.prefer || "return=representation" },
-      body: request.body === undefined ? undefined : JSON.stringify(request.body),
-      signal: AbortSignal.timeout(request.timeout || 40000),
+      method: options.method || "GET",
+      headers: { ...headers(token), Prefer: options.prefer || "return=representation" },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: AbortSignal.timeout(options.timeout || 40000),
       cache: "no-store",
     });
     const text = await response.text();
@@ -29,8 +29,8 @@ export function installBotControlUi(app, options) {
     return data;
   }
 
-  const rest = (path, request = {}) => request(supabaseUrl, key, path, request);
-  const core = (path, request = {}) => request(coreBase, coreKey, path, request);
+  const rest = (path, options = {}) => dbRequest(supabaseUrl, key, path, options);
+  const core = (path, options = {}) => dbRequest(coreBase, coreKey, path, options);
 
   async function rpc(name, args = {}) {
     return rest(`rpc/${name}`, { method: "POST", body: args });
