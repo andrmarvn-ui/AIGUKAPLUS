@@ -10,6 +10,21 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[character]));
 
+const BOLD_UPPER = Array.from('𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙');
+const BOLD_LOWER = Array.from('𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳');
+const BOLD_DIGITS = Array.from('𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗');
+const ITALIC_UPPER = Array.from('𝐴𝐵𝐶𝐷𝐸𝐹𝐺𝐻𝐼𝐽𝐾𝐿𝑀𝑁𝑂𝑃𝑄𝑅𝑆𝑇𝑈𝑉𝑊𝑋𝑌𝑍');
+const ITALIC_LOWER = Array.from('𝑎𝑏𝑐𝑑𝑒𝑓𝑔ℎ𝑖𝑗𝑘𝑙𝑚𝑛𝑜𝑝𝑞𝑟𝑠𝑡𝑢𝑣𝑤𝑥𝑦𝑧');
+const STYLE_REVERSE = new Map();
+
+for (let index = 0; index < 26; index += 1) {
+  STYLE_REVERSE.set(BOLD_UPPER[index], String.fromCharCode(65 + index));
+  STYLE_REVERSE.set(BOLD_LOWER[index], String.fromCharCode(97 + index));
+  STYLE_REVERSE.set(ITALIC_UPPER[index], String.fromCharCode(65 + index));
+  STYLE_REVERSE.set(ITALIC_LOWER[index], String.fromCharCode(97 + index));
+}
+for (let index = 0; index < 10; index += 1) STYLE_REVERSE.set(BOLD_DIGITS[index], String(index));
+
 function setToast(text, ok = true) {
   const element = byId('toast');
   element.textContent = text;
@@ -53,6 +68,68 @@ function rpcValue(payload) {
   return Array.isArray(value) ? value[0] || {} : value || {};
 }
 
+function styledCharacter(character, style) {
+  if (character === 'Đ') return `${style === 'bold' ? BOLD_UPPER[3] : ITALIC_UPPER[3]}̵`;
+  if (character === 'đ') return `${style === 'bold' ? BOLD_LOWER[3] : ITALIC_LOWER[3]}̵`;
+  const code = character.codePointAt(0);
+  if (code >= 65 && code <= 90) return (style === 'bold' ? BOLD_UPPER : ITALIC_UPPER)[code - 65];
+  if (code >= 97 && code <= 122) return (style === 'bold' ? BOLD_LOWER : ITALIC_LOWER)[code - 97];
+  if (style === 'bold' && code >= 48 && code <= 57) return BOLD_DIGITS[code - 48];
+  return character;
+}
+
+function styleUnicode(value, style) {
+  return Array.from(String(value || '').normalize('NFD'))
+    .map((character) => styledCharacter(character, style))
+    .join('');
+}
+
+function clearUnicodeStyle(value) {
+  return Array.from(String(value || ''))
+    .map((character) => STYLE_REVERSE.get(character) || character)
+    .join('')
+    .replace(/([Dd])̵/g, (match, letter) => letter === 'D' ? 'Đ' : 'đ')
+    .normalize('NFC');
+}
+
+function selectionRange(textarea) {
+  let start = Number(textarea.selectionStart || 0);
+  let end = Number(textarea.selectionEnd || 0);
+  if (start !== end) return { start, end };
+  const value = textarea.value;
+  const before = value.lastIndexOf('\n', Math.max(0, start - 1));
+  const after = value.indexOf('\n', start);
+  start = before < 0 ? 0 : before + 1;
+  end = after < 0 ? value.length : after;
+  return { start, end };
+}
+
+function applyTextTransform(row, transform, label) {
+  const textarea = row.querySelector('.e-text');
+  if (!textarea) return;
+  const { start, end } = selectionRange(textarea);
+  const source = textarea.value.slice(start, end);
+  if (!source) {
+    setToast('Hãy chọn đoạn cần định dạng hoặc đặt con trỏ trong một dòng', false);
+    return;
+  }
+  const replacement = transform(source);
+  textarea.setRangeText(replacement, start, end, 'select');
+  textarea.focus();
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  setToast(label);
+}
+
+function applyFormat(row, format) {
+  if (format === 'bold') return applyTextTransform(row, (value) => styleUnicode(clearUnicodeStyle(value), 'bold'), 'Đã in đậm đoạn được chọn');
+  if (format === 'italic') return applyTextTransform(row, (value) => styleUnicode(clearUnicodeStyle(value), 'italic'), 'Đã in nghiêng đoạn được chọn');
+  if (format === 'upper') return applyTextTransform(row, (value) => value.toLocaleUpperCase('vi-VN'), 'Đã chuyển sang IN HOA');
+  if (format === 'clear') return applyTextTransform(row, clearUnicodeStyle, 'Đã xóa kiểu chữ Unicode');
+  if (format === 'title-large') return applyTextTransform(row, (value) => styleUnicode(clearUnicodeStyle(value).toLocaleUpperCase('vi-VN'), 'bold'), 'Đã áp dụng Tiêu đề lớn');
+  if (format === 'title-medium') return applyTextTransform(row, (value) => styleUnicode(clearUnicodeStyle(value), 'bold'), 'Đã áp dụng Tiêu đề vừa');
+  if (format === 'caption') return applyTextTransform(row, (value) => styleUnicode(clearUnicodeStyle(value), 'italic'), 'Đã áp dụng Chú thích');
+}
+
 function eventTemplate(event = {}, index = 0) {
   const images = Array.isArray(event.image_urls) ? event.image_urls.join('\n') : '';
   const pages = Array.isArray(event.page_ids) ? event.page_ids.join(', ') : '';
@@ -77,7 +154,23 @@ function eventTemplate(event = {}, index = 0) {
       <label class="switch compact"><span><b>Kích hoạt</b><br><small>Cho phép gửi lượt này</small></span><input class="e-enabled" type="checkbox" ${event.enabled !== false ? 'checked' : ''}></label>
     </div>
     <div class="event-body">
-      <div class="field"><label>Nội dung tin nhắn</label><textarea class="e-text" maxlength="2000" placeholder="Nhập nội dung riêng cho lượt Follow-up này">${escapeHtml(event.message_text || '')}</textarea></div>
+      <div class="field">
+        <label>Nội dung tin nhắn</label>
+        <div class="event-format-toolbar" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:7px;border:1px solid #d7dfeb;border-bottom:0;border-radius:8px 8px 0 0;background:#f8fafc">
+          <button type="button" class="e-format" data-format="bold" title="In đậm đoạn chọn">𝐁 Đậm</button>
+          <button type="button" class="e-format" data-format="italic" title="In nghiêng đoạn chọn">𝐼 Nghiêng</button>
+          <button type="button" class="e-format" data-format="upper" title="Chuyển đoạn chọn thành chữ hoa">TT IN HOA</button>
+          <button type="button" class="e-format" data-format="clear" title="Bỏ kiểu chữ Unicode">Aa Bỏ kiểu</button>
+          <select class="e-size-preset" title="Cỡ hiển thị mô phỏng trên Messenger" style="padding:8px;border:1px solid #cbd5e1;border-radius:8px;background:white">
+            <option value="">Cỡ hiển thị…</option>
+            <option value="title-large">Tiêu đề lớn</option>
+            <option value="title-medium">Tiêu đề vừa</option>
+            <option value="caption">Chú thích nhỏ</option>
+          </select>
+        </div>
+        <textarea class="e-text" maxlength="4000" style="border-radius:0 0 8px 8px" placeholder="Nhập nội dung riêng cho lượt Follow-up này">${escapeHtml(event.message_text || '')}</textarea>
+        <small class="muted">Bôi đen đoạn cần định dạng. Messenger không hỗ trợ font-size thật; các mức cỡ dùng chữ Unicode đậm/nghiêng để tạo phân cấp hiển thị.</small>
+      </div>
       <div>
         <div class="field"><label>Ảnh kèm theo · mỗi dòng một URL</label><textarea class="e-images" placeholder="https://...">${escapeHtml(images)}</textarea></div>
         <div class="field" style="margin-top:8px"><label>Page ID áp dụng · để trống là tất cả</label><input class="e-pages" value="${escapeHtml(pages)}" placeholder="104810069068200"></div>
@@ -222,7 +315,7 @@ function renderLogs(logs = []) {
     <td>${escapeHtml(formatDate(row.queued_at))}</td><td>${escapeHtml(row.page_name || row.page_id || '')}</td>
     <td>${escapeHtml(row.sender_id || '')}</td><td>${escapeHtml(row.followup_no || 1)}</td>
     <td>${escapeHtml(row.mode || 'default_v8')}</td><td>${escapeHtml(row.status || '')}</td>
-    <td>${escapeHtml(row.skip_reason || row.last_error || '')}</td><td>${escapeHtml(row.final_reply || '')}</td>
+    <td>${escapeHtml(row.skip_reason || row.last_error || '')}</td><td style="white-space:pre-wrap">${escapeHtml(row.final_reply || '')}</td>
   </tr>`).join('');
 }
 
@@ -388,7 +481,11 @@ function bindEvents() {
   byId('events').addEventListener('click', async (event) => {
     const row = event.target.closest('.event');
     if (!row) return;
-    if (event.target.closest('.e-save')) await saveEvent(row, false).catch(() => {});
+    const formatButton = event.target.closest('.e-format');
+    if (formatButton) {
+      event.preventDefault();
+      applyFormat(row, formatButton.dataset.format);
+    } else if (event.target.closest('.e-save')) await saveEvent(row, false).catch(() => {});
     else if (event.target.closest('.e-remove')) await deleteEvent(row);
     else if (event.target.closest('.e-up')) moveEvent(row, -1);
     else if (event.target.closest('.e-down')) moveEvent(row, 1);
@@ -399,7 +496,13 @@ function bindEvents() {
     updateEventSummary();
   });
   byId('events').addEventListener('change', (event) => {
-    markRowDirty(event.target.closest('.event'));
+    const row = event.target.closest('.event');
+    if (event.target.classList.contains('e-size-preset') && event.target.value) {
+      applyFormat(row, event.target.value);
+      event.target.value = '';
+      return;
+    }
+    markRowDirty(row);
     updateEventSummary();
   });
 
