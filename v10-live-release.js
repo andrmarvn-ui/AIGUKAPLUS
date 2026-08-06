@@ -71,7 +71,7 @@ requireToken("v10-outbound-worker.js", "AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1");
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v2";');
 requireToken("v10-followup-worker.js", "PANCAKE_CONTACT_TAG_FOUND");
 requireToken("v10-followup-worker.js", "event_image_count");
-requireToken("v10-pancake-contact-guard-worker.js", 'const VERSION = "v10_pancake_contact_guard_v1";');
+requireToken("v10-pancake-contact-guard-worker.js", 'const VERSION = "v10_pancake_contact_guard_v2";');
 requireToken("v10-pancake-contact-guard-worker.js", "pages.fm/api/public_api/v2/pages");
 requireToken("followup-admin-v8.js", "installFollowupAdminV8");
 requireToken("followup-admin-v8.js", "default_v8");
