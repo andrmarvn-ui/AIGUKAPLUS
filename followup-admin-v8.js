@@ -51,17 +51,6 @@ function stateStats(logs) {
   }, { total: 0, sent: 0, pending: 0, suppressed: 0, failed: 0 });
 }
 
-function eventPayload(rows = []) {
-  return rows.map((row) => ({
-    event_name: row.event_name,
-    message_text: row.message_text,
-    wait_minutes: row.wait_minutes,
-    image_urls: row.image_urls || [],
-    page_ids: row.page_ids || [],
-    enabled: row.enabled !== false,
-  }));
-}
-
 function pageHtml() {
   return `<!doctype html>
 <html lang="vi">
@@ -70,8 +59,8 @@ function pageHtml() {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>AIGUKA · Quản trị Follow-up</title>
   <style>
-    :root{font-family:Inter,Arial,sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 20px;background:#fff;border-bottom:1px solid #d8e0ec;position:sticky;top:0;z-index:20}.top h1{font-size:20px;margin:0}.top a{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;color:#24324a;text-decoration:none;font-weight:750}.wrap{max-width:1250px;margin:0 auto;padding:20px}.card{background:#fff;border:1px solid #d7dfeb;border-radius:12px;padding:16px;margin-bottom:14px}.card h2,.card h3{margin:0 0 8px}.muted{color:#667085}.notice{padding:11px;border:1px solid #93c5fd;background:#eff6ff;border-radius:9px;line-height:1.5}.ok{padding:10px;border:1px solid #86efac;background:#f0fdf4;border-radius:9px}.bad{padding:10px;border:1px solid #fda29b;background:#fef3f2;color:#912018;border-radius:9px}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn,button{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font-weight:700}.primary{background:#155eef;color:#fff;border-color:#155eef}.danger{color:#b42318}.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mode-card{display:block;border:2px solid #d7dfeb;border-radius:11px;padding:14px;cursor:pointer}.mode-card.active{border-color:#155eef;background:#f5f8ff}.mode-card input{margin-right:8px}.grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px}.field{display:flex;flex-direction:column;gap:5px}.field input,.field select,.field textarea{width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font:inherit}.field textarea{min-height:112px;resize:vertical}.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border:1px solid #d7dfeb;border-radius:9px;background:#f8fafc}.switch.compact{min-height:62px}.switch input{width:22px;height:22px}.event{border:1px solid #b8c7dd;border-radius:12px;padding:14px;margin-top:12px;background:#fafcff;box-shadow:0 1px 2px #0f172a0a}.event-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding-bottom:10px;border-bottom:1px solid #e4e7ec}.event-number{display:inline-block;padding:5px 9px;border-radius:999px;background:#155eef;color:#fff;font-size:12px;font-weight:800}.event-time-explain{margin-top:6px;font-size:12px}.event-head{display:grid;grid-template-columns:1.5fr .9fr 1fr;gap:10px;align-items:end;margin-top:11px}.event-body{display:grid;grid-template-columns:1.5fr 1fr;gap:10px;margin-top:10px}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.stat{padding:12px;border:1px solid #d7dfeb;border-radius:9px;text-align:center}.stat b{display:block;font-size:23px}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.meta div{padding:9px;background:#f8fafc;border:1px solid #e4e7ec;border-radius:8px}.table{overflow:auto;border:1px solid #d7dfeb;border-radius:9px}.table table{border-collapse:collapse;width:100%;min-width:1050px}.table th,.table td{padding:8px 9px;border-bottom:1px solid #e4e7ec;text-align:left;vertical-align:top}.table th{background:#eef2f7;font-size:12px}.hidden{display:none!important}#toast{position:fixed;right:15px;bottom:15px;padding:10px 14px;border-radius:999px;background:#067647;color:#fff;z-index:50}#toast.fail{background:#b42318}button:disabled{opacity:.45;cursor:not-allowed}
-    @media(max-width:850px){.grid,.mode-grid,.event-head,.event-body,.meta{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px}.top,.event-title-row{align-items:flex-start;flex-direction:column}}
+    :root{font-family:Inter,Arial,sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 20px;background:#fff;border-bottom:1px solid #d8e0ec;position:sticky;top:0;z-index:20}.top h1{font-size:20px;margin:0}.top a{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;color:#24324a;text-decoration:none;font-weight:750}.wrap{max-width:1250px;margin:0 auto;padding:20px 20px 90px}.card{background:#fff;border:1px solid #d7dfeb;border-radius:12px;padding:16px;margin-bottom:14px}.card h2,.card h3{margin:0 0 8px}.muted{color:#667085}.notice{padding:11px;border:1px solid #93c5fd;background:#eff6ff;border-radius:9px;line-height:1.5}.ok{padding:10px;border:1px solid #86efac;background:#f0fdf4;border-radius:9px}.bad{padding:10px;border:1px solid #fda29b;background:#fef3f2;color:#912018;border-radius:9px}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn,button{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font-weight:700}.primary{background:#155eef;color:#fff;border-color:#155eef}.success{background:#067647;color:#fff;border-color:#067647}.danger{color:#b42318}.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mode-card{display:block;border:2px solid #d7dfeb;border-radius:11px;padding:14px;cursor:pointer}.mode-card.active{border-color:#155eef;background:#f5f8ff}.mode-card input{margin-right:8px}.grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px}.field{display:flex;flex-direction:column;gap:5px}.field input,.field select,.field textarea{width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font:inherit}.field textarea{min-height:112px;resize:vertical}.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border:1px solid #d7dfeb;border-radius:9px;background:#f8fafc}.switch.compact{min-height:62px}.switch input{width:22px;height:22px}.event{border:1px solid #b8c7dd;border-radius:12px;padding:14px;margin-top:12px;background:#fafcff;box-shadow:0 1px 2px #0f172a0a}.event.is-dirty{border-color:#f79009;background:#fffcf5}.event.is-saved{border-color:#32d583}.event-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding-bottom:10px;border-bottom:1px solid #e4e7ec}.event-number{display:inline-block;padding:5px 9px;border-radius:999px;background:#155eef;color:#fff;font-size:12px;font-weight:800}.event-save-state{font-size:12px;font-weight:700;margin-left:8px}.event-time-explain{margin-top:6px;font-size:12px}.event-head{display:grid;grid-template-columns:1.5fr .9fr 1fr;gap:10px;align-items:end;margin-top:11px}.event-body{display:grid;grid-template-columns:1.5fr 1fr;gap:10px;margin-top:10px}.event-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid #e4e7ec}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.stat{padding:12px;border:1px solid #d7dfeb;border-radius:9px;text-align:center}.stat b{display:block;font-size:23px}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.meta div{padding:9px;background:#f8fafc;border:1px solid #e4e7ec;border-radius:8px}.table{overflow:auto;border:1px solid #d7dfeb;border-radius:9px}.table table{border-collapse:collapse;width:100%;min-width:1050px}.table th,.table td{padding:8px 9px;border-bottom:1px solid #e4e7ec;text-align:left;vertical-align:top}.table th{background:#eef2f7;font-size:12px}.hidden{display:none!important}#toast{position:fixed;right:15px;bottom:82px;padding:10px 14px;border-radius:999px;background:#067647;color:#fff;z-index:50}#toast.fail{background:#b42318}.save-dock{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #cbd5e1;box-shadow:0 -6px 20px #0f172a14;padding:11px 18px;z-index:40}.save-dock-inner{max-width:1250px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px}.save-dock-text{font-size:13px;color:#475467}button:disabled{opacity:.45;cursor:not-allowed}
+    @media(max-width:850px){.grid,.mode-grid,.event-head,.event-body,.meta{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px 10px 100px}.top,.event-title-row,.save-dock-inner{align-items:flex-start;flex-direction:column}.save-dock button{width:100%}}
   </style>
 </head>
 <body>
@@ -80,12 +69,12 @@ function pageHtml() {
     <div class="actions"><a href="/admin">Trung tâm quản trị</a><a href="/dashboard">Báo cáo V10</a></div>
   </header>
   <main class="wrap">
-    <section class="notice"><b>Mặc định V8:</b> quét 3 giờ/lần, hai lượt trong 20 giờ. <b>Event:</b> mỗi ô Event chính là một lượt Follow-up độc lập; Event 1 tính thời gian từ tin trả lời cuối, Event sau tính từ lúc Event trước gửi thành công. Chỉ gửi trong 08:00–22:30 và luôn loại khách đã có SĐT/Zalo hoặc tag liên hệ trên Pancake.</section>
+    <section class="notice"><b>Mặc định V8:</b> quét 3 giờ/lần, hai lượt trong 20 giờ. <b>Event:</b> mỗi ô Event là một lượt Follow-up độc lập. Mỗi Event có nút lưu riêng; nút lưu tổng không còn xóa và tạo lại toàn bộ bảng Event.</section>
 
     <section class="card">
       <div class="actions" style="justify-content:space-between">
         <div><h2>Trạng thái thực tế</h2><div id="live" class="muted">Đang tải…</div></div>
-        <div class="actions"><button id="refresh" type="button">Làm mới</button><button id="scan" type="button">Yêu cầu quét ngay</button><button id="reset" type="button">Khôi phục mặc định V8</button><button id="save" type="button" class="primary">Lưu và áp dụng</button></div>
+        <div class="actions"><button id="refresh" type="button">Làm mới</button><button id="scan" type="button">Yêu cầu quét ngay</button><button id="reset" type="button">Khôi phục mặc định V8</button><button id="save-top" type="button" class="primary">Lưu tất cả</button></div>
       </div>
       <div class="stats" style="margin-top:12px"><div class="stat"><b id="s-total">0</b>Tổng</div><div class="stat"><b id="s-sent">0</b>Đã gửi</div><div class="stat"><b id="s-pending">0</b>Đang chờ</div><div class="stat"><b id="s-suppressed">0</b>Bỏ qua</div><div class="stat"><b id="s-failed">0</b>Lỗi/thiếu ảnh</div></div>
       <div class="meta"><div>Worker: <b id="worker">—</b></div><div>Heartbeat: <b id="heartbeat">—</b></div><div>Quét cuối: <b id="last-scan">—</b></div><div>Gửi cuối: <b id="last-send">—</b></div></div>
@@ -124,7 +113,7 @@ function pageHtml() {
 
     <section id="event-section" class="card">
       <div class="actions" style="justify-content:space-between;align-items:flex-start">
-        <div><h2>3. Chuỗi Event Follow-up</h2><div class="muted">Thêm một Event là thêm đúng một lượt Follow-up. Có thể đổi thứ tự bằng nút ↑ ↓.</div></div>
+        <div><h2>3. Chuỗi Event Follow-up</h2><div class="muted">Sửa Event nào thì bấm “Lưu Event này” ngay trong ô đó. Nút Lưu tất cả dùng để lưu thứ tự, toàn bộ Event và cấu hình chung.</div></div>
         <button id="add-event" type="button" class="primary">+ Thêm Event mới</button>
       </div>
       <div id="event-summary" class="ok" style="margin-top:10px">0 Event</div>
@@ -137,7 +126,8 @@ function pageHtml() {
     </section>
   </main>
   <div id="toast">Đang kết nối…</div>
-  <script defer src="/follow-up-admin/client.js?v=3"></script>
+  <div class="save-dock"><div class="save-dock-inner"><div class="save-dock-text" id="save-dock-text">Mọi thay đổi Event phải được lưu trước khi rời trang.</div><button id="save-bottom" type="button" class="primary">Lưu cấu hình + tất cả Event</button></div></div>
+  <script defer src="/follow-up-admin/client.js?v=4"></script>
 </body>
 </html>`;
 }
@@ -149,14 +139,13 @@ export function installFollowupAdminV8(app) {
 
   app.get("/follow-up-admin/api/state", async (_req, res) => {
     try {
-      const [configRows, eventRows, heartbeatRows, logs, pages, guards, guardWorkerRows] = await Promise.all([
+      const [configRows, eventRows, heartbeatRows, logs, pages, guards] = await Promise.all([
         core("v10_followup_config?select=*&id=eq.1&limit=1"),
         core("v10_followup_events?select=*&order=event_no.asc,created_at.asc"),
         core("v9_worker_heartbeats?select=*&worker_name=eq.aiguka-v10-followup&limit=1"),
         core("v10_followup_log?select=*&order=queued_at.desc&limit=200"),
         core("v9_pages?select=page_id,page_name"),
         core("v10_followup_contact_guard?select=has_contact_tag,checked_at&order=checked_at.desc&limit=1000"),
-        core("v9_worker_heartbeats?select=*&worker_name=eq.aiguka-v10-pancake-contact-guard&limit=1"),
       ]);
       const pageNames = new Map((pages || []).map((page) => [String(page.page_id), page.page_name]));
       const enriched = (logs || []).map((row) => ({ ...row, page_name: pageNames.get(String(row.page_id)) || null }));
@@ -165,7 +154,6 @@ export function installFollowupAdminV8(app) {
         config: configRows?.[0] || null,
         events: eventRows || [],
         worker: heartbeatRows?.[0] || null,
-        guard_worker: guardWorkerRows?.[0] || null,
         stats: stateStats(enriched),
         logs: enriched.slice(0, 100),
         guard: {
@@ -179,28 +167,12 @@ export function installFollowupAdminV8(app) {
     }
   });
 
-  app.post("/follow-up-admin/api/apply", async (req, res) => {
-    try {
-      const config = req.body?.config;
-      const events = Array.isArray(req.body?.events) ? req.body.events.slice(0, 20) : [];
-      const data = await core("rpc/v10_apply_followup_admin", {
-        method: "POST",
-        timeout: 45000,
-        body: { p_config: config, p_events: events, p_updated_by: "followup_admin_event_sequence_v3" },
-      });
-      res.json({ ok: true, data });
-    } catch (error) {
-      res.status(400).json({ ok: false, error: error.message });
-    }
-  });
-
   app.post("/follow-up-admin/api/config", async (req, res) => {
     try {
-      const rows = await core("v10_followup_events?select=*&order=event_no.asc,created_at.asc");
-      const data = await core("rpc/v10_apply_followup_admin", {
+      const data = await core("rpc/v10_save_followup_config_only", {
         method: "POST",
         timeout: 45000,
-        body: { p_config: req.body || {}, p_events: eventPayload(rows), p_updated_by: "followup_admin_config_compat_v3" },
+        body: { p_config: req.body || {}, p_updated_by: "followup_admin_config_safe_v4" },
       });
       res.json({ ok: true, data });
     } catch (error) {
@@ -208,15 +180,51 @@ export function installFollowupAdminV8(app) {
     }
   });
 
-  app.post("/follow-up-admin/api/events", async (req, res) => {
+  app.post("/follow-up-admin/api/event/save", async (req, res) => {
     try {
-      const events = Array.isArray(req.body?.events) ? req.body.events.slice(0, 20) : [];
-      const data = await core("rpc/v10_replace_followup_events", {
+      const data = await core("rpc/v10_upsert_followup_event", {
         method: "POST",
         timeout: 45000,
-        body: { p_events: events, p_updated_by: "followup_admin_events_compat_v3" },
+        body: { p_event: req.body?.event || req.body || {}, p_updated_by: "followup_admin_event_safe_v4" },
       });
       res.json({ ok: true, data });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/follow-up-admin/api/event/delete", async (req, res) => {
+    try {
+      const eventId = String(req.body?.event_id || "").trim();
+      if (!eventId) throw new Error("FOLLOWUP_EVENT_ID_REQUIRED");
+      const data = await core("rpc/v10_delete_followup_event", {
+        method: "POST",
+        timeout: 45000,
+        body: { p_event_id: eventId, p_updated_by: "followup_admin_event_delete_v4" },
+      });
+      res.json({ ok: true, data });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.post("/follow-up-admin/api/apply", async (req, res) => {
+    try {
+      const events = Array.isArray(req.body?.events) ? req.body.events.slice(0, 20) : [];
+      const saved = [];
+      for (const event of events) {
+        saved.push(await core("rpc/v10_upsert_followup_event", {
+          method: "POST",
+          timeout: 45000,
+          body: { p_event: event, p_updated_by: "followup_admin_apply_safe_v4" },
+        }));
+      }
+      const config = await core("rpc/v10_save_followup_config_only", {
+        method: "POST",
+        timeout: 45000,
+        body: { p_config: req.body?.config || {}, p_updated_by: "followup_admin_apply_safe_v4" },
+      });
+      res.json({ ok: true, data: { events: saved, config } });
     } catch (error) {
       res.status(400).json({ ok: false, error: error.message });
     }
@@ -227,7 +235,7 @@ export function installFollowupAdminV8(app) {
       await core("v10_followup_config?id=eq.1", {
         method: "PATCH",
         prefer: "return=minimal",
-        body: { last_scan_at: null, updated_by: "followup_admin_force_scan_v3", updated_at: new Date().toISOString() },
+        body: { last_scan_at: null, updated_by: "followup_admin_force_scan_v4", updated_at: new Date().toISOString() },
       });
       res.json({ ok: true, requested: true });
     } catch (error) {
@@ -237,7 +245,6 @@ export function installFollowupAdminV8(app) {
 
   app.post("/follow-up-admin/api/reset", async (_req, res) => {
     try {
-      const rows = await core("v10_followup_events?select=*&order=event_no.asc,created_at.asc");
       const config = {
         mode: "default_v8",
         enabled: true,
@@ -253,10 +260,10 @@ export function installFollowupAdminV8(app) {
         max_age_hours: 20,
         max_per_run: 20,
       };
-      const data = await core("rpc/v10_apply_followup_admin", {
+      const data = await core("rpc/v10_save_followup_config_only", {
         method: "POST",
         timeout: 45000,
-        body: { p_config: config, p_events: eventPayload(rows), p_updated_by: "followup_admin_reset_v8_v3" },
+        body: { p_config: config, p_updated_by: "followup_admin_reset_v8_safe_v4" },
       });
       res.json({ ok: true, data });
     } catch (error) {
