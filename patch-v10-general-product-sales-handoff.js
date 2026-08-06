@@ -1,12 +1,12 @@
 import fs from "node:fs";
 
 // The specific-price patch defines specificPriceSubject() and applies the first price guard.
-// Load it here so this general patch is deterministic even when startup workers are detached.
+// Load it here so this adaptive patch is deterministic before detached workers start.
 await import("./patch-v10-specific-price-contact.js");
 
 const AI_FILE = "v10-ai-worker-final.js";
 const OUTBOUND_FILE = "v10-outbound-worker.js";
-const AI_MARK = "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V1";
+const AI_MARK = "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR";
 const OUTBOUND_MARK = "AIGUKA_V10_CUSTOMER_TURN_SUPERSESSION_V1";
 
 if (!fs.existsSync(AI_FILE)) throw new Error("V10_GENERAL_SALES_AI_WORKER_MISSING");
@@ -54,6 +54,23 @@ function commercialProductNeedDetected(decision, modelInput) {
   return (hasProductEvidence && commercialSignal) || /\b(muon mua|can mua|dat hang|chot don|mua hang)\b/.test(text);
 }
 
+function strongCommercialSignal(decision, modelInput) {
+  const raw = currentCustomerRawCluster(modelInput);
+  const text = qualityNormalize(raw);
+  const intents = qualityNormalize((Array.isArray(decision && decision.intents) ? decision.intents : []).join(" "));
+  return priceIntentDetected(decision, modelInput)
+    || /\b(muon mua|can mua|dat hang|chot|lay hang|bao gia|uu dai|khuyen mai|con hang|giao hang|van chuyen|lap dat|bao hanh|xem mau|gui mau|gui anh|catalog)\b/.test(intents + " " + text)
+    || Boolean(decision && (decision.needs_slides || decision.action === "reply_with_slides"));
+}
+
+function specificOrComplexProductRequest(modelInput) {
+  const raw = currentCustomerRawCluster(modelInput);
+  const text = qualityNormalize(raw);
+  const codeLike = /\b[A-Za-z]{1,10}[-_.\/]?\d{2,7}[A-Za-z0-9._\/-]*\b/.test(raw);
+  const specification = /\b(kich thuoc|cong suat|dong co|chat lieu|xuat xu|thuong hieu|bao hanh|lap dat|phien ban|model|ma san pham|mau sac|sai canh|dien ap)\b/.test(text);
+  return codeLike || specification;
+}
+
 function containsCjkOrForeignGlyph(value) {
   return /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(String(value || ""));
 }
@@ -68,16 +85,46 @@ function stripRepeatedBusinessIntroduction(value) {
   return text;
 }
 
-function saleHandoffDetected(value) {
+function specialistHandoffDetected(value) {
   const text = qualityNormalize(value);
-  return /\b(chuyen|noi|gui).{0,24}\b(sale|nhan vien kinh doanh|tu van vien)\b|\b(sale|nhan vien kinh doanh).{0,32}\b(kiem tra|bao gia|lien he|tu van)\b/.test(text);
+  return /\b(chuyen|noi|gui|nhờ).{0,28}\b(sale|nhan vien kinh doanh|tu van vien|chuyen vien|chuyen vien san pham)\b|\b(sale|nhan vien kinh doanh|tu van vien|chuyen vien|chuyen vien san pham).{0,36}\b(kiem tra|bao gia|lien he|tu van|gui mau|xac nhan)\b/.test(text);
 }
 
 function unresolvedPromiseWithoutHandoff(value) {
   const text = qualityNormalize(value);
   return /\b(de em|em se|cho em).{0,40}\b(kiem tra|xem lai).{0,40}\b(bao lai|phan hoi lai|tra loi lai)\b/.test(text)
-    && !saleHandoffDetected(value)
+    && !specialistHandoffDetected(value)
     && !contactRequestDetected(value);
+}
+
+function sentenceParts(value) {
+  return (String(value || "").match(/[^.!?\n]+[.!?]?/g) || []).map(function (part) { return part.trim(); }).filter(Boolean);
+}
+
+function removeContactRequestSentences(value) {
+  return sentenceParts(value).filter(function (part) { return !contactRequestDetected(part); }).join(" ").trim();
+}
+
+function appendSentence(value, sentence) {
+  const base = String(value || "").trim();
+  const extra = String(sentence || "").trim();
+  if (!base) return extra;
+  if (!extra) return base;
+  return base + (/[.!?]$/.test(base) ? " " : ". ") + extra;
+}
+
+function trimReplyWithoutDestroyingAnswer(value, maxSentences, maxChars) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars && sentenceParts(text).length <= maxSentences) return text;
+  const kept = sentenceParts(text).slice(0, maxSentences).join(" ").trim();
+  return (kept || text.slice(0, maxChars)).slice(0, maxChars).trim();
+}
+
+function replyHasUsefulAnswer(value) {
+  const text = qualityNormalize(stripRepeatedBusinessIntroduction(value));
+  if (text.length < 28) return false;
+  if (/^(da|vang|ok|em ghi nhan|em hieu|de em kiem tra|cho em xin chut thoi gian)\b/.test(text) && text.length < 90) return false;
+  return true;
 }
 
 function generalSalesSubject(modelInput) {
@@ -87,54 +134,128 @@ function generalSalesSubject(modelInput) {
     .trim();
 }
 
-function generalCommercialHandoffReply(decision, modelInput) {
+function difficultProductCase(decision, modelInput, reply) {
+  return containsCjkOrForeignGlyph(reply)
+    || languageLooksCorrupted(reply)
+    || unsupportedPriceReply(reply, modelInput)
+    || unsupportedStockClaim(reply, modelInput)
+    || unsupportedTechnicalFacts(reply, modelInput)
+    || unresolvedPromiseWithoutHandoff(reply)
+    || (priceIntentDetected(decision, modelInput) && !replyContainsVerifiedPrice(reply, modelInput))
+    || specificOrComplexProductRequest(modelInput);
+}
+
+function smartSpecialistFallback(decision, modelInput, refused) {
   const known = contactIsKnown(modelInput);
   const style = salutationStyle(modelInput);
   const subject = generalSalesSubject(modelInput);
-  const price = priceIntentDetected(decision, modelInput);
-  const sendingSamples = Boolean(decision && (decision.needs_slides || decision.action === "reply_with_slides"));
   let text;
-  if (price) {
-    text = known
-      ? "Dạ, em đã ghi nhận " + subject + ". Em chuyển Sale kiểm tra đúng mẫu/phiên bản và gửi báo giá cùng ưu đãi hiện tại theo thông tin liên hệ mình đã để lại ạ."
-      : "Dạ, em đã ghi nhận " + subject + ". Anh/chị cho em xin SĐT hoặc Zalo, em chuyển Sale kiểm tra đúng mẫu/phiên bản, gửi báo giá và ưu đãi hiện tại ạ.";
-  } else if (sendingSamples) {
-    text = known
-      ? "Dạ, em gửi một số mẫu " + subject + " để tham khảo. Em chuyển Sale lọc đúng mẫu, báo giá và ưu đãi theo thông tin liên hệ mình đã để lại ạ."
-      : "Dạ, em gửi một số mẫu " + subject + " để tham khảo. Anh/chị cho em xin SĐT hoặc Zalo, em chuyển Sale lọc đúng mẫu, gửi báo giá và ưu đãi hiện tại ạ.";
+  if (refused) {
+    text = "Dạ, phần " + subject + " còn phụ thuộc đúng mã/phiên bản nên em chưa muốn báo sai. Anh/chị gửi thêm ảnh hoặc mã đầy đủ, em hỗ trợ tiếp ngay tại đây ạ.";
+  } else if (known) {
+    text = "Dạ, phần " + subject + " còn phụ thuộc đúng mẫu/phiên bản nên em chưa muốn báo sai. Em chuyển chuyên viên sản phẩm kiểm tra và gửi mẫu chuẩn, báo giá cùng ưu đãi hiện tại theo thông tin liên hệ mình đã để lại ạ.";
   } else {
-    text = known
-      ? "Dạ, em đã ghi nhận nhu cầu về " + subject + ". Em chuyển Sale kiểm tra đúng mẫu/cấu hình và tư vấn theo thông tin liên hệ mình đã để lại ạ."
-      : "Dạ, em đã ghi nhận nhu cầu về " + subject + ". Anh/chị cho em xin SĐT hoặc Zalo, em chuyển Sale gửi đúng mẫu, báo giá và ưu đãi hiện tại ạ.";
+    text = "Dạ, phần " + subject + " còn phụ thuộc đúng mẫu/phiên bản nên em chưa muốn báo sai. Anh/chị cho em xin SĐT hoặc Zalo, em chuyển chuyên viên sản phẩm kiểm tra, gửi mẫu chuẩn, báo giá và ưu đãi hiện tại ạ.";
   }
   return applySalutation(text, style);
 }
 
+function smartContactSentence(modelInput) {
+  const style = salutationStyle(modelInput);
+  return applySalutation("Anh/chị cho em xin SĐT hoặc Zalo, em chuyển chuyên viên sản phẩm gửi mẫu chuẩn, báo giá và ưu đãi hiện tại ạ.", style);
+}
+
+function smartKnownContactSentence(modelInput) {
+  const style = salutationStyle(modelInput);
+  return applySalutation("Em chuyển chuyên viên sản phẩm kiểm tra đúng mẫu/phiên bản và phản hồi theo thông tin liên hệ mình đã để lại ạ.", style);
+}
+
+function smartSpecialistReasonSentence(modelInput) {
+  const style = salutationStyle(modelInput);
+  return applySalutation("Em chuyển chuyên viên sản phẩm kiểm tra đúng mẫu/phiên bản để tư vấn và báo giá chuẩn cho mình ạ.", style);
+}
+
 function enforceGeneralProductSalesHandoff(decision, modelInput) {
   if (!commercialProductNeedDetected(decision, modelInput)) return decision;
+
   const known = contactIsKnown(modelInput);
   const refused = hardContactRefusalInTurn(modelInput);
+  const highIntent = strongCommercialSignal(decision, modelInput);
   let reply = stripRepeatedBusinessIntroduction(decision.final_reply || "");
-  const corrupted = containsCjkOrForeignGlyph(reply) || languageLooksCorrupted(reply);
-  const tooLong = reply.length > 520 || (reply.match(/[.!?](?:\s|$)/g) || []).length > 3;
-  const missingRequiredContact = !known && !refused && !contactRequestDetected(reply);
-  const wrongKnownContact = known && contactRequestDetected(reply);
-  const missingSaleHandoff = !refused && !saleHandoffDetected(reply);
-  if (corrupted || tooLong || missingRequiredContact || wrongKnownContact || missingSaleHandoff || unresolvedPromiseWithoutHandoff(reply)) {
-    reply = generalCommercialHandoffReply(decision, modelInput);
+  let repairMode = "preserved";
+
+  const unsafe = containsCjkOrForeignGlyph(reply)
+    || languageLooksCorrupted(reply)
+    || unsupportedPriceReply(reply, modelInput)
+    || unsupportedStockClaim(reply, modelInput)
+    || unsupportedTechnicalFacts(reply, modelInput);
+  const difficult = difficultProductCase(decision, modelInput, reply);
+  const shouldAskContact = !known && !refused && (highIntent || difficult);
+
+  if (unsafe) {
+    reply = smartSpecialistFallback(decision, modelInput, refused);
+    repairMode = "safe_specialist_fallback";
+  } else {
+    if (unresolvedPromiseWithoutHandoff(reply)) {
+      reply = smartSpecialistFallback(decision, modelInput, refused);
+      repairMode = "promise_repaired";
+    } else if (known) {
+      if (contactRequestDetected(reply)) {
+        reply = removeContactRequestSentences(reply);
+        repairMode = "removed_duplicate_contact_request";
+      }
+      if ((highIntent || difficult) && !specialistHandoffDetected(reply)) {
+        reply = appendSentence(reply, smartKnownContactSentence(modelInput));
+        repairMode = "appended_known_contact_handoff";
+      }
+    } else if (refused) {
+      if (contactRequestDetected(reply)) {
+        reply = removeContactRequestSentences(reply);
+        repairMode = "honored_contact_refusal";
+      }
+      if (!replyHasUsefulAnswer(reply) && difficult) {
+        reply = smartSpecialistFallback(decision, modelInput, true);
+        repairMode = "messenger_clarification_fallback";
+      }
+    } else if (shouldAskContact) {
+      if (!replyHasUsefulAnswer(reply)) {
+        reply = smartSpecialistFallback(decision, modelInput, false);
+        repairMode = "missing_answer_fallback";
+      } else {
+        if (!contactRequestDetected(reply)) {
+          reply = appendSentence(reply, smartContactSentence(modelInput));
+          repairMode = "appended_contact_cta";
+        }
+        if ((difficult || highIntent) && !specialistHandoffDetected(reply)) {
+          reply = appendSentence(reply, smartSpecialistReasonSentence(modelInput));
+          repairMode = repairMode === "preserved" ? "appended_specialist_reason" : repairMode + "+specialist_reason";
+        }
+      }
+    }
   }
+
   reply = stripRepeatedBusinessIntroduction(reply).replace(/\s+/g, " ").trim();
-  if (containsCjkOrForeignGlyph(reply)) reply = generalCommercialHandoffReply(decision, modelInput);
-  decision.final_reply = applySalutation(reply.slice(0, 560), salutationStyle(modelInput));
+  if (containsCjkOrForeignGlyph(reply) || !reply) {
+    reply = smartSpecialistFallback(decision, modelInput, refused);
+    repairMode = "final_safe_fallback";
+  }
+  reply = trimReplyWithoutDestroyingAnswer(reply, 4, 760);
+
+  decision.final_reply = applySalutation(reply, salutationStyle(modelInput));
   decision.contact_state = known ? "known" : "missing";
-  decision.should_request_contact = !known && !refused;
+  decision.should_request_contact = shouldAskContact;
   decision.contact_benefit = known
-    ? "chuyển Sale lọc đúng mẫu/cấu hình, gửi báo giá và ưu đãi theo liên hệ đã có"
+    ? "chuyên viên sản phẩm kiểm tra đúng mẫu/phiên bản và phản hồi theo liên hệ đã có"
     : refused
-      ? "tiếp tục hỗ trợ ngắn trên Messenger theo yêu cầu của khách"
-      : "chuyển Sale gửi đúng mẫu, báo giá và ưu đãi hiện tại";
-  decision.sales_handoff_required = true;
+      ? "tiếp tục hỗ trợ tại Messenger, xin thêm ảnh hoặc mã đầy đủ khi cần"
+      : shouldAskContact
+        ? "chuyên viên sản phẩm gửi mẫu chuẩn, báo giá và ưu đãi hiện tại"
+        : "trả lời trực tiếp phần dữ liệu đã chắc chắn";
+  decision.sales_handoff_required = !refused && (highIntent || difficult);
+  decision.specialist_handoff_recommended = !refused && commercialProductNeedDetected(decision, modelInput);
   decision.general_product_sales_guard = true;
+  decision.smart_reply_repair = repairMode;
+  decision.hard_output_blocking = false;
   return decision;
 }
 
@@ -148,7 +269,7 @@ function enforceGeneralProductSalesHandoff(decision, modelInput) {
   if (!ai.includes(languageTarget)) throw new Error("V10_GENERAL_SALES_LANGUAGE_TARGET_MISSING");
   ai = ai.replace(languageTarget, '  if (/[\\u3400-\\u9fff\\u3040-\\u30ff\\uac00-\\ud7af]/u.test(text) || /[�åäöüæøßłŁćĆśŚźŹżŻńŃ]/i.test(text)) return true;');
 
-  // Replace the earlier price-only promise with an explicit Sale handoff.
+  // Replace the earlier price-only promise with a transparent specialist escalation.
   const safePricePattern = /function safePriceReply\(decision, modelInput\) \{[\s\S]*?\n\}\n\n\/\/ AIGUKA_V10_DECISION_INTEGRITY_V8/;
   if (!safePricePattern.test(ai)) throw new Error("V10_GENERAL_SALES_PRICE_BLOCK_MISSING");
   ai = ai.replace(safePricePattern, String.raw`function safePriceReply(decision, modelInput) {
@@ -156,8 +277,8 @@ function enforceGeneralProductSalesHandoff(decision, modelInput) {
   const style = salutationStyle(modelInput);
   const subject = generalSalesSubject(modelInput);
   const text = known
-    ? "Dạ, em đã ghi nhận " + subject + ". Em chuyển Sale kiểm tra đúng mẫu/phiên bản và gửi báo giá cùng ưu đãi hiện tại theo thông tin liên hệ mình đã để lại ạ."
-    : "Dạ, em đã ghi nhận " + subject + ". Anh/chị cho em xin SĐT hoặc Zalo, em chuyển Sale kiểm tra đúng mẫu/phiên bản, gửi báo giá và ưu đãi hiện tại ạ.";
+    ? "Dạ, giá của " + subject + " còn phụ thuộc đúng mẫu/phiên bản và ưu đãi tại thời điểm kiểm tra. Em chuyển chuyên viên sản phẩm xác nhận và gửi báo giá chuẩn theo thông tin liên hệ mình đã để lại ạ."
+    : "Dạ, giá của " + subject + " còn phụ thuộc đúng mẫu/phiên bản và ưu đãi tại thời điểm kiểm tra. Anh/chị cho em xin SĐT hoặc Zalo, em chuyển chuyên viên sản phẩm xác nhận, gửi mẫu chuẩn và báo giá hiện tại ạ.";
   return applySalutation(text, style);
 }
 
@@ -167,8 +288,10 @@ function enforceGeneralProductSalesHandoff(decision, modelInput) {
   if (!ai.includes(finalAnchor)) throw new Error("V10_GENERAL_SALES_FINAL_ANCHOR_MISSING");
   ai = ai.replace(finalAnchor, "  ensureCurrentTurnCoverage(decision, modelInput);\n  enforceGeneralProductSalesHandoff(decision, modelInput);\n  if (DECISION_LEAK_PATTERN.test(String(decision.final_reply || \"\"))) throw new Error(\"V10_DECISION_FINAL_REPLY_LEAK_REJECTED\");");
 
-  ai = ai.replace("v10_ai_quality_guard_v15", "v10_ai_quality_guard_v16_general_sales");
-  if (!ai.includes(AI_MARK) || !ai.includes("sales_handoff_required")) throw new Error("V10_GENERAL_SALES_AI_VALIDATION_FAILED");
+  ai = ai.replace("v10_ai_quality_guard_v15", "v10_ai_quality_guard_v17_smart_sales_advisory");
+  if (!ai.includes(AI_MARK) || !ai.includes("smart_reply_repair") || !ai.includes("hard_output_blocking = false")) {
+    throw new Error("V10_GENERAL_SALES_AI_VALIDATION_FAILED");
+  }
   fs.writeFileSync(AI_FILE, ai, "utf8");
 }
 
@@ -183,4 +306,4 @@ if (!outbound.includes(OUTBOUND_MARK)) {
   fs.writeFileSync(OUTBOUND_FILE, outbound, "utf8");
 }
 
-console.log("[AIGUKA V10] general product sales handoff enabled: concise contact-first replies, Sale transfer, CJK block and stale-turn supersession");
+console.log("[AIGUKA V10] adaptive product assistance enabled: preserve useful answers, repair unsafe text, escalate difficult cases to product specialists, never hard-block a recoverable reply");
