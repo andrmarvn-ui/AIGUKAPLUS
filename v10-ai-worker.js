@@ -42,6 +42,7 @@ await import("./v10-huggingface-runtime-adapter.js");
 await import("./v10-cerebras-runtime-adapter.js");
 await import("./v10-mistral-runtime-adapter.js");
 await import("./v10-openai-compatible-adapter.js");
+await import("./v10-tokenrouter-runtime-adapter.js");
 await import("./v10-sambanova-runtime-adapter.js");
 await import("./patch-v10-provider-resilience.js");
 
