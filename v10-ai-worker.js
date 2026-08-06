@@ -38,6 +38,7 @@ await import("./v10-provider-runtime-policy.js");
 await import("./v10-cohere-schema-sanitizer.js");
 await import("./v10-huggingface-runtime-adapter.js");
 await import("./v10-cerebras-runtime-adapter.js");
+await import("./v10-mistral-runtime-adapter.js");
 await import("./v10-openai-compatible-adapter.js");
 await import("./v10-sambanova-runtime-adapter.js");
 
