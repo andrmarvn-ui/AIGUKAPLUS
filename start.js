@@ -63,6 +63,8 @@ for (const patch of [
   "./patch-ai-context-card-selection.js",
   "./patch-ai-context-center-validation.js",
   "./patch-ai-provider-manager-compact-ui.js",
+  "./patch-ai-provider-resilience-ui.js",
+  "./patch-ai-provider-temporary-errors.js",
   "./patch-meta-pages-messaging-scope.js",
   "./patch-drive-v4-key-compat.js",
   "./patch-drive-v4-api-key-folder-action.js",
