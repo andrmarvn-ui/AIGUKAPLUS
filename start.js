@@ -62,6 +62,7 @@ for (const patch of [
   "./patch-ai-context-nav.js",
   "./patch-ai-context-card-selection.js",
   "./patch-ai-context-center-validation.js",
+  "./patch-ai-provider-tokenrouter.js",
   "./patch-ai-provider-manager-compact-ui.js",
   "./patch-ai-provider-resilience-ui.js",
   "./patch-ai-provider-temporary-errors.js",
@@ -74,6 +75,10 @@ for (const patch of [
   "./seed-tong-hop-context.js",
   "./patch-mapping-meta-midnight-delivery.js",
 ]) await safeImport(patch);
+
+// TokenRouter's free Kimi K3 route documents streaming chat completions. Install the
+// SSE aggregator before the HTTP server so both manager smoke tests and the worker use it.
+await safeImport("./v10-tokenrouter-runtime-adapter.js");
 
 await safeImport("./patch-outbound-human-takeover.js");
 await safeImport("./patch-outbound-comment-private-reply.js");
