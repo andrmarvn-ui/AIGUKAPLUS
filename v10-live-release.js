@@ -22,6 +22,7 @@ const FILES = [
   "v10-ai-worker-final.js",
   "v10-outbound-worker.js",
   "v10-followup-worker.js",
+  "followup-admin-v8.js",
 ];
 
 function sourceOf(file) {
@@ -65,8 +66,11 @@ requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
 requireToken("v10-outbound-worker.js", "AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1");
-requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_day_evening_v1";');
-requireToken("v10-followup-worker.js", "follow_up_reengagement");
+requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v2";');
+requireToken("v10-followup-worker.js", "PANCAKE_CONTACT_TAG_FOUND");
+requireToken("v10-followup-worker.js", "event_image_count");
+requireToken("followup-admin-v8.js", "installFollowupAdminV8");
+requireToken("followup-admin-v8.js", "default_v8");
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
 requireToken("v10/core/decision-contract.js", "HIẾN PHÁP MỤC TIÊU");
@@ -74,4 +78,4 @@ requireToken("v10/core/decision-contract.js", "contact_state");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: checksummed final AI worker, dedicated follow-up runtime, AI-only customer decisions, provider-aware scheduling and no operational customer fallback`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: checksummed final AI worker, V8/Event follow-up runtime, Pancake contact guard, event media, AI-only customer decisions and no operational customer fallback`);
