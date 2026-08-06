@@ -4,8 +4,6 @@ import { spawnSync } from "node:child_process";
 
 const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_FINAL_WORKER_V1";
 
-// Gemini pacing is enforced independently for each provider key. A temporary quota
-// error places only that key into cooldown while another provider handles the customer.
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
 process.env.AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS ||= "300000";
@@ -75,11 +73,14 @@ requireToken("v10-followup-worker.js", "event_image_count");
 requireToken("v10-pancake-contact-guard-worker.js", 'const VERSION = "v10_pancake_contact_guard_v2";');
 requireToken("v10-pancake-contact-guard-worker.js", "pages.fm/api/public_api/v2/pages");
 requireToken("followup-admin-v8.js", "installFollowupAdminV8");
-requireToken("followup-admin-v8.js", "v10_apply_followup_admin");
+requireToken("followup-admin-v8.js", "v10_upsert_followup_event");
+requireToken("followup-admin-v8.js", "v10_save_followup_config_only");
 requireToken("followup-admin-v8.js", "/follow-up-admin/client.js");
+forbidToken("followup-admin-v8.js", "v10_replace_followup_events");
 requireToken("followup-admin-v8-client.js", "byId('add-event')");
+requireToken("followup-admin-v8-client.js", "Lưu Event này");
+requireToken("followup-admin-v8-client.js", "/follow-up-admin/api/event/save");
 requireToken("followup-admin-v8-client.js", "wait_minutes");
-requireToken("followup-admin-v8-client.js", "Thêm một Event là thêm đúng một lượt Follow-up");
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
 requireToken("v10/core/decision-contract.js", "HIẾN PHÁP MỤC TIÊU");
@@ -87,4 +88,4 @@ requireToken("v10/core/decision-contract.js", "contact_state");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: checksummed final AI worker, sequential V8/Event follow-up administration, live Pancake contact guard, event media, AI-only customer decisions and no operational customer fallback`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: safe per-event Follow-up saves, non-destructive global saves, sequential Event timing, live Pancake contact guard and AI-only customer decisions`);
