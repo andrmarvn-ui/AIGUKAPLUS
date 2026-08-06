@@ -1,6 +1,6 @@
 // Stable V10 AI entrypoint. Provider configuration, readiness and priority are owned by
 // /ai-providers. Compatibility adapters install transport behavior. The resilience and
-// quality patches are applied before the final worker is imported.
+// adaptive quality patches are applied before the final worker is imported.
 async function reportStartupFailure(error) {
   try {
     const base = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
@@ -17,7 +17,7 @@ async function reportStartupFailure(error) {
       },
       body: JSON.stringify({
         worker_name: "aiguka-v10-ai",
-        worker_version: "v10_ai_quality_guard_v16_general_sales",
+        worker_version: "v10_ai_quality_guard_v17_smart_sales_advisory",
         status: "degraded",
         mode: "ACTIVE",
         details: {
@@ -29,6 +29,9 @@ async function reportStartupFailure(error) {
           specific_product_price_contact_guard: true,
           general_product_sales_handoff_guard: true,
           customer_turn_supersession_guard: true,
+          adaptive_product_reply_repair: true,
+          hard_output_blocking: false,
+          difficult_case_specialist_escalation: true,
         },
         last_error: String(error instanceof Error ? error.message : error).slice(0, 800),
         last_seen_at: now,
