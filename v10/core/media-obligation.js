@@ -66,7 +66,19 @@ export function deriveMediaScope(messages = [], slideKeys = new Set()) {
   const stove = /\b(bep tu|bep dien|hut mui|may hut|hut khoi)\b/.test(text);
   const mirror = /\b(guong tu|tu guong|tu lavabo|tu chau|guong lavabo|guong phong tam)\b/.test(text);
   const tile = /\b(gach|gach lat|gach lat nen|lat nen|gach op|gach op lat|da op lat|op lat)\b/.test(text);
-  const fan = /\b(quat tran|quat 10(?: canh)?|quat 8(?: canh)?|quat 5(?: canh)?|quat 6(?: canh)?)\b/.test(text);
+
+  // Common Messenger typo: "quant tran" is usually a mistyped "quat tran". Once a
+  // fan word is present in the active customer cluster, later shorthand such as
+  // "8 canh, vang" still belongs to the same fan request.
+  const fanContext = /\b(?:quat|quant)(?:\s+tran)?\b/.test(text);
+  const fan8 = /\b(?:quat|quant).{0,18}8(?:\s*canh)?\b/.test(text) || (fanContext && /\b8\s*canh\b/.test(text));
+  const fan10 = /\b(?:quat|quant).{0,18}10(?:\s*canh)?\b/.test(text) || (fanContext && /\b10\s*canh\b/.test(text));
+  const fan56 = /\b(?:quat|quant).{0,18}(?:5|6)(?:\s*canh)?\b/.test(text) || (fanContext && /\b(?:5|6)\s*canh\b/.test(text));
+  const fan = fanContext || fan8 || fan10 || fan56;
+  const gold = /\b(vang|gold|ma vang)\b/.test(text);
+  const black = /\b(den|black)\b/.test(text);
+  const brown = /\b(nau|brown)\b/.test(text);
+  const wood = /\b(van go|mau go|wood)\b/.test(text);
 
   if (broadHome || asksKitchenAndBath) {
     addPreferred("combo_phong_tam", ["combo_phong_tam_ban_chay", "combo_phong_tam_dep_moi"]);
@@ -89,7 +101,30 @@ export function deriveMediaScope(messages = [], slideKeys = new Set()) {
   }
 
   if (tile) addPreferred("gach_ngoi", ["gach_80x80", "gach_an_do", "gach_tay_ban_nha", "gach_stone"]);
-  if (fan) addPreferred("quat_tran", ["quat_10_canh_gold", "quat_10_canh_wood", "quat_10_canh_black", "quat_10_canh_brown", "quat_8_canh_gold", "quat_8_canh_wood"]);
+
+  if (fan8) {
+    if (gold) addPreferred("quat_8_canh_gold", ["quat_tran"]);
+    else if (black) addPreferred("quat_8_canh_black", ["quat_tran"]);
+    else if (brown) addPreferred("quat_8_canh_brown", ["quat_tran"]);
+    else if (wood) addPreferred("quat_8_canh_wood", ["quat_tran"]);
+    else {
+      add("quat_8_canh_gold");
+      add("quat_8_canh_black");
+      add("quat_8_canh_brown");
+      add("quat_8_canh_wood");
+      if (!output.length) add("quat_tran");
+    }
+  } else if (fan10) {
+    if (gold) addPreferred("quat_10_canh_gold", ["quat_10_canh", "quat_tran"]);
+    else if (black) addPreferred("quat_10_canh_black", ["quat_10_canh", "quat_tran"]);
+    else if (brown) addPreferred("quat_10_canh_brown", ["quat_10_canh", "quat_tran"]);
+    else if (wood) addPreferred("quat_10_canh_wood", ["quat_10_canh", "quat_tran"]);
+    else addPreferred("quat_10_canh", ["quat_10_canh_gold", "quat_10_canh_wood", "quat_10_canh_black", "quat_10_canh_brown", "quat_tran"]);
+  } else if (fan56) {
+    addPreferred("quat_5_6_canh", ["quat_tran"]);
+  } else if (fan) {
+    addPreferred("quat_tran", ["quat_10_canh_gold", "quat_8_canh_gold"]);
+  }
 
   return output;
 }
@@ -103,11 +138,11 @@ export function mediaExpectedFromMessages(messages = [], scope = []) {
   const text = customerClusterText(messages);
   const productPostback = cluster.some((message) => {
     if (!/postback/i.test(String(message.event_type || ""))) return false;
-    return /\b(tu van|xem|mau|nha tam|nha bep|phong tam|phong bep|gach|quat|bon cau|lavabo|combo)\b/.test(normalizeVietnamese(message.text || ""));
+    return /\b(tu van|xem|mau|nha tam|nha bep|phong tam|phong bep|gach|quat|quant|bon cau|lavabo|combo)\b/.test(normalizeVietnamese(message.text || ""));
   });
   if (productPostback) return true;
 
   return /\b(tu van|combo|com bo|tron bo|lam moi|xay nha|hoan thien nha|tham khao|xem mau)\b/.test(text);
 }
 
-export const mediaObligationVersion = "v10_media_obligation_v1";
+export const mediaObligationVersion = "v10_media_obligation_v2_typo_scope";
