@@ -1,7 +1,7 @@
 import fs from "node:fs";
 
 const FILE = "v10-outbound-worker.js";
-const MARK = "AIGUKA_V10_LIVE_PAGE_REPLY_GUARD_V1";
+const MARK = "AIGUKA_V10_LIVE_PAGE_REPLY_GUARD_V2_SUPPORT";
 
 if (!fs.existsSync(FILE)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_OUTBOUND_MISSING");
 let source = fs.readFileSync(FILE, "utf8");
@@ -64,6 +64,36 @@ function livePageReplyLatestCustomerText(decision) {
   return livePageReplyText(latest?.text || "");
 }
 
+function supportLatestCustomerHasAttachment(decision) {
+  const messages = decision?.input_snapshot?.conversation?.messages || [];
+  const latest = [...messages].reverse().find((message) => message?.role === "customer");
+  return Array.isArray(latest?.attachments) && latest.attachments.length > 0;
+}
+
+function supportReplyRequestsContact(reply) {
+  const text = livePageReplyText(reply?.message_text || "");
+  return /\b(sdt|so dien thoai|dien thoai|zalo|de lai so|xin so|lien he)\b/.test(text);
+}
+
+function supportSlideCaption(gate, decision) {
+  const recentContactRequest = supportReplyRequestsContact(gate?.livePageReply)
+    || String(decision?.output?.contact_state || "").toLowerCase() === "missing_recently_requested";
+  if (gate?.contactKnown || recentContactRequest) {
+    return "Em gửi anh/chị một số mẫu bán chạy để tham khảo trước ạ.";
+  }
+  return "Em gửi anh/chị một số mẫu bán chạy để tham khảo trước; nếu cần đúng mẫu và báo giá chính xác, anh/chị cho em xin SĐT/Zalo nhé.";
+}
+
+function supportCompactImageReply(gate) {
+  let text = String(gate?.text || "").replace(/\s+/g, " ").trim();
+  if (gate?.contactKnown || supportReplyRequestsContact(gate?.livePageReply)) {
+    text = stripRepeatedContactRequest(text);
+  }
+  if (!text) return "";
+  const sentence = text.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim() || text;
+  return sentence.slice(0, 260).trim();
+}
+
 async function livePageReplyEvidence(decision, customerAt) {
   const pageId = String(decision?.page_id || "").trim();
   const senderId = String(decision?.sender_id || "").trim();
@@ -123,12 +153,115 @@ async function livePageReplyEvidence(decision, customerAt) {
 `;
   source = source.replace(finalGateAnchor, helpers + finalGateAnchor);
 
-  const pageReplyAnchor = '  if (pageClearlyAfterCustomer || pageOrderedAfterCustomer) return { allowed: false, reason: "PAGE_ALREADY_REPLIED" };';
-  if (!source.includes(pageReplyAnchor)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_PAGE_ANCHOR_MISSING");
-  source = source.replace(
-    pageReplyAnchor,
-    pageReplyAnchor + '\n  const livePageReply = await livePageReplyEvidence(decision, customerAt).catch(() => null);\n  if (livePageReply) return { allowed: false, reason: "LIVE_PAGE_ALREADY_REPLIED", live_page_reply: livePageReply };',
-  );
+  const finalStart = source.indexOf(finalGateAnchor);
+  const finalEnd = source.indexOf("\n\nasync function claim(decision)", finalStart);
+  if (finalStart < 0 || finalEnd < 0) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_FINAL_GATE_RANGE_MISSING");
+
+  const finalGate = String.raw`async function finalGate(decision, config) {
+  if (String(config.mode || "").toUpperCase() !== "ACTIVE") return { allowed: false, reason: "RUNTIME_NOT_ACTIVE" };
+  if (String(config.ingest_mode || "").toUpperCase() !== "DIRECT_CORE") return { allowed: false, reason: "INGEST_NOT_DIRECT_CORE" };
+
+  const page = await pageRow(decision.page_id);
+  if (!page?.is_active) return { allowed: false, reason: "PAGE_NOT_ACTIVE" };
+  const pageMode = String(page.operating_mode || "").toUpperCase();
+  const externalBotMode = String(config.external_bot_mode || "").toUpperCase();
+  const externalBotPolicy = String(config.external_bot_policy || "").toUpperCase();
+  const supportMode = pageMode === "SUPPORT";
+  const primaryMode = pageMode === "ACTIVE";
+
+  if (supportMode) {
+    if (externalBotMode !== "AICAKE_ACTIVE") return { allowed: false, reason: "SUPPORT_REQUIRES_AICAKE_ACTIVE" };
+    if (externalBotPolicy !== "AICAKE_PRIMARY_SUPPORT") return { allowed: false, reason: "SUPPORT_POLICY_NOT_ACTIVE" };
+    if (String(page.coexistence_mode || "").toUpperCase() !== "AICAKE_ACTIVE") return { allowed: false, reason: "PAGE_AICAKE_NOT_ACTIVE" };
+    if (page?.settings?.support_enabled !== true) return { allowed: false, reason: "PAGE_SUPPORT_NOT_ENABLED" };
+  } else if (primaryMode) {
+    if (externalBotMode !== "AICAKE_DISABLED") return { allowed: false, reason: "EXTERNAL_BOT_NOT_DISABLED" };
+    if (externalBotPolicy !== "AIGUKA_PRIMARY") return { allowed: false, reason: "AIGUKA_NOT_PRIMARY" };
+    if (String(page.coexistence_mode || "").toUpperCase() !== "AICAKE_DISABLED") return { allowed: false, reason: "PAGE_EXTERNAL_BOT_NOT_DISABLED" };
+  } else {
+    return { allowed: false, reason: "PAGE_NOT_ACTIVE" };
+  }
+
+  const cutover = supportMode
+    ? (page?.settings?.support_cutover_at || page?.settings?.active_cutover_at)
+    : page?.settings?.active_cutover_at;
+  if (!cutover || !isAfterOrEqual(decision.created_at, cutover)) return { allowed: false, reason: "PRE_CUTOVER_DECISION" };
+  if (Date.now() - Date.parse(decision.created_at) > MAX_DECISION_AGE_MS) return { allowed: false, reason: "DECISION_TOO_OLD" };
+
+  const conversation = decision?.input_snapshot?.conversation || {};
+  if (conversation?.safety?.opt_out) return { allowed: false, reason: "OPT_OUT" };
+  const snapshotPageReplyAfterLatestCustomer = pageReplyAfterLatestCustomerInOrder(conversation?.messages || []);
+  const output = decision.output || {};
+  const supportSlideEligible = supportMode && (output.needs_slides === true || decision.action === "reply_with_slides");
+  const supportImageEligible = supportMode
+    && !supportSlideEligible
+    && page?.settings?.support_image_reply_enabled === true
+    && supportLatestCustomerHasAttachment(decision);
+  if (supportMode && !supportSlideEligible && !supportImageEligible) {
+    return { allowed: false, reason: "SUPPORT_MEDIA_ONLY" };
+  }
+
+  let text = String(output.final_reply || "").trim();
+  if ((!text && !supportSlideEligible) || decision.action === "suppress") return { allowed: false, reason: "NO_SEND_ACTION" };
+  if (Number(decision.confidence || output.confidence || 0) < 0.45) return { allowed: false, reason: "CONFIDENCE_TOO_LOW" };
+
+  const state = await stateRow(decision.page_id, decision.sender_id);
+  const takeoverUntil = Date.parse(state.human_takeover_until || "");
+  if (state.human_takeover && (!Number.isFinite(takeoverUntil) || takeoverUntil > Date.now())) return { allowed: false, reason: "HUMAN_TAKEOVER" };
+
+  const customerAt = latestCustomerAt(decision);
+  const liveCustomerAt = Date.parse(state.last_customer_event_at || "");
+  if (customerAt > 0 && Number.isFinite(liveCustomerAt) && liveCustomerAt > customerAt + 250) {
+    const merge = await ensureLatestCustomerClusterJob(decision, state, config);
+    return { allowed: false, reason: "CUSTOMER_CLUSTER_ADVANCED_WAIT_MERGE", merge };
+  }
+
+  const pageAt = Date.parse(state.last_page_event_at || "");
+  const pageClearlyAfterCustomer = customerAt > 0 && Number.isFinite(pageAt) && pageAt > customerAt + 1000;
+  const pageOrderedAfterCustomer = customerAt > 0 && Number.isFinite(pageAt) && pageAt >= customerAt && snapshotPageReplyAfterLatestCustomer;
+  const pageAlreadyReplied = pageClearlyAfterCustomer || pageOrderedAfterCustomer;
+  const livePageReply = await livePageReplyEvidence(decision, customerAt).catch(() => null);
+
+  if (livePageReply) {
+    if (!supportMode || livePageReply.source_system === "human_admin") {
+      return { allowed: false, reason: "LIVE_PAGE_ALREADY_REPLIED", live_page_reply: livePageReply };
+    }
+  }
+  if (pageAlreadyReplied) {
+    if (!supportMode) return { allowed: false, reason: "PAGE_ALREADY_REPLIED" };
+    if (!livePageReply) return { allowed: false, reason: "SUPPORT_PAGE_REPLY_UNCLASSIFIED" };
+  }
+
+  const contactKnown = Boolean(state.phone || state.zalo || ["captured", "verified"].includes(String(state.contact_status || "").toLowerCase()));
+  if (contactKnown && output.should_request_contact) {
+    text = stripRepeatedContactRequest(text) || "Dạ em đã nhận nội dung của anh/chị và tiếp tục tư vấn tại Messenger ạ.";
+  }
+
+  if (!supportMode) {
+    const duplicate = await sovereignRecentDuplicate(decision, text);
+    if (duplicate) return { allowed: false, reason: "EXACT_DUPLICATE_RECENT_REPLY", duplicate_decision_id: duplicate.id };
+  }
+  return {
+    allowed: true,
+    page,
+    state,
+    text,
+    contactKnown,
+    supportMode,
+    supportSlideEligible,
+    supportImageEligible,
+    livePageReply,
+  };
+}`;
+  source = source.slice(0, finalStart) + finalGate + source.slice(finalEnd);
+
+  const bundleAnchor = "  const bundle = await bundleFor(claimed, gate.text, media.assets);";
+  if (!source.includes(bundleAnchor)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_BUNDLE_ANCHOR_MISSING");
+  source = source.replace(bundleAnchor, `  if (gate.supportMode && gate.supportSlideEligible && !media.assets.length) {\n    await patchDecision(claimed, "live_suppressed", {\n      should_send: false,\n      transport_locked: true,\n      live_suppression_reason: "SUPPORT_NO_PUBLISHED_ASSET",\n      support_mode: true,\n      support_primary_bot: "AICAKE",\n    });\n    return { sent: 0, suppressed: 1, failed: 0 };\n  }\n\n  const deliveryText = gate.supportMode\n    ? (gate.supportSlideEligible ? supportSlideCaption(gate, claimed) : supportCompactImageReply(gate))\n    : gate.text;\n  if (!deliveryText) {\n    await patchDecision(claimed, "live_suppressed", {\n      should_send: false,\n      transport_locked: true,\n      live_suppression_reason: "SUPPORT_NO_USEFUL_TEXT",\n      support_mode: Boolean(gate.supportMode),\n    });\n    return { sent: 0, suppressed: 1, failed: 0 };\n  }\n\n  const bundle = await bundleFor(claimed, deliveryText, media.assets);`);
+
+  const sendTextAnchor = "      textResult = await sendText(claimed.page_id, claimed.sender_id, gate.text);";
+  if (!source.includes(sendTextAnchor)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_SEND_TEXT_ANCHOR_MISSING");
+  source = source.replace(sendTextAnchor, "      textResult = await sendText(claimed.page_id, claimed.sender_id, deliveryText);");
 
   const suppressionAnchor = 'await patchDecision(claimed, "live_suppressed", { should_send: false, transport_locked: true, live_suppression_reason: gate.reason, merge_job_ensured: Boolean(gate.merge?.ensured), merge_source_event_id: gate.merge?.source_event_id || null, merge_job_id: gate.merge?.job_id || null });';
   if (!source.includes(suppressionAnchor)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_SUPPRESSION_ANCHOR_MISSING");
@@ -137,11 +270,19 @@ async function livePageReplyEvidence(decision, customerAt) {
     'await patchDecision(claimed, "live_suppressed", { should_send: false, transport_locked: true, live_suppression_reason: gate.reason, merge_job_ensured: Boolean(gate.merge?.ensured), merge_source_event_id: gate.merge?.source_event_id || null, merge_job_id: gate.merge?.job_id || null, live_page_reply_source: gate.live_page_reply?.source_system || null, live_page_reply_at: gate.live_page_reply?.sent_at || null, live_page_reply_actor_name: gate.live_page_reply?.actor_name || null, live_page_reply_actor_app_id: gate.live_page_reply?.actor_app_id || null, live_page_reply_text: gate.live_page_reply?.message_text || null, live_page_reply_evidence: gate.live_page_reply?.evidence || null });',
   );
 
-  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_live_page_reply_guard_v6";');
-  if (!source.includes(MARK) || !source.includes("LIVE_PAGE_ALREADY_REPLIED") || !source.includes("live_page_reply_source")) {
+  const deliveryMetadataAnchor = "      contact_request_sanitized: Boolean(gate.contactKnown && claimed.output?.should_request_contact),";
+  if (!source.includes(deliveryMetadataAnchor)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_DELIVERY_METADATA_ANCHOR_MISSING");
+  source = source.replace(deliveryMetadataAnchor, `${deliveryMetadataAnchor}\n      support_mode: Boolean(gate.supportMode),\n      support_primary_bot: gate.supportMode ? "AICAKE" : null,\n      support_live_reply_source: gate.livePageReply?.source_system || null,`);
+
+  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_aicake_primary_support_v7";');
+  if (!source.includes(MARK)
+    || !source.includes("AICAKE_PRIMARY_SUPPORT")
+    || !source.includes("SUPPORT_MEDIA_ONLY")
+    || !source.includes("SUPPORT_NO_PUBLISHED_ASSET")
+    || !source.includes("LIVE_PAGE_ALREADY_REPLIED")) {
     throw new Error("V10_LIVE_PAGE_REPLY_GUARD_INSTALL_FAILED");
   }
   fs.writeFileSync(FILE, source, "utf8");
 }
 
-console.log("[AIGUKA V10] live page reply guard enabled: Pancake conversation evidence is checked immediately before customer-facing delivery so AICake, automation, or admin replies cannot be duplicated by AIGUKA");
+console.log("[AIGUKA V10] AICake-primary support guard enabled: AICake owns normal text; AIGUKA may still send requested slides or image-specific help, while human/admin replies always take precedence");
