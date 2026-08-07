@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_SMART_SALES_V5_MEDIA_OBLIGATION";
+const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_SMART_SALES_V4";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -14,7 +14,6 @@ const FILES = [
   "v10/core/conversation-assembler.js",
   "v10/core/decision-contract.js",
   "v10/core/knowledge-advisor.js",
-  "v10/core/media-obligation.js",
   "v10-decision-queue-janitor.js",
   "v10-direct-core-worker.js",
   "v10-ai-worker.js",
@@ -25,7 +24,6 @@ const FILES = [
   "patch-v10-specific-price-contact.js",
   "patch-v10-general-product-sales-handoff.js",
   "patch-v10-general-product-sales-finalize.js",
-  "patch-v10-media-obligation-integrity.js",
   "followup-admin-v8.js",
   "followup-admin-v8-client.js",
 ];
@@ -66,13 +64,10 @@ requireToken("v10-ai-worker.js", 'await import("./v10-followup-worker.js")');
 requireToken("v10-ai-worker.js", 'await import("./patch-v10-specific-price-contact.js")');
 requireToken("v10-ai-worker.js", 'await import("./patch-v10-general-product-sales-handoff.js")');
 requireToken("v10-ai-worker.js", 'await import("./patch-v10-general-product-sales-finalize.js")');
-requireToken("v10-ai-worker.js", 'await import("./patch-v10-media-obligation-integrity.js")');
 requireToken("v10-ai-worker.js", "runtime_source_patching: true");
 requireToken("v10-ai-worker.js", "general_product_sales_handoff_guard: true");
 requireToken("v10-ai-worker.js", "customer_turn_supersession_guard: true");
 requireToken("v10-ai-worker.js", "adaptive_product_reply_repair: true");
-requireToken("v10-ai-worker.js", "media_obligation_integrity: true");
-requireToken("v10-ai-worker.js", "balanced_multi_product_media: true");
 forbidToken("v10-ai-worker.js", "patch-v10-provider-load-balancer");
 forbidToken("v10-ai-worker.js", "patch-v10-decision-integrity");
 requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_quality_guard_v13";');
@@ -91,14 +86,6 @@ requireToken("patch-v10-general-product-sales-handoff.js", "hard_output_blocking
 requireToken("patch-v10-general-product-sales-handoff.js", "smartSpecialistFallback");
 requireToken("patch-v10-general-product-sales-finalize.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_FINALIZED_V2_SMART_REPAIR");
 requireToken("patch-v10-general-product-sales-finalize.js", "v10_ai_quality_guard_v17_smart_sales_advisory");
-requireToken("v10/core/media-obligation.js", "v10_media_obligation_v1");
-requireToken("v10/core/media-obligation.js", "explicitMediaRequestFromMessages");
-requireToken("v10/core/media-obligation.js", 'addPreferred("gach_ngoi"');
-requireToken("v10/core/media-obligation.js", 'add("lavabo")');
-requireToken("patch-v10-media-obligation-integrity.js", "AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1");
-requireToken("patch-v10-media-obligation-integrity.js", "AIGUKA_V10_BALANCED_PRODUCT_SCOPE_MEDIA_V1");
-requireToken("patch-v10-media-obligation-integrity.js", "customer_media_obligation_preserved");
-requireToken("patch-v10-media-obligation-integrity.js", "source_catalog_key");
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v3";');
 requireToken("v10-followup-worker.js", "preserveMessageLayout");
 requireToken("v10-followup-worker.js", "preserved_line_breaks");
@@ -124,4 +111,4 @@ requireToken("v10/core/decision-contract.js", "contact_state");
 requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: useful answers are preserved, explicit image/sample obligations survive later turns, multi-product media is balanced by requested scope, and difficult cases escalate safely`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: useful answers are preserved, unsafe claims are repaired, difficult cases escalate to product specialists, contact requests stay contextual and stale customer turns are superseded`);
