@@ -1,21 +1,5 @@
 const ACTIONS = ["reply_text", "reply_with_slides", "ask_clarification", "acknowledge_contact", "suppress"];
 const CONTACT_STATES = ["known", "missing", "missing_recently_requested", "refused_messenger_only", "unclear"];
-const SALES_INTENTS = new Set([
-  "product",
-  "purchase",
-  "samples",
-  "price",
-  "quote",
-  "promotion",
-  "specification",
-  "availability",
-  "delivery",
-  "address",
-  "location",
-  "showroom",
-]);
-const CONTACT_REQUEST_PATTERN = /(sđt|số điện thoại|điện thoại|zalo|số liên hệ|liên hệ của anh|liên hệ của chị)/i;
-const DIRECT_CONTACT_REQUEST_PATTERN = /((cho|gửi)\s+(em|bên em)\s+xin|để lại|cho bên em).{0,60}(sđt|số điện thoại|điện thoại|zalo|số liên hệ)|(sđt|số điện thoại|zalo).{0,35}(của anh|của chị|của anh\/chị)/i;
 
 export function decisionSchema() {
   return {
@@ -49,7 +33,7 @@ export function decisionSchema() {
       decision_reason: { type: "string", maxLength: 600 },
       follow_up_plan: {
         type: "array",
-        maxItems: 6,
+        maxItems: 8,
         items: {
           type: "object",
           additionalProperties: false,
@@ -66,25 +50,20 @@ export function decisionSchema() {
 
 export function buildDecisionInstructions() {
   return [
-    "Bạn là AI ra quyết định kinh doanh duy nhất cho hội thoại khách hàng của AIGUKA/GUKA.",
-    "HIẾN PHÁP MỤC TIÊU: nhiệm vụ số 1 là tạo lead có SĐT hoặc Zalo để Sale tư vấn và chốt đơn; bạn không phải chatbot tư vấn sâu kéo dài trên Messenger.",
-    "HIẾN PHÁP HỘI THOẠI: phải hiểu đúng câu khách vừa hỏi và trả lời trực tiếp trước. Tuyệt đối không bỏ câu hỏi của khách để chỉ xin SĐT/Zalo.",
-    "Thứ tự xử lý: (1) trả lời đúng ý bằng thông tin ngắn nhưng có ích; (2) gửi vài mẫu bán chạy nếu khách xin xem và có catalog phù hợp; (3) khi đúng nhịp mới xin SĐT/Zalo để tư vấn cho tiện, gửi mẫu và báo giá chính xác; (4) dừng, không diễn giải lan man.",
-    "KHÔNG XIN SỐ DỒN DẬP: đọc toàn bộ messages để nhận biết lần gần nhất bot/page/human đã xin SĐT/Zalo. Nếu sau lần xin gần nhất khách mới gửi dưới 2 tin nhắn, contact_state=missing_recently_requested, should_request_contact=false và lượt này chỉ trả lời câu hỏi hoặc gửi mẫu.",
-    "Chỉ được nhắc lại xin liên hệ sau ít nhất 2 tin nhắn mới của khách kể từ lần xin gần nhất. Khi nhắc lại, phải cung cấp giá trị mới trước và câu xin SĐT/Zalo luôn là câu cuối.",
-    "contact_state=missing khi chưa có liên hệ, khách chưa từ chối và nhịp xin số hiện tại được phép. Với nhu cầu bán hàng rõ, should_request_contact=true sau khi đã trả lời câu hỏi.",
-    "Khi khách hỏi sản phẩm, mẫu, ảnh, giá, báo giá, ưu đãi, thông số, tồn hàng, vận chuyển, địa chỉ hoặc showroom mà được phép xin liên hệ: câu xin phải gắn lợi ích cụ thể như tư vấn cho tiện, gửi đúng mẫu, báo giá chính xác, thông số, ưu đãi hoặc định vị.",
-    "Không bao giờ gửi một tin chỉ có nội dung xin SĐT/Zalo. Phần trước câu xin liên hệ phải trả lời được ít nhất một ý thực tế của khách hoặc xác nhận đang gửi mẫu đúng nhóm họ hỏi.",
-    "Mỗi phản hồi tối đa 2-3 câu ngắn, mục tiêu dưới 450 ký tự và tuyệt đối không quá 650 ký tự. Không viết bài tư vấn dài, không liệt kê kiến thức chung, không kể lại toàn bộ nhu cầu.",
-    "Mỗi phản hồi chỉ đặt tối đa một câu hỏi. Nếu được phép xin liên hệ thì câu hỏi xin SĐT/Zalo được ưu tiên và đặt cuối; không hỏi thêm câu khảo sát khác trong cùng lượt.",
-    "Nếu khách hỏi nhiều nhóm sản phẩm, giữ đủ các nhóm trong selected_products/follow_up_plan nhưng không tư vấn dài từng nhóm; gửi mẫu cân bằng rồi xin liên hệ khi đúng nhịp.",
-    "Chỉ ask_clarification khi thực sự không xác định được khách đang hỏi sản phẩm nào. Câu hỏi làm rõ phải ngắn và không biến thành cuộc phỏng vấn nhiều bước.",
-    "Đọc toàn bộ hội thoại theo thời gian; tin mới nhất không được xóa các nhu cầu chưa hoàn thành trước đó.",
-    "Mappings, catalog hints, rules, locks và knowledge chỉ là cố vấn không ràng buộc. Phải suy luận từ lời khách thực tế và tự quyết định.",
-    "Không thay sản phẩm khách yêu cầu bằng sản phẩm suy ra từ quảng cáo hoặc mapping.",
-    "Không bịa giá, thông số, thương hiệu, tồn kho, ưu đãi, thời gian giao hoặc cam kết. Không nói đã gửi mẫu nếu needs_slides=false.",
-    "contact_state=known khi hệ thống hoặc hội thoại đã có SĐT/Zalo; tuyệt đối không xin lại. contact_state=refused_messenger_only khi khách từ chối cho số hoặc yêu cầu tiếp tục trên Messenger; tôn trọng và trả lời ngắn tại Messenger.",
+    "Bạn là AI duy nhất ra quyết định kinh doanh cho hội thoại AIGUKA/GUKA. Code, rules, mapping và knowledge chỉ cung cấp dữ liệu hoặc kiểm tra tính hợp lệ; chúng không được quyết định thay bạn.",
+    "Mục tiêu: hiểu đúng toàn bộ nhu cầu khách, trả lời ngắn gọn có ích, gửi đúng mẫu khi cần và xin SĐT/Zalo đúng nhịp để Sale tư vấn, báo giá và chốt đơn.",
+    "Đọc toàn bộ conversation theo thời gian và đặc biệt đọc unresolved_needs. Tin mới nhất không được xóa nhu cầu cũ chưa hoàn thành.",
+    "Nếu khách hỏi nhiều nhóm sản phẩm, giữ đủ từng nhóm trong selected_products, selected_catalog_keys và follow_up_plan. Không tự bỏ một nhóm chỉ vì nó được nhắc sớm hơn.",
+    "Nếu unresolved_needs có status=pending_media, phải chọn đủ catalog tương ứng có ảnh và action=reply_with_slides, needs_slides=true. Chỉ coi media hoàn thành khi hội thoại có bằng chứng ảnh/carousel đã được gửi.",
+    "Catalog trong knowledge_advisors là bằng chứng khả dụng. Chỉ chọn catalog_key thực sự có trong dữ liệu; catalog cha có thể đại diện toàn bộ thư mục con của nó.",
+    "Trả lời trực tiếp câu khách hỏi trước. Không gửi một tin chỉ để xin SĐT/Zalo. Khi xin liên hệ, nêu lợi ích cụ thể và đặt câu xin ở cuối.",
+    "Nếu đã có SĐT/Zalo thì contact_state=known, should_request_contact=false và tuyệt đối không xin lại. Nếu vừa xin số mà khách chưa có ít nhất 2 tin mới thì contact_state=missing_recently_requested và không xin lại.",
+    "Nếu khách từ chối cho số hoặc muốn tiếp tục trên Messenger, contact_state=refused_messenger_only và tôn trọng lựa chọn đó.",
+    "Không bịa giá, tồn kho, thông số, thương hiệu, ưu đãi, khoảng cách, vận chuyển hay cam kết. Nếu dữ liệu chưa đủ, nói rõ cần kiểm tra hoặc chuyển chuyên viên; không tự tạo con số.",
+    "Không nói đã gửi mẫu nếu needs_slides=false. Không hứa sẽ gửi sau nếu lượt hiện tại có thể gửi bằng reply_with_slides.",
+    "Mỗi phản hồi thường 1-3 câu, dưới 450 ký tự nếu có thể, tối đa 650 ký tự. Chỉ hỏi tối đa một câu.",
     "Xưng em và gọi anh/chị khi chưa có bằng chứng giới tính đáng tin cậy.",
+    "Nếu model_input có validation_feedback, sửa đúng các lỗi được liệt kê nhưng vẫn tự quyết định nội dung; không lặp lại câu trả lời vừa bị từ chối.",
     "Chỉ trả về tool call submit_v10_decision.",
   ].join("\n");
 }
@@ -96,51 +75,17 @@ function strings(values, limit = 12) {
 function compactReply(value, maxLength = 650) {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
-  const shortened = normalized.slice(0, maxLength - 1).trimEnd();
-  const sentenceBoundary = Math.max(shortened.lastIndexOf(". "), shortened.lastIndexOf("! "), shortened.lastIndexOf("? "));
-  if (sentenceBoundary >= Math.floor(maxLength * 0.55)) return shortened.slice(0, sentenceBoundary + 1).trim();
-  const wordBoundary = shortened.lastIndexOf(" ");
-  return `${shortened.slice(0, wordBoundary > 0 ? wordBoundary : shortened.length).trim()}…`;
+  throw new Error("V10_DECISION_REPLY_TOO_LONG");
 }
 
 function normalizedContactState(value) {
   const state = String(value || "unclear");
-  return CONTACT_STATES.includes(state) ? state : "unclear";
-}
-
-function hasSalesIntent(decision) {
-  if (decision.selected_products.length || decision.selected_catalog_keys.length) return true;
-  return decision.intents.some((intent) => SALES_INTENTS.has(String(intent || "").toLowerCase()));
-}
-
-function contactRequestSentence(benefit) {
-  const cleanBenefit = String(benefit || "").replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
-  if (cleanBenefit) return `Anh/chị cho em xin SĐT hoặc Zalo, bên em ${cleanBenefit.charAt(0).toLowerCase()}${cleanBenefit.slice(1)} nhé.`;
-  return "Anh/chị cho em xin SĐT hoặc Zalo để bên em tư vấn cho tiện, gửi đúng mẫu và báo giá chính xác nhé.";
-}
-
-function replySentences(value) {
-  return String(value || "")
-    .match(/[^.!?]+[.!?]?/g)?.map((sentence) => sentence.trim()).filter(Boolean) || [];
-}
-
-function isDirectContactRequest(sentence) {
-  return DIRECT_CONTACT_REQUEST_PATTERN.test(String(sentence || ""));
-}
-
-function withoutContactRequest(value) {
-  return compactReply(replySentences(value).filter((sentence) => !isDirectContactRequest(sentence)).join(" "));
-}
-
-function contactRequestLast(value) {
-  const sentences = replySentences(value);
-  const valueSentences = sentences.filter((sentence) => !isDirectContactRequest(sentence));
-  const requestSentences = sentences.filter((sentence) => isDirectContactRequest(sentence));
-  return compactReply([...valueSentences, ...requestSentences.slice(-1)].join(" "));
+  if (!CONTACT_STATES.includes(state)) throw new Error(`V10_CONTACT_STATE_INVALID:${state}`);
+  return state;
 }
 
 export function validateDecision(input = {}) {
-  if (!input || typeof input !== "object") throw new Error("V10_DECISION_INVALID");
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("V10_DECISION_INVALID");
   const action = String(input.action || "");
   if (!ACTIONS.includes(action)) throw new Error(`V10_ACTION_INVALID:${action}`);
 
@@ -155,10 +100,10 @@ export function validateDecision(input = {}) {
     should_request_contact: Boolean(input.should_request_contact),
     contact_benefit: String(input.contact_benefit || "").replace(/\s+/g, " ").trim().slice(0, 240),
     confidence: Math.max(0, Math.min(1, Number(input.confidence || 0))),
-    decision_reason: String(input.decision_reason || "").slice(0, 600),
+    decision_reason: String(input.decision_reason || "").replace(/\s+/g, " ").trim().slice(0, 600),
     follow_up_plan: Array.isArray(input.follow_up_plan)
-      ? input.follow_up_plan.slice(0, 6).map((item) => ({
-          topic: String(item?.topic || "").slice(0, 120),
+      ? input.follow_up_plan.slice(0, 8).map((item) => ({
+          topic: String(item?.topic || "").replace(/\s+/g, " ").trim().slice(0, 120),
           status: ["answer_now", "send_media", "ask_clarification", "keep_pending", "completed"].includes(String(item?.status || ""))
             ? String(item.status)
             : "keep_pending",
@@ -166,36 +111,20 @@ export function validateDecision(input = {}) {
       : [],
   };
 
-  if (decision.needs_slides && decision.action !== "reply_with_slides") decision.action = "reply_with_slides";
-  if (!decision.needs_slides && decision.action === "reply_with_slides") decision.needs_slides = true;
-
-  const contactBlocked = ["known", "missing_recently_requested", "refused_messenger_only"].includes(decision.contact_state)
-    || ["acknowledge_contact", "suppress"].includes(decision.action);
-
-  if (contactBlocked) {
-    decision.should_request_contact = false;
-    decision.final_reply = withoutContactRequest(decision.final_reply);
-  } else if (decision.contact_state === "missing" && hasSalesIntent(decision) && ["reply_text", "reply_with_slides"].includes(decision.action)) {
-    decision.should_request_contact = true;
+  if (decision.action === "reply_with_slides" && !decision.needs_slides) throw new Error("V10_DECISION_SLIDE_FLAG_MISMATCH");
+  if (decision.needs_slides && decision.action !== "reply_with_slides") throw new Error("V10_DECISION_SLIDE_ACTION_MISMATCH");
+  if (decision.needs_slides && !decision.selected_catalog_keys.length) throw new Error("V10_DECISION_SLIDE_CATALOG_REQUIRED");
+  if (decision.should_request_contact && decision.contact_state !== "missing") throw new Error("V10_DECISION_CONTACT_STATE_MISMATCH");
+  if (["known", "missing_recently_requested", "refused_messenger_only"].includes(decision.contact_state) && decision.should_request_contact) {
+    throw new Error("V10_DECISION_CONTACT_REQUEST_NOT_ALLOWED");
   }
 
-  if (decision.should_request_contact) {
-    const valueReply = withoutContactRequest(decision.final_reply);
-    if (!valueReply) throw new Error("V10_CONTACT_ONLY_REPLY_INVALID");
-
-    if (!CONTACT_REQUEST_PATTERN.test(decision.final_reply) || !replySentences(decision.final_reply).some(isDirectContactRequest)) {
-      const baseReply = compactReply(valueReply, 430);
-      decision.final_reply = compactReply(`${baseReply}${/[.!?]$/.test(baseReply) ? "" : "."} ${contactRequestSentence(decision.contact_benefit)}`);
-    } else {
-      decision.final_reply = contactRequestLast(decision.final_reply);
-    }
-  }
-
-  if (!["suppress"].includes(decision.action) && !decision.final_reply) {
-    if (decision.contact_state === "missing_recently_requested") throw new Error("V10_REPEATED_CONTACT_ONLY_REPLY_INVALID");
+  if (decision.action === "suppress") {
+    if (decision.final_reply) throw new Error("V10_DECISION_SUPPRESS_REPLY_NOT_EMPTY");
+  } else if (!decision.final_reply) {
     throw new Error("V10_FINAL_REPLY_REQUIRED");
   }
-  if (decision.action === "suppress") decision.final_reply = "";
+
   return decision;
 }
 
