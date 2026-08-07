@@ -95,8 +95,9 @@ await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
 
 // The release contract verifies the committed worker and checksum first. Only then apply
-// the validated runtime quality patch before detached AI and outbound workers can start.
+// the validated runtime quality patches before detached AI and outbound workers can start.
 await safeImport("./patch-v10-general-product-sales-handoff.js", true);
+await safeImport("./patch-v10-media-obligation-integrity.js", true);
 
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 const v9CoreReady = v9CoreBridgeState.ready === true
