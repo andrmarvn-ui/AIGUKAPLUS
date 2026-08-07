@@ -2,10 +2,16 @@ import fs from "node:fs";
 
 const file = "v10-outbound-worker.js";
 const MARK = "AIGUKA_V10_HIERARCHICAL_CATALOG_RESOLVER_V1";
+const SUPERSEDED_BY = "AIGUKA_V10_BALANCED_PRODUCT_SCOPE_MEDIA_V1";
 if (!fs.existsSync(file)) throw new Error("V10_HIERARCHICAL_RESOLVER_WORKER_MISSING");
 let source = fs.readFileSync(file, "utf8");
 
-if (!source.includes(MARK)) {
+// The newer media-obligation resolver already implements parent -> descendant expansion
+// and additionally balances assets by the product scopes requested by the customer.
+// Do not try to patch its replaced source layout a second time.
+if (source.includes(SUPERSEDED_BY) || source.includes('const VERSION = "v10_outbound_media_scope_v3";')) {
+  console.log("[AIGUKA V10] legacy hierarchical resolver skipped: balanced media scope resolver already active");
+} else if (!source.includes(MARK)) {
   const start = source.indexOf("  const knownKeys = new Set(nodes.map");
   const end = source.indexOf("  const seen = new Set();", start);
   if (start < 0 || end < 0) throw new Error("V10_HIERARCHICAL_RESOLVER_TARGET_MISSING");
