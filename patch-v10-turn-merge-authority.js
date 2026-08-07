@@ -68,7 +68,7 @@ async function ensureLatestCustomerClusterJob(decision, state, config) {
       source_event_id: sourceEventId,
       event_id: event.id,
       job_type: "decision_shadow",
-      dedupe_key: `${decision.page_id}:${decision.sender_id}:${sourceEventId}`,
+      dedupe_key: String(decision.page_id) + ":" + String(decision.sender_id) + ":" + sourceEventId,
       page_id: String(decision.page_id),
       sender_id: String(decision.sender_id),
       status: "queued",
