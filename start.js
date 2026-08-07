@@ -104,6 +104,12 @@ const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 // new layout. Keep fail-open behavior for future source-layout changes.
 await safeImport("./patch-v10-media-obligation-integrity.js");
 
+// Core ingest/debounce is the single authority for merging rapid customer messages.
+// This final patch removes conversation-level "latest decision wins" behavior: stale
+// outbound work is held, a merged job is guaranteed, and janitor only dedupes decisions
+// that represent the exact same customer-message frontier.
+await safeImport("./patch-v10-turn-merge-authority.js", true);
+
 const v9CoreReady = v9CoreBridgeState.ready === true
   && v9CoreModule?.v9CoreRoutingState?.enabled === true;
 const reportingReady = Boolean(
