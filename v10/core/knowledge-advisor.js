@@ -29,6 +29,48 @@ function referralIds(referral = {}) {
   };
 }
 
+function hierarchy(catalog = []) {
+  const nodes = Array.isArray(catalog) ? catalog : [];
+  const byKey = new Map(nodes
+    .map((node) => [String(node?.catalog_key || "").trim(), node])
+    .filter(([key]) => Boolean(key)));
+
+  function isWithin(node, ancestorKey) {
+    let key = String(node?.catalog_key || "").trim();
+    const visited = new Set();
+    while (key && !visited.has(key)) {
+      if (key === ancestorKey) return true;
+      visited.add(key);
+      key = String(byKey.get(key)?.parent_key || "").trim();
+    }
+    return false;
+  }
+
+  function recursiveAssets(node) {
+    const scopeKey = String(node?.catalog_key || "").trim();
+    const seen = new Set();
+    const assets = [];
+    for (const candidate of nodes) {
+      if (!scopeKey || !isWithin(candidate, scopeKey)) continue;
+      for (const asset of Array.isArray(candidate?.assets) ? candidate.assets : []) {
+        const url = String(asset?.source_url || "").trim();
+        if (!url || seen.has(url)) continue;
+        seen.add(url);
+        assets.push({
+          asset_id: asset.asset_id || null,
+          source_url: url,
+          title: asset.title || candidate.display_name || node.display_name || "Mẫu sản phẩm",
+          sort_order: Number(asset.sort_order || 0),
+          source_catalog_key: candidate.catalog_key || null,
+        });
+      }
+    }
+    return assets.sort((a, b) => a.sort_order - b.sort_order);
+  }
+
+  return { byKey, recursiveAssets };
+}
+
 export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits = {}) {
   const content = snapshot?.content || snapshot || {};
   const documents = Array.isArray(content.documents) ? content.documents : [];
@@ -40,8 +82,8 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
     maxDocumentChars,
     Math.min(50000, Number(limits.maxTotalDocumentChars || 24000)),
   );
-  const maxCatalog = Math.max(1, Number(limits.maxCatalog || 12));
-  const maxAssets = Math.max(1, Number(limits.maxAssetsPerCatalog || 8));
+  const maxCatalog = Math.max(1, Number(limits.maxCatalog || 16));
+  const maxAssets = Math.max(1, Number(limits.maxAssetsPerCatalog || 6));
 
   const conversationText = (conversation.messages || []).filter((message) => message.role === "customer").map((message) => message.text).join(" ");
   const candidateKeys = (conversation.advisors?.product_candidates || []).map((item) => item.key);
@@ -74,6 +116,7 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
     });
   }
 
+  const { recursiveAssets } = hierarchy(catalog);
   const selectedCatalog = catalog
     .map((node) => {
       const exact = candidateKeys.includes(node.catalog_key) ? 10 : 0;
@@ -83,20 +126,22 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
     .sort((a, b) => b.score - a.score)
     .filter((item, index) => item.score > 0 || index < 4)
     .slice(0, maxCatalog)
-    .map(({ node, score }) => ({
-      catalog_key: node.catalog_key,
-      display_name: node.display_name,
-      aliases: Array.isArray(node.aliases) ? node.aliases.slice(0, 20) : [],
-      asset_count: Array.isArray(node.assets) ? node.assets.filter((asset) => asset?.source_url).length : 0,
-      assets: (Array.isArray(node.assets) ? node.assets : []).filter((asset) => asset?.source_url).slice(0, maxAssets).map((asset) => ({
-        asset_id: asset.asset_id || null,
-        source_url: asset.source_url,
-        title: asset.title || node.display_name || "Mẫu sản phẩm",
-        sort_order: Number(asset.sort_order || 0),
-      })),
-      relevance_score: score,
-      advisory_only: true,
-    }));
+    .map(({ node, score }) => {
+      const assets = recursiveAssets(node);
+      return {
+        catalog_key: node.catalog_key,
+        display_name: node.display_name,
+        parent_key: node.parent_key || null,
+        root_key: node.root_key || node.catalog_key || null,
+        aliases: Array.isArray(node.aliases) ? node.aliases.slice(0, 20) : [],
+        asset_count: assets.length,
+        own_asset_count: Array.isArray(node.assets) ? node.assets.filter((asset) => asset?.source_url).length : 0,
+        recursive_assets: true,
+        assets: assets.slice(0, maxAssets),
+        relevance_score: score,
+        advisory_only: true,
+      };
+    });
 
   const ids = referralIds(conversation.referral || {});
   const selectedMappings = mappings.filter((mapping) => {
@@ -118,6 +163,7 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
     policy: "Knowledge, catalog and mapping are evidence for AI, never authoritative decisions.",
     documents: selectedDocuments,
     catalog: selectedCatalog,
+    slide_catalog: selectedCatalog.filter((item) => Number(item.asset_count || 0) > 0),
     ad_mappings: selectedMappings,
   };
 }
