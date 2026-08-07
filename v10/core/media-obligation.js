@@ -1,15 +1,30 @@
 import { normalizeVietnamese } from "./advisory-engine.js";
 
-function customerCluster(messages = []) {
+function hasDeliveredMedia(message) {
+  if (!message || message.role === "customer") return false;
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  if (attachments.some((attachment) => {
+    const type = String(attachment?.type || attachment?.attachment_type || "").toLowerCase();
+    return type === "image" || type === "template" || type === "carousel" || Boolean(attachment?.source_url || attachment?.image_url);
+  })) return true;
+  const eventType = String(message.event_type || "").toLowerCase();
+  return /slide|carousel|media|image/.test(eventType) && attachments.length > 0;
+}
+
+// Media obligations survive ordinary text replies. They are cleared only after there
+// is evidence that page/bot/human media was actually delivered. This avoids the old
+// "latest turn wins" failure where a phone number or location message erased an earlier
+// request for samples before any images had been sent.
+function customerMediaWindow(messages = []) {
   const list = Array.isArray(messages) ? messages : [];
-  let boundary = -1;
+  let lastDeliveredMedia = -1;
   for (let index = list.length - 1; index >= 0; index -= 1) {
-    if (list[index] && list[index].role !== "customer") {
-      boundary = index;
+    if (hasDeliveredMedia(list[index])) {
+      lastDeliveredMedia = index;
       break;
     }
   }
-  return list.slice(boundary + 1).filter((message) => message && message.role === "customer");
+  return list.slice(lastDeliveredMedia + 1).filter((message) => message && message.role === "customer");
 }
 
 function slideKeySet(slideKeys) {
@@ -18,11 +33,11 @@ function slideKeySet(slideKeys) {
 }
 
 export function customerClusterText(messages = []) {
-  return normalizeVietnamese(customerCluster(messages).map((message) => message.text || "").join(" "));
+  return normalizeVietnamese(customerMediaWindow(messages).map((message) => message.text || "").join(" "));
 }
 
 export function explicitMediaRequestFromMessages(messages = []) {
-  const cluster = customerCluster(messages);
+  const cluster = customerMediaWindow(messages);
   const raw = cluster.map((message) => String(message.text || "")).join(" ").toLowerCase();
   const text = normalizeVietnamese(raw);
 
@@ -68,7 +83,7 @@ export function deriveMediaScope(messages = [], slideKeys = new Set()) {
   const tile = /\b(gach|gach lat|gach lat nen|lat nen|gach op|gach op lat|da op lat|op lat)\b/.test(text);
 
   // Common Messenger typo: "quant tran" is usually a mistyped "quat tran". Once a
-  // fan word is present in the active customer cluster, later shorthand such as
+  // fan word is present in the unresolved customer window, later shorthand such as
   // "8 canh, vang" still belongs to the same fan request.
   const fanContext = /\b(?:quat|quant)(?:\s+tran)?\b/.test(text);
   const fan8 = /\b(?:quat|quant).{0,18}8(?:\s*canh)?\b/.test(text) || (fanContext && /\b8\s*canh\b/.test(text));
@@ -134,7 +149,7 @@ export function mediaExpectedFromMessages(messages = [], scope = []) {
   if (explicitMediaRequestFromMessages(messages)) return true;
   if (scope.length >= 2) return true;
 
-  const cluster = customerCluster(messages);
+  const cluster = customerMediaWindow(messages);
   const text = customerClusterText(messages);
   const productPostback = cluster.some((message) => {
     if (!/postback/i.test(String(message.event_type || ""))) return false;
@@ -145,4 +160,4 @@ export function mediaExpectedFromMessages(messages = [], scope = []) {
   return /\b(tu van|combo|com bo|tron bo|lam moi|xay nha|hoan thien nha|tham khao|xem mau)\b/.test(text);
 }
 
-export const mediaObligationVersion = "v10_media_obligation_v2_typo_scope";
+export const mediaObligationVersion = "v10_media_obligation_v3_unresolved_until_media";
