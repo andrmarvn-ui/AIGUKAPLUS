@@ -30,8 +30,6 @@ async function reportStartupFailure(error) {
           general_product_sales_handoff_guard: true,
           customer_turn_supersession_guard: true,
           adaptive_product_reply_repair: true,
-          media_obligation_integrity: true,
-          balanced_multi_product_media: true,
           conversation_continuity_guard: true,
           contact_request_cooldown_messages: 2,
           hard_output_blocking: false,
@@ -60,7 +58,6 @@ await import("./patch-v10-provider-resilience.js");
 await import("./patch-v10-specific-price-contact.js");
 await import("./patch-v10-general-product-sales-handoff.js");
 await import("./patch-v10-general-product-sales-finalize.js");
-await import("./patch-v10-media-obligation-integrity.js");
 await import("./v10-conversation-continuity-runtime.js");
 
 try {
