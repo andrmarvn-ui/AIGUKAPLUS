@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_SMART_SALES_V4";
+const RELEASE = "AIGUKA_V10_AI_SOVEREIGN_VALIDATOR_V5";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -14,6 +14,8 @@ const FILES = [
   "v10/core/conversation-assembler.js",
   "v10/core/decision-contract.js",
   "v10/core/knowledge-advisor.js",
+  "v10/core/media-obligation.js",
+  "v10/core/unresolved-needs.js",
   "v10-decision-queue-janitor.js",
   "v10-direct-core-worker.js",
   "v10-ai-worker.js",
@@ -24,6 +26,8 @@ const FILES = [
   "patch-v10-specific-price-contact.js",
   "patch-v10-general-product-sales-handoff.js",
   "patch-v10-general-product-sales-finalize.js",
+  "patch-v10-ai-sovereign-validator.js",
+  "patch-v10-outbound-sovereign-integrity.js",
   "followup-admin-v8.js",
   "followup-admin-v8-client.js",
 ];
@@ -48,7 +52,8 @@ for (const file of FILES) {
   if (result.status !== 0) throw new Error(`V10_RELEASE_SYNTAX:${file}:${result.stderr || result.stdout}`);
 }
 
-// Verify the committed final worker before startup applies the validated runtime quality patches.
+// The committed final worker is immutable before startup applies the ordered runtime
+// compatibility patches. This catches accidental edits to the checksum-controlled base.
 const expectedChecksum = sourceOf("v10-ai-worker-final.sha256").trim();
 const actualChecksum = crypto.createHash("sha256").update(fs.readFileSync("v10-ai-worker-final.js")).digest("hex");
 if (!/^[a-f0-9]{64}$/.test(expectedChecksum) || expectedChecksum !== actualChecksum) {
@@ -59,17 +64,14 @@ requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygien
 requireToken("v10-decision-queue-janitor.js", "V10_REHYDRATE_LEGACY_PENDING");
 requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovereign_v1";');
 requireToken("v10-ai-worker.js", 'await import("./v10-ai-worker-final.js")');
-requireToken("v10-ai-worker.js", 'await import("./v10-pancake-contact-guard-worker.js")');
-requireToken("v10-ai-worker.js", 'await import("./v10-followup-worker.js")');
-requireToken("v10-ai-worker.js", 'await import("./patch-v10-specific-price-contact.js")');
-requireToken("v10-ai-worker.js", 'await import("./patch-v10-general-product-sales-handoff.js")');
-requireToken("v10-ai-worker.js", 'await import("./patch-v10-general-product-sales-finalize.js")');
-requireToken("v10-ai-worker.js", "runtime_source_patching: true");
-requireToken("v10-ai-worker.js", "general_product_sales_handoff_guard: true");
-requireToken("v10-ai-worker.js", "customer_turn_supersession_guard: true");
-requireToken("v10-ai-worker.js", "adaptive_product_reply_repair: true");
+requireToken("v10-ai-worker.js", 'await import("./patch-v10-ai-sovereign-validator.js")');
+requireToken("v10-ai-worker.js", "validator_authority: \"reject_and_feedback_only\"");
+requireToken("v10-ai-worker.js", "validator_rewrites_business_output: false");
+requireToken("v10-ai-worker.js", "unresolved_needs_enabled: true");
+requireToken("v10-ai-worker.js", "recursive_catalog_advisory: true");
 forbidToken("v10-ai-worker.js", "patch-v10-provider-load-balancer");
 forbidToken("v10-ai-worker.js", "patch-v10-decision-integrity");
+
 requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_quality_guard_v13";');
 requireToken("v10-ai-worker-final.js", "providerSettings(provider).max_input_chars");
 requireToken("v10-ai-worker-final.js", "AIGUKA_V10_DECISION_INTEGRITY_V10");
@@ -77,38 +79,36 @@ requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
 requireToken("v10-outbound-worker.js", "AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1");
+
+// Legacy compatibility patches may still transform the checksum-controlled base before
+// the final sovereign patch runs, but they no longer own the delivered business output.
 requireToken("patch-v10-specific-price-contact.js", "AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1");
 requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR");
-requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_CUSTOMER_TURN_SUPERSESSION_V1");
-requireToken("patch-v10-general-product-sales-handoff.js", "CUSTOMER_TURN_SUPERSEDED");
-requireToken("patch-v10-general-product-sales-handoff.js", "smart_reply_repair");
-requireToken("patch-v10-general-product-sales-handoff.js", "hard_output_blocking = false");
-requireToken("patch-v10-general-product-sales-handoff.js", "smartSpecialistFallback");
 requireToken("patch-v10-general-product-sales-finalize.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_FINALIZED_V2_SMART_REPAIR");
-requireToken("patch-v10-general-product-sales-finalize.js", "v10_ai_quality_guard_v17_smart_sales_advisory");
-requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v3";');
-requireToken("v10-followup-worker.js", "preserveMessageLayout");
-requireToken("v10-followup-worker.js", "preserved_line_breaks");
-requireToken("v10-followup-worker.js", "PANCAKE_CONTACT_TAG_FOUND");
-requireToken("v10-followup-worker.js", "event_image_count");
-requireToken("v10-pancake-contact-guard-worker.js", 'const VERSION = "v10_pancake_contact_guard_v2";');
-requireToken("v10-pancake-contact-guard-worker.js", "pages.fm/api/public_api/v2/pages");
-requireToken("followup-admin-v8.js", "installFollowupAdminV8");
-requireToken("followup-admin-v8.js", "v10_upsert_followup_event");
-requireToken("followup-admin-v8.js", "v10_save_followup_config_only");
-requireToken("followup-admin-v8.js", "/follow-up-admin/client.js");
-forbidToken("followup-admin-v8.js", "v10_replace_followup_events");
-requireToken("followup-admin-v8-client.js", "byId('add-event')");
-requireToken("followup-admin-v8-client.js", "Lưu Event này");
-requireToken("followup-admin-v8-client.js", "/follow-up-admin/api/event/save");
-requireToken("followup-admin-v8-client.js", "styleUnicode");
-requireToken("followup-admin-v8-client.js", "Cỡ hiển thị");
-requireToken("followup-admin-v8-client.js", "wait_minutes");
+requireToken("patch-v10-ai-sovereign-validator.js", "AIGUKA_V10_AI_SOVEREIGN_VALIDATOR_V1");
+requireToken("patch-v10-ai-sovereign-validator.js", "validators_may_reject_but_never_rewrite_business_output");
+requireToken("patch-v10-ai-sovereign-validator.js", "raw_ai_decision");
+requireToken("patch-v10-outbound-sovereign-integrity.js", "AIGUKA_V10_OUTBOUND_SOVEREIGN_INTEGRITY_V1");
+requireToken("patch-v10-outbound-sovereign-integrity.js", "EXACT_DUPLICATE_RECENT_REPLY");
+
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
-requireToken("v10/core/decision-contract.js", "HIẾN PHÁP MỤC TIÊU");
-requireToken("v10/core/decision-contract.js", "contact_state");
-requireToken("v10/core/decision-contract.js", '"follow_up_plan",');
+requireToken("v10/core/conversation-assembler.js", "ai_is_sole_business_decision_maker");
+requireToken("v10/core/decision-contract.js", "validators may reject");
+requireToken("v10/core/decision-contract.js", "V10_DECISION_SLIDE_FLAG_MISMATCH");
+requireToken("v10/core/decision-contract.js", "V10_DECISION_CONTACT_STATE_MISMATCH");
+forbidToken("v10/core/decision-contract.js", "contactRequestSentence");
+requireToken("v10/core/knowledge-advisor.js", "recursive_assets: true");
+requireToken("v10/core/knowledge-advisor.js", "slide_catalog");
+requireToken("v10/core/unresolved-needs.js", 'export const unresolvedNeedsVersion = "v10_unresolved_needs_v1";');
+requireToken("v10/core/media-obligation.js", 'export const mediaObligationVersion = "v10_media_obligation_v3_unresolved_until_media";');
+
+requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v3";');
+requireToken("v10-followup-worker.js", "preserveMessageLayout");
+requireToken("v10-followup-worker.js", "PANCAKE_CONTACT_TAG_FOUND");
+requireToken("v10-pancake-contact-guard-worker.js", "pages.fm/api/public_api/v2/pages");
+requireToken("followup-admin-v8.js", "installFollowupAdminV8");
+requireToken("followup-admin-v8-client.js", "Lưu Event này");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: useful answers are preserved, unsafe claims are repaired, difficult cases escalate to product specialists, contact requests stay contextual and stale customer turns are superseded`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; validators reject and return feedback, unresolved needs persist, catalog parents aggregate children, and outbound duplicate/media-scope integrity is available`);
