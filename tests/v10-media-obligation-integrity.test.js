@@ -20,6 +20,10 @@ const slideKeys = new Set([
   "gach_tay_ban_nha",
   "gach_stone",
   "quat_tran",
+  "quat_8_canh_gold",
+  "quat_8_canh_black",
+  "quat_8_canh_brown",
+  "quat_8_canh_wood",
 ]);
 
 function customers(...texts) {
@@ -79,6 +83,14 @@ test("contact and location do not erase unresolved multi-product scope", () => {
   assert.ok(scope.includes("combo_phong_tam"));
   assert.ok(scope.includes("bep_tu_hut_mui"));
   assert.ok(scope.includes("chau_voi_rua_bat"));
+  assert.equal(mediaExpectedFromMessages(messages, scope), true);
+});
+
+test("common Quant tran typo still resolves exact 8-canh gold slide", () => {
+  const messages = customers("Xin mẫu? Giá?", "Quant trần?", "8 cánh, vàng");
+  const scope = deriveMediaScope(messages, slideKeys);
+  assert.deepEqual(scope, ["quat_8_canh_gold"]);
+  assert.equal(explicitMediaRequestFromMessages(messages), true);
   assert.equal(mediaExpectedFromMessages(messages, scope), true);
 });
 
