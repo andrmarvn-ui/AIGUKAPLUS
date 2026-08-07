@@ -81,3 +81,4 @@ async function sovereignRecentDuplicate(decision, text) {
 }
 
 console.log("[AIGUKA V10] outbound sovereign integrity enabled: exact cross-decision duplicates blocked and requested media scopes audited without changing AI business intent");
+await import("./patch-v10-live-page-reply-guard.js");
