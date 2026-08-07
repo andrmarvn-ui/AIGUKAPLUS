@@ -7,11 +7,13 @@ import {
   toResponsesPayload,
 } from "../v10-openai-compatible-adapter.js";
 
-test("only KIMI and OpenRouter Responses URLs are adapted", () => {
+test("supported OpenAI-compatible Responses URLs are adapted", () => {
   assert.equal(isCompatibleResponsesUrl("https://api.moonshot.ai/v1/responses"), true);
   assert.equal(isCompatibleResponsesUrl("https://openrouter.ai/api/v1/responses"), true);
+  assert.equal(isCompatibleResponsesUrl("https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1/responses"), true);
   assert.equal(isCompatibleResponsesUrl("https://api.openai.com/v1/responses"), false);
   assert.equal(isCompatibleResponsesUrl("https://api.moonshot.ai/v1/chat/completions"), false);
+  assert.equal(isCompatibleResponsesUrl("https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1/chat/completions"), false);
 });
 
 test("compatible output budget is safe for low-credit OpenRouter accounts", () => {
