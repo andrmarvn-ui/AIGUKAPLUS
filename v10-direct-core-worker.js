@@ -3,7 +3,7 @@ import { buildConversationContext } from "./v10/core/conversation-assembler.js";
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-direct-core";
-const VERSION = "v10_direct_ai_sovereign_v1";
+const VERSION = "v10_direct_ai_sovereign_v2_frontier_guard";
 const POLL_MS = Math.max(3000, Number(process.env.AIGUKA_V10_CORE_POLL_MS || 5000));
 const BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.AIGUKA_V10_CORE_BATCH || 5)));
 let running = false;
@@ -81,7 +81,7 @@ function customerFromRow(row, state = {}) {
 async function conversation(job) {
   const [events, states, customers] = await Promise.all([
     core(`v9_events?select=source_event_id,source_system,actor_type,actor_evidence,event_type,message_text,attachments,referral,occurred_at,received_at&page_id=eq.${encodeURIComponent(job.page_id)}&customer_id=eq.${encodeURIComponent(job.sender_id)}&order=occurred_at.desc&limit=80`),
-    core(`v9_conversation_state?select=human_takeover,human_takeover_until,contact_status,phone,zalo,last_customer_event_at,last_page_event_at&page_id=eq.${encodeURIComponent(job.page_id)}&sender_id=eq.${encodeURIComponent(job.sender_id)}&limit=1`),
+    core(`v9_conversation_state?select=human_takeover,human_takeover_until,contact_status,phone,zalo,last_customer_event_at,last_page_event_at,last_source_event_id&page_id=eq.${encodeURIComponent(job.page_id)}&sender_id=eq.${encodeURIComponent(job.sender_id)}&limit=1`),
     core(`v9_customers?select=display_name,gender,preferred_salutation,profile&page_id=eq.${encodeURIComponent(job.page_id)}&customer_id=eq.${encodeURIComponent(job.sender_id)}&limit=1`),
   ]);
   const state = states?.[0] || {};
@@ -177,6 +177,21 @@ async function complete(job) {
   });
 }
 
+async function supersede(job, newestSourceEventId) {
+  await core(`v9_jobs?id=eq.${job.id}&status=eq.processing&locked_by=eq.${encodeURIComponent(NAME)}`, {
+    method: "PATCH",
+    prefer: "return=minimal",
+    body: {
+      status: "cancelled",
+      completed_at: new Date().toISOString(),
+      locked_by: null,
+      locked_at: null,
+      last_error: `superseded_before_decision_save:${newestSourceEventId}`,
+      updated_at: new Date().toISOString(),
+    },
+  });
+}
+
 async function fail(job, error) {
   const attempts = Number(job.attempts || 0);
   await core(`v9_jobs?id=eq.${job.id}&locked_by=eq.${encodeURIComponent(NAME)}`, {
@@ -195,6 +210,12 @@ async function fail(job, error) {
 
 async function processJob(job, config) {
   const { events, state, customer } = await conversation(job);
+  const newestSourceEventId = String(state?.last_source_event_id || "").trim();
+  if (newestSourceEventId && newestSourceEventId !== String(job.source_event_id || "").trim()) {
+    await supersede(job, newestSourceEventId);
+    return { superseded: true };
+  }
+
   const context = buildConversationContext(events, {
     maxEvents: 60,
     sessionGapMinutes: 360,
@@ -203,11 +224,23 @@ async function processJob(job, config) {
   });
   if (!context.valid) {
     await complete(job);
-    return;
+    return { suppressed: true };
   }
+
+  // Recheck the frontier after context assembly so a customer message arriving while
+  // this job was reading events cannot create a stale decision after the ingest-time
+  // suppression pass has already completed.
+  const latestStates = await core(`v9_conversation_state?select=last_source_event_id&page_id=eq.${encodeURIComponent(job.page_id)}&sender_id=eq.${encodeURIComponent(job.sender_id)}&limit=1`, { timeout: 10000 });
+  const latestSourceEventId = String(latestStates?.[0]?.last_source_event_id || "").trim();
+  if (latestSourceEventId && latestSourceEventId !== String(job.source_event_id || "").trim()) {
+    await supersede(job, latestSourceEventId);
+    return { superseded: true };
+  }
+
   const turnRow = await saveTurn(job, context);
   await saveDecision(job, turnRow, context, customer, state, config);
   await complete(job);
+  return { saved: true };
 }
 
 async function breachSla() {
@@ -233,7 +266,7 @@ async function heartbeat(status, mode, details = {}, error = null) {
       worker_version: VERSION,
       status,
       mode,
-      details: { ...details, rules_authority: "advisory_only", ai_decision_authority: "sole" },
+      details: { ...details, rules_authority: "advisory_only", ai_decision_authority: "sole", customer_frontier_guard: true },
       last_error: error ? String(error).slice(0, 800) : null,
       last_seen_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -247,6 +280,7 @@ async function tick() {
   running = true;
   let mode = "OFF";
   let completed = 0;
+  let superseded = 0;
   let failed = 0;
   try {
     const config = await runtime();
@@ -263,8 +297,9 @@ async function tick() {
     const jobs = await claimJobs();
     for (const job of jobs || []) {
       try {
-        await processJob(job, config);
-        completed += 1;
+        const result = await processJob(job, config);
+        if (result?.superseded) superseded += 1;
+        else completed += 1;
       } catch (error) {
         failed += 1;
         await fail(job, error);
@@ -275,6 +310,7 @@ async function tick() {
       ingest_mode: ingestMode,
       jobs_claimed: jobs?.length || 0,
       jobs_completed: completed,
+      jobs_superseded_before_decision: superseded,
       jobs_failed: failed,
       stale_jobs_recovered: recovered,
       sla_breached: breached,
@@ -295,6 +331,6 @@ async function tick() {
 if (!CORE_BASE || !CORE_KEY) {
   console.warn("[AIGUKA V10 direct] isolated Core configuration missing; disabled");
 } else {
-  console.log("[AIGUKA V10 direct] started; complete conversation -> advisory context -> AI sole decision");
+  console.log("[AIGUKA V10 direct] started; latest customer frontier -> complete conversation -> advisory context -> AI sole decision");
   tick().catch(() => {});
 }
