@@ -1,10 +1,11 @@
-const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v8");
+const PATCH_MARK = Symbol.for("aiguka.v10.openaiCompatibleResponsesAdapter.v9");
 const COMPATIBLE_HOSTS = new Set([
   "api.moonshot.ai",
   "openrouter.ai",
   "api.deepseek.com",
   "api.cohere.ai",
   "api.tokenrouter.com",
+  "api.cloudflare.com",
 ]);
 const DEFAULT_MAX_TOKENS = 1200;
 
@@ -199,9 +200,10 @@ export function installOpenAICompatibleResponsesAdapter() {
       requestBody = toChatCompletionsBody(body);
     }
 
-    if (hostname === "api.tokenrouter.com") {
-      // TokenRouter Kimi K3 currently uses Chat Completions. Keep the schema portable:
-      // its free route may reject the OpenAI-only `strict` extension.
+    if (hostname === "api.tokenrouter.com" || hostname === "api.cloudflare.com") {
+      // TokenRouter Kimi K3 and Cloudflare Workers AI use Chat Completions reliably.
+      // Keep the schema portable by removing the OpenAI-only `strict` extension;
+      // AIGUKA validates the returned decision schema itself after the tool call.
       requestBody.tools = (requestBody.tools || []).map((tool) => ({
         ...tool,
         function: tool?.function ? (({ strict, ...fn }) => fn)(tool.function) : tool.function,
@@ -248,13 +250,14 @@ export function installOpenAICompatibleResponsesAdapter() {
 
   globalThis.fetch = adaptedFetch;
   globalThis[PATCH_MARK] = {
-    version: "v8",
+    version: "v9",
     hosts: [...COMPATIBLE_HOSTS],
     maxTokens: compatibleMaxTokens(),
     cohereCompatibility: "native_v2_chat_strict_tools_required",
     tokenRouterCompatibility: "chat_completions_required_tool_without_strict",
+    cloudflareCompatibility: "workers_ai_chat_completions_required_tool_without_strict",
   };
-  console.log(`[AIGUKA V10] OpenAI-compatible adapter v8 enabled; hosts=${[...COMPATIBLE_HOSTS].join(",")}`);
+  console.log(`[AIGUKA V10] OpenAI-compatible adapter v9 enabled; hosts=${[...COMPATIBLE_HOSTS].join(",")}`);
   return globalThis[PATCH_MARK];
 }
 
