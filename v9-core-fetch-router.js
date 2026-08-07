@@ -1,6 +1,9 @@
-await import("./patch-v10-conversation-quality-v1.js");
-await import("./patch-v10-hierarchical-knowledge-v1.js");
-await import("./patch-v10-hierarchical-catalog-resolver-v1.js");
+// V10 Core routing must not mutate AI prompts, catalog knowledge or outbound business
+// behavior. The old conversation-quality / hierarchical runtime patch chain is retired:
+// - conversation-quality reintroduced latest-intent priority and rewrote prompts/output;
+// - hierarchical-knowledge is superseded by committed hierarchy-aware knowledge-advisor;
+// - hierarchical resolver is superseded by the final media-obligation resolver.
+// Core router now owns routing only.
 
 const ROUTER_MARK = Symbol.for("aiguka.v9.core.fetch.router");
 const DEFAULT_CORE_URL = "https://xqcxckyrlsobdrnidtrp.supabase.co";
@@ -69,6 +72,8 @@ export function installV9CoreFetchRouter(options = {}) {
     legacyBase,
     coreBase,
     fetch: originalFetch,
+    responsibility: "routing_only",
+    retired_runtime_business_patches: true,
   };
 
   globalThis.fetch = async function v9CoreRoutedFetch(input, init = {}) {
@@ -88,7 +93,7 @@ export function installV9CoreFetchRouter(options = {}) {
 
   globalThis[ROUTER_MARK] = state;
   if (state.enabled) {
-    console.log(`[AIGUKA V9 Core] isolated routing enabled: ${new URL(coreBase).host}`);
+    console.log(`[AIGUKA V9 Core] isolated routing enabled: ${new URL(coreBase).host}; legacy business patch chain retired`);
   } else {
     console.warn("[AIGUKA V9 Core] routing blocked: AIGUKA_V9_CORE_SERVICE_ROLE_KEY is missing; legacy v9_* access denied");
   }
