@@ -57,7 +57,7 @@ await import("./patch-v10-provider-resilience.js");
 await import("./patch-v10-specific-price-contact.js");
 await import("./patch-v10-general-product-sales-handoff.js");
 await import("./patch-v10-general-product-sales-finalize.js");
-await import("./patch-v10-conversation-continuity.js");
+await import("./v10-conversation-continuity-runtime.js");
 
 try {
   await import("./v10-ai-worker-final.js");
