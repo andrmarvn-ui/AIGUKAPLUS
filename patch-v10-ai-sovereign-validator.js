@@ -92,17 +92,17 @@ function sovereignDecisionViolations(decision, modelInput) {
 
   if (known && decision?.contact_state !== "known") violations.push("CONTACT_ALREADY_KNOWN_STATE_REQUIRED");
   if (known && asksContact) violations.push("CONTACT_ALREADY_KNOWN_DO_NOT_REQUEST_AGAIN");
-  if (!known && cooldown.active && asksContact) violations.push(`CONTACT_COOLDOWN_${cooldown.customerMessagesSince}_CUSTOMER_MESSAGES`);
+  if (!known && cooldown.active && asksContact) violations.push("CONTACT_COOLDOWN_" + cooldown.customerMessagesSince + "_CUSTOMER_MESSAGES");
   if (!known && hardContactRefusalInTurn(modelInput) && asksContact) violations.push("CUSTOMER_REFUSED_CONTACT");
   if (decision?.should_request_contact && !contactRequestDetected(reply)) violations.push("CONTACT_FLAG_WITHOUT_CONTACT_SENTENCE");
   if (!decision?.should_request_contact && contactRequestDetected(reply)) violations.push("CONTACT_SENTENCE_WITHOUT_CONTACT_FLAG");
 
   const invalidKeys = selected.filter((key) => !allowed.has(String(key)));
-  if (invalidKeys.length) violations.push(`UNKNOWN_CATALOG_KEYS:${invalidKeys.join(",")}`);
+  if (invalidKeys.length) violations.push("UNKNOWN_CATALOG_KEYS:" + invalidKeys.join(","));
   if (decision?.needs_slides || decision?.action === "reply_with_slides") {
     if (!selected.length) violations.push("MEDIA_REQUEST_WITHOUT_CATALOG");
     const noMediaKeys = selected.filter((key) => !slide.has(String(key)));
-    if (noMediaKeys.length) violations.push(`CATALOG_WITHOUT_PUBLISHED_MEDIA:${noMediaKeys.join(",")}`);
+    if (noMediaKeys.length) violations.push("CATALOG_WITHOUT_PUBLISHED_MEDIA:" + noMediaKeys.join(","));
   }
   if (sovereignReplyPromisesMedia(reply) && !decision?.needs_slides) violations.push("REPLY_PROMISES_MEDIA_BUT_MEDIA_DISABLED");
 
@@ -113,7 +113,7 @@ function sovereignDecisionViolations(decision, modelInput) {
   }
   for (const need of pendingMedia) {
     const covered = need.catalog_keys.some((requiredKey) => selected.some((selectedKey) => sovereignCatalogCovers(String(selectedKey), String(requiredKey), allowed)));
-    if (!covered) violations.push(`UNRESOLVED_PRODUCT_DROPPED:${need.topic || need.catalog_keys.join(",")}`);
+    if (!covered) violations.push("UNRESOLVED_PRODUCT_DROPPED:" + (need.topic || need.catalog_keys.join(",")));
   }
 
   const prior = sovereignRecentPageReply(modelInput);
@@ -230,20 +230,20 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
         recordProviderFailure(provider, classification, error, modelInputChars);
         await persistProviderRuntimeState(provider, "cooldown", classification, error);
         classifications.push(classification);
-        providerErrors.push(`${providerKey(provider)}:${classification}:${String(error?.message || error).slice(0, 260)}`);
+        providerErrors.push(providerKey(provider) + ":" + classification + ":" + String(error?.message || error).slice(0, 260));
       }
     }
     if (!result) throw new Error(providerErrors.join(" | ") || "V10_ALL_AVAILABLE_PROVIDERS_FAILED");
 
     const decision = result.decision;
-    await core(`v9_decisions?id=eq.${claimed.id}&status=eq.shadow_ai_processing`, {
+    await core("v9_decisions?id=eq." + claimed.id + "&status=eq.shadow_ai_processing", {
       method: "PATCH",
       prefer: "return=minimal",
       body: {
         status: "shadow_ai_completed",
         action: decision.action,
         confidence: decision.confidence,
-        knowledge_version: `${knowledgeSnapshot.version_no}:${knowledgeSnapshot.checksum}`,
+        knowledge_version: String(knowledgeSnapshot.version_no) + ":" + String(knowledgeSnapshot.checksum),
         latency_ms: Date.now() - startedAt,
         output: {
           ...decision,
