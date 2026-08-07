@@ -94,10 +94,10 @@ console.log("[AIGUKA startup] final V10 HTTP server initialized; verifying V10 A
 await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
 
-// The release contract verifies the committed worker and checksum first. Only then apply
-// the validated runtime quality patches before detached AI and outbound workers can start.
+// Apply runtime quality patches after checksum verification. The media patch is fail-open:
+// if its compatibility guard rejects a future source layout, the stable V10 workers still start.
 await safeImport("./patch-v10-general-product-sales-handoff.js", true);
-await safeImport("./patch-v10-media-obligation-integrity.js", true);
+await safeImport("./patch-v10-media-obligation-integrity.js");
 
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 const v9CoreReady = v9CoreBridgeState.ready === true
