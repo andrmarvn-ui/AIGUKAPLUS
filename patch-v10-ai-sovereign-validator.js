@@ -53,17 +53,23 @@ function sovereignReplyPromisesMedia(value) {
   return /\b(gui|dua|cho xem).{0,32}\b(mau|anh|hinh|catalog)\b/.test(text);
 }
 
+function sovereignCatalogIsAncestor(ancestorKey, descendantKey, allowed) {
+  if (!ancestorKey || !descendantKey) return false;
+  let cursor = String(descendantKey);
+  const visited = new Set();
+  while (cursor && !visited.has(cursor)) {
+    if (cursor === String(ancestorKey)) return true;
+    visited.add(cursor);
+    cursor = String(allowed.get(cursor)?.parent_key || "").trim();
+  }
+  return false;
+}
+
 function sovereignCatalogCovers(selectedKey, requiredKey, allowed) {
   if (!selectedKey || !requiredKey) return false;
   if (selectedKey === requiredKey) return true;
-  let cursor = requiredKey;
-  const visited = new Set();
-  while (cursor && !visited.has(cursor)) {
-    visited.add(cursor);
-    cursor = String(allowed.get(cursor)?.parent_key || "").trim();
-    if (cursor === selectedKey) return true;
-  }
-  return false;
+  return sovereignCatalogIsAncestor(selectedKey, requiredKey, allowed)
+    || sovereignCatalogIsAncestor(requiredKey, selectedKey, allowed);
 }
 
 function sovereignDecisionViolations(decision, modelInput) {
