@@ -16,6 +16,7 @@ const FILES = [
   "v10/core/knowledge-advisor.js",
   "v10/core/media-obligation.js",
   "v10/core/unresolved-needs.js",
+  "v9-core-fetch-router.js",
   "v10-decision-queue-janitor.js",
   "v10-direct-core-worker.js",
   "v10-ai-worker.js",
@@ -52,8 +53,6 @@ for (const file of FILES) {
   if (result.status !== 0) throw new Error(`V10_RELEASE_SYNTAX:${file}:${result.stderr || result.stdout}`);
 }
 
-// The committed final worker is immutable before startup applies the ordered runtime
-// compatibility patches. This catches accidental edits to the checksum-controlled base.
 const expectedChecksum = sourceOf("v10-ai-worker-final.sha256").trim();
 const actualChecksum = crypto.createHash("sha256").update(fs.readFileSync("v10-ai-worker-final.js")).digest("hex");
 if (!/^[a-f0-9]{64}$/.test(expectedChecksum) || expectedChecksum !== actualChecksum) {
@@ -62,7 +61,15 @@ if (!/^[a-f0-9]{64}$/.test(expectedChecksum) || expectedChecksum !== actualCheck
 
 requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygiene_v2";');
 requireToken("v10-decision-queue-janitor.js", "V10_REHYDRATE_LEGACY_PENDING");
-requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovereign_v1";');
+requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovereign_v2_frontier_guard";');
+requireToken("v10-direct-core-worker.js", "customer_frontier_guard: true");
+requireToken("v10-direct-core-worker.js", "superseded_before_decision_save");
+requireToken("v9-core-fetch-router.js", 'responsibility: "routing_only"');
+requireToken("v9-core-fetch-router.js", "retired_runtime_business_patches: true");
+forbidToken("v9-core-fetch-router.js", 'await import("./patch-v10-conversation-quality-v1.js")');
+forbidToken("v9-core-fetch-router.js", 'await import("./patch-v10-hierarchical-knowledge-v1.js")');
+forbidToken("v9-core-fetch-router.js", 'await import("./patch-v10-hierarchical-catalog-resolver-v1.js")');
+
 requireToken("v10-ai-worker.js", 'await import("./v10-ai-worker-final.js")');
 requireToken("v10-ai-worker.js", 'await import("./patch-v10-ai-sovereign-validator.js")');
 requireToken("v10-ai-worker.js", "validator_authority: \"reject_and_feedback_only\"");
@@ -79,9 +86,11 @@ requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
 requireToken("v10-outbound-worker.js", "AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1");
+requireToken("v10-outbound-worker.js", "AIGUKA_V10_MAX_MEDIA_ASSETS || 20");
 
-// Legacy compatibility patches may still transform the checksum-controlled base before
-// the final sovereign patch runs, but they no longer own the delivered business output.
+// Compatibility patch files remain temporarily because the checksummed base worker still
+// exposes the old source layout. The final sovereign patch replaces processOne, so these
+// compatibility functions cannot rewrite delivered business output.
 requireToken("patch-v10-specific-price-contact.js", "AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1");
 requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR");
 requireToken("patch-v10-general-product-sales-finalize.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_FINALIZED_V2_SMART_REPAIR");
@@ -111,4 +120,4 @@ requireToken("followup-admin-v8.js", "installFollowupAdminV8");
 requireToken("followup-admin-v8-client.js", "Lưu Event này");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; validators reject and return feedback, unresolved needs persist, catalog parents aggregate children, and outbound duplicate/media-scope integrity is available`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; validators reject and return feedback, unresolved needs persist, Core saves only the latest customer frontier, catalog parents aggregate children, and outbound duplicate/media-scope integrity is active`);
