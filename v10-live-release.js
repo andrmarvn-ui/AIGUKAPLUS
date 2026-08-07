@@ -94,7 +94,7 @@ requireToken("patch-v10-outbound-sovereign-integrity.js", "EXACT_DUPLICATE_RECEN
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
 requireToken("v10/core/conversation-assembler.js", "ai_is_sole_business_decision_maker");
-requireToken("v10/core/decision-contract.js", "validators may reject");
+requireToken("v10/core/decision-contract.js", "validation_feedback");
 requireToken("v10/core/decision-contract.js", "V10_DECISION_SLIDE_FLAG_MISMATCH");
 requireToken("v10/core/decision-contract.js", "V10_DECISION_CONTACT_STATE_MISMATCH");
 forbidToken("v10/core/decision-contract.js", "contactRequestSentence");
