@@ -70,6 +70,30 @@ test("explicit typo image request is still a media obligation", () => {
   assert.equal(mediaExpectedFromMessages(messages, scope), true);
 });
 
+test("text-only bot reply does not erase unresolved media request", () => {
+  const messages = [
+    { role: "customer", event_type: "customer_message", text: "Cho xem mẫu trọn bộ nhà vệ sinh" },
+    { role: "bot", event_type: "bot_message", text: "Dạ em gửi mẫu cho anh/chị tham khảo ạ.", attachments: [] },
+    { role: "customer", event_type: "customer_message", text: "Em gửi qua đây nhé" },
+  ];
+  const scope = deriveMediaScope(messages, slideKeys);
+  assert.deepEqual(scope, ["combo_phong_tam"]);
+  assert.equal(explicitMediaRequestFromMessages(messages), true);
+  assert.equal(mediaExpectedFromMessages(messages, scope), true);
+});
+
+test("delivered image clears the previous media obligation window", () => {
+  const messages = [
+    { role: "customer", event_type: "customer_message", text: "Cho xem mẫu trọn bộ nhà vệ sinh" },
+    { role: "bot", event_type: "bot_message", text: "Dạ em gửi mẫu ạ.", attachments: [{ type: "image", source_url: "https://example.test/a.jpg" }] },
+    { role: "customer", event_type: "customer_message", text: "Cảm ơn em" },
+  ];
+  const scope = deriveMediaScope(messages, slideKeys);
+  assert.deepEqual(scope, []);
+  assert.equal(explicitMediaRequestFromMessages(messages), false);
+  assert.equal(mediaExpectedFromMessages(messages, scope), false);
+});
+
 test("contact and location do not erase unresolved multi-product scope", () => {
   const messages = customers(
     "Tư vấn nhà tắm/nhà bếp...",
