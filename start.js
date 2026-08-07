@@ -111,6 +111,11 @@ await safeImport("./patch-v10-media-obligation-integrity.js");
 // auxiliary patch failure can never take down the customer-facing worker stack.
 await safeImport("./patch-v10-turn-merge-authority.js");
 
+// After media resolution and turn merging have reached their final layouts, install the
+// safety-only outbound integrity layer. It blocks exact cross-decision duplicates and
+// audits requested/resolved media scopes without rewriting the AI's business decision.
+await safeImport("./patch-v10-outbound-sovereign-integrity.js");
+
 const v9CoreReady = v9CoreBridgeState.ready === true
   && v9CoreModule?.v9CoreRoutingState?.enabled === true;
 const reportingReady = Boolean(
