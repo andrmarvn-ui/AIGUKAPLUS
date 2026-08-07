@@ -10,7 +10,7 @@ const NAME = "aiguka-v10-outbound";
 const VERSION = "v10_outbound_safety_only_v1";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_OUTBOUND_POLL_MS || 3000));
 const MAX_DECISION_AGE_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_LIVE_MAX_AGE_MS || 2 * 60 * 60_000));
-const MAX_MEDIA_ASSETS = Math.max(10, Math.min(30, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 30)));
+const MAX_MEDIA_ASSETS = Math.max(10, Math.min(20, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 20)));
 let running = false;
 let timer;
 let lastHeartbeat = 0;
@@ -294,32 +294,37 @@ async function recordAttempt(bundleId, attemptNo, transport, status, result = {}
       attempt_no: attemptNo,
       transport,
       status,
-      provider_message_id: result?.message_id || null,
-      provider_response: result && typeof result === "object" ? result : {},
-      error_code: error?.code ? String(error.code) : null,
-      error_message: error ? String(error.message || error).slice(0, 800) : null,
-      completed_at: new Date().toISOString(),
+      provider_message_id: result?.message_id || result?.messageId || null,
+      error_code: error?.code || null,
+      error_message: error ? String(error.message || error).slice(0, 500) : null,
+      sent_at: status === "sent" ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
     },
   });
 }
 
-async function sendText(pageId, senderId, text) {
+async function sendText(pageId, recipientId, text) {
   const token = await pageToken(pageId);
-  if (!token) throw new Error(`PAGE_ACCESS_TOKEN_NOT_FOUND:${pageId}`);
-  return graph(`${pageId}/messages`, token, { method: "POST", body: { recipient: { id: String(senderId) }, messaging_type: "RESPONSE", message: { text } } });
+  if (!token) throw new Error(`META_PAGE_TOKEN_NOT_FOUND:${pageId}`);
+  return graph("me/messages", token, { method: "POST", body: { messaging_type: "RESPONSE", recipient: { id: recipientId }, message: { text } } });
 }
 
-async function sendCarousel(pageId, senderId, assets) {
+async function sendCarousel(pageId, recipientId, assets) {
+  if (!assets.length) return null;
   const token = await pageToken(pageId);
-  if (!token) throw new Error(`PAGE_ACCESS_TOKEN_NOT_FOUND:${pageId}`);
+  if (!token) throw new Error(`META_PAGE_TOKEN_NOT_FOUND:${pageId}`);
   const elements = assets.slice(0, 10).map((asset, index) => ({
-    title: `${asset.title || "Mẫu sản phẩm"} ${index + 1}`.slice(0, 80),
+    title: String(asset.title || `Mẫu ${index + 1}`).slice(0, 80),
     image_url: asset.source_url,
+    subtitle: "Một vài mẫu bán chạy để anh/chị tham khảo trước",
   }));
-  if (!elements.length) return null;
-  return graph(`${pageId}/messages`, token, {
+  return graph("me/messages", token, {
     method: "POST",
-    body: { recipient: { id: String(senderId) }, messaging_type: "RESPONSE", message: { attachment: { type: "template", payload: { template_type: "generic", elements } } } },
+    body: {
+      messaging_type: "RESPONSE",
+      recipient: { id: recipientId },
+      message: { attachment: { type: "template", payload: { template_type: "generic", elements } } },
+    },
   });
 }
 
@@ -332,13 +337,15 @@ async function patchDecision(decision, status, details = {}) {
 }
 
 async function processDecision(decision, config) {
-  const claimed = await claim(decision);
-  if (!claimed) return { sent: 0, suppressed: 0, failed: 0 };
-  const gate = await finalGate(claimed, config);
+  const gate = await finalGate(decision, config);
   if (!gate.allowed) {
-    await patchDecision(claimed, "live_suppressed", { should_send: false, transport_locked: true, live_suppression_reason: gate.reason });
+    const claimed = await claim(decision);
+    if (claimed) await patchDecision(claimed, "live_suppressed", { should_send: false, transport_locked: true, live_suppression_reason: gate.reason });
     return { sent: 0, suppressed: 1, failed: 0 };
   }
+
+  const claimed = await claim(decision);
+  if (!claimed) return { sent: 0, suppressed: 0, failed: 0 };
 
   let media = { assets: [], catalog_keys: [] };
   let mediaWarning = null;
