@@ -94,12 +94,16 @@ console.log("[AIGUKA startup] final V10 HTTP server initialized; verifying V10 A
 await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
 
-// Apply runtime quality patches after checksum verification. The media patch is fail-open:
-// if its compatibility guard rejects a future source layout, the stable V10 workers still start.
+// Apply the stable sales patch first. The Core router then installs the legacy V10
+// quality/hierarchy compatibility chain against its expected source layout.
 await safeImport("./patch-v10-general-product-sales-handoff.js", true);
+const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
+
+// Media obligation integrity is deliberately the last resolver layer. It replaces the
+// already-patched outbound resolver, so legacy quality patches never have to parse the
+// new layout. Keep fail-open behavior for future source-layout changes.
 await safeImport("./patch-v10-media-obligation-integrity.js");
 
-const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 const v9CoreReady = v9CoreBridgeState.ready === true
   && v9CoreModule?.v9CoreRoutingState?.enabled === true;
 const reportingReady = Boolean(
