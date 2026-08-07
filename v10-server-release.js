@@ -70,5 +70,6 @@ for (const forbidden of [
 globalThis.__AIGUKA_V10_SERVER_RELEASE__ = VERSION;
 console.log(`[AIGUKA V10] ${VERSION} verified: checksummed server, Core Learning admin and safe management DB clients`);
 await import("./patch-v10-report-contact-scan-meta-metric.js");
+await import("./patch-v10-report-contact-scan-regex-fix.js");
 await import("./patch-v10-release-contact-scan-compat.js");
 await import("./server-v10-final.js");

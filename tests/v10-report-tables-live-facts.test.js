@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import vm from "node:vm";
+import { patchDashboardUi } from "../dashboard-ui-patch.js";
 import { patchV10ReportTablesUi } from "../dashboard-report-v10-patch.js";
 
 const viewSql = fs.readFileSync("supabase/migrations/20260805152500_v10_report_live_fact_view.sql", "utf8");
@@ -9,6 +11,18 @@ const leadsSql = fs.readFileSync("supabase/migrations/20260805152700_v10_report_
 const zeroDeliverySql = fs.readFileSync("supabase/migrations/20260805152800_v10_report_daily_zero_delivery_accounts.sql", "utf8");
 const serverPatch = fs.readFileSync("patch-server.js", "utf8");
 const handler = fs.readFileSync("report-handler-v10.js", "utf8");
+
+function parseInlineScripts(html) {
+  const pattern = /<script([^>]*)>([\s\S]*?)<\/script>/gi;
+  let match;
+  let index = 0;
+  while ((match = pattern.exec(html)) !== null) {
+    if (/\bsrc\s*=/.test(match[1] || "")) continue;
+    index += 1;
+    new vm.Script(match[2] || "", { filename: `report-inline-${index}.js` });
+  }
+  return index;
+}
 
 test("performance view joins Meta spend to live V10 customer facts", () => {
   assert.match(viewSql, /from public\.fact_daily_ad_performance/i);
@@ -58,6 +72,17 @@ test("legacy dashboard patch still preserves completed labels for fallback", () 
   assert.match(html, /Tự nhiên \/ chưa xác định/);
   assert.match(html, /customer_source_type/);
   assert.match(serverPatch, /patchV10ReportTablesUi/);
+});
+
+test("dashboard UI patches emit valid inline JavaScript", () => {
+  const base = `<!doctype html><html><body><div id="leadCards"></div><div id="notice"></div><table><thead><tr></tr></thead><tbody id="leadRows"></tbody></table><script>
+const dailyCols=[['report_date','Ngày'],['page_name','Page']];
+function format(key,v,row){if(['spend_with_tax','cost_per_contact','cost_per_conversation'].includes(key))return v;return v}
+function updateCards(rows){const contacts=rows.length;return contacts}
+window.renderLeads=function(){};window.loadLeads=async function(){};
+</script></body></html>`;
+  const html = patchV10ReportTablesUi(patchDashboardUi(base));
+  assert.ok(parseInlineScripts(html) >= 3);
 });
 
 test("exports preserve customer labels and direct Meta/Core source separation", () => {
