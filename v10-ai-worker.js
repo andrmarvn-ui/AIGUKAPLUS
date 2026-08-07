@@ -1,6 +1,7 @@
 // Stable V10 AI entrypoint. Provider configuration, readiness and priority are owned by
-// /ai-providers. Compatibility adapters install transport behavior. The resilience and
-// adaptive quality patches are applied before the final worker is imported.
+// /ai-providers. Compatibility adapters install transport behavior. Legacy repair layers
+// load first for source compatibility; the sovereign validator is the final authority and
+// bypasses business-output rewriting before the final worker starts.
 async function reportStartupFailure(error) {
   try {
     const base = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
@@ -17,23 +18,21 @@ async function reportStartupFailure(error) {
       },
       body: JSON.stringify({
         worker_name: "aiguka-v10-ai",
-        worker_version: "v10_ai_quality_guard_v17_smart_sales_advisory",
+        worker_version: "v10_ai_sovereign_validator_v18",
         status: "degraded",
         mode: "ACTIVE",
         details: {
           final_worker_artifact: true,
           runtime_source_patching: true,
           ai_decision_authority: "sole",
+          validator_authority: "reject_and_feedback_only",
+          validator_rewrites_business_output: false,
+          unresolved_needs_enabled: true,
+          recursive_catalog_advisory: true,
           provider_cooldown_is_per_key: true,
           provider_auto_recovery: true,
-          specific_product_price_contact_guard: true,
-          general_product_sales_handoff_guard: true,
           customer_turn_supersession_guard: true,
-          adaptive_product_reply_repair: true,
-          conversation_continuity_guard: true,
           contact_request_cooldown_messages: 2,
-          hard_output_blocking: false,
-          difficult_case_specialist_escalation: true,
         },
         last_error: String(error instanceof Error ? error.message : error).slice(0, 800),
         last_seen_at: now,
@@ -61,6 +60,7 @@ await import("./patch-v10-specific-price-contact.js");
 await import("./patch-v10-general-product-sales-handoff.js");
 await import("./patch-v10-general-product-sales-finalize.js");
 await import("./v10-conversation-continuity-runtime.js");
+await import("./patch-v10-ai-sovereign-validator.js");
 
 try {
   await import("./v10-ai-worker-final.js");
