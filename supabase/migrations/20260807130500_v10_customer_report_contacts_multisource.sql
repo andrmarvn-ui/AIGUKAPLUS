@@ -12,7 +12,14 @@ declare
   v_from date := coalesce(p_from, current_date);
   v_to date := coalesce(p_to, current_date);
   v_result jsonb;
+  v_role text := coalesce(current_setting('request.jwt.claim.role', true), '');
 begin
+  if session_user <> 'postgres'
+     and v_role <> 'service_role'
+     and not aiguka_private.v9_bridge_authorized() then
+    raise insufficient_privilege using message = 'v10_report_customer_metrics_bridge_required';
+  end if;
+
   if v_from > v_to then raise exception 'date_from_after_date_to'; end if;
   if v_to - v_from > 731 then raise exception 'date_range_too_large'; end if;
   perform set_config('statement_timeout', '12000', true);
@@ -106,10 +113,10 @@ begin
 end;
 $function$;
 
--- This RPC only exposes aggregate counts, not raw phone/Zalo values. Allow the
--- server's current Core key role to execute it while keeping tables private.
+-- Railway may access Core in database-bridge mode with the publishable role.
+-- The function itself verifies x-aiguka-core-bridge before returning aggregates.
 revoke all on function public.v10_report_customer_metrics(date,date,text,text) from public;
 grant execute on function public.v10_report_customer_metrics(date,date,text,text) to service_role, authenticated, anon;
 
 comment on function public.v10_report_customer_metrics(date,date,text,text) is
-  'Aggregate-only reporting RPC. Counts contact evidence from V10 contacts, Pancake contact tags and contact-detector observations; exposes no PII.';
+  'Aggregate-only reporting RPC. Database-bridge or service-role authorization required. Counts V10 contacts, Pancake contact tags and contact-detector observations; exposes no PII.';
