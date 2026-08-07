@@ -54,6 +54,7 @@ await import("./v10-beeknoee-runtime-adapter.js");
 await import("./v10-tokenrouter-runtime-adapter.js");
 await import("./v10-together-runtime-adapter.js");
 await import("./v10-sambanova-runtime-adapter.js");
+await import("./patch-v10-gemini-provider-type.js");
 await import("./patch-v10-provider-resilience.js");
 await import("./patch-v10-specific-price-contact.js");
 await import("./patch-v10-general-product-sales-handoff.js");
