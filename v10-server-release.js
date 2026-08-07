@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 
-const VERSION = "v10_server_final_v2_admin_guards";
+const VERSION = "v10_server_final_v4_scanned_phone_reporting";
 const serverFile = new URL("./server-v10-final.js", import.meta.url);
 const checksumFile = new URL("./server-v10-final.sha256", import.meta.url);
 
@@ -69,4 +69,6 @@ for (const forbidden of [
 
 globalThis.__AIGUKA_V10_SERVER_RELEASE__ = VERSION;
 console.log(`[AIGUKA V10] ${VERSION} verified: checksummed server, Core Learning admin and safe management DB clients`);
+await import("./patch-v10-report-contact-scan-meta-metric.js");
+await import("./patch-v10-release-contact-scan-compat.js");
 await import("./server-v10-final.js");
