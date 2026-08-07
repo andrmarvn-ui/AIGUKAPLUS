@@ -286,6 +286,7 @@ async function attempts(bundleId) {
 }
 
 async function recordAttempt(bundleId, attemptNo, transport, status, result = {}, error = null) {
+  const now = new Date().toISOString();
   await core("v9_delivery_attempts?on_conflict=bundle_id,attempt_no", {
     method: "POST",
     prefer: "resolution=merge-duplicates,return=minimal",
@@ -295,10 +296,11 @@ async function recordAttempt(bundleId, attemptNo, transport, status, result = {}
       transport,
       status,
       provider_message_id: result?.message_id || result?.messageId || null,
+      provider_response: result && typeof result === "object" ? result : null,
       error_code: error?.code || null,
       error_message: error ? String(error.message || error).slice(0, 500) : null,
-      sent_at: status === "sent" ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
+      started_at: now,
+      completed_at: now,
     },
   });
 }
