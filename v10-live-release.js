@@ -127,7 +127,7 @@ forbidToken("v10/core/decision-contract.js", "contactRequestSentence");
 requireToken("v10/core/knowledge-advisor.js", "recursive_assets: true");
 requireToken("v10/core/knowledge-advisor.js", "slide_catalog");
 requireToken("v10/core/unresolved-needs.js", 'export const unresolvedNeedsVersion = "v10_unresolved_needs_v2_semantic_active_only";');
-requireToken("v10/core/media-obligation.js", 'export const mediaObligationVersion = "v10_media_obligation_v4_semantic_window";');
+requireToken("v10/core/media-obligation.js", 'export const mediaObligationVersion = "v10_media_obligation_v5_replace_cancel_semantics";');
 requireToken("v10/core/product-threads.js", 'export const productThreadsVersion = "v10_product_threads_v1_grouped_media";');
 
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v3";');
@@ -138,4 +138,4 @@ requireToken("followup-admin-v8.js", "installFollowupAdminV8");
 requireToken("followup-admin-v8-client.js", "Lưu Event này");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; rapid structured choices replace earlier choices only inside the same menu window; free-text unresolved needs persist; product threads remain separate; grouped media uses the Drive image proxy; and outbound sends one independent media bundle per broad product group`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; rapid structured choices replace earlier choices only inside the same menu window; explicit free-text REPLACE/CANCEL changes active media scope; additive unresolved needs persist; product threads remain separate; grouped media uses the Drive image proxy; and outbound sends one independent media bundle per broad product group`);
