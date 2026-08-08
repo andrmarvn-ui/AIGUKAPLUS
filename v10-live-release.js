@@ -33,6 +33,7 @@ const FILES = [
   "patch-v10-outbound-sovereign-integrity.js",
   "patch-v10-grouped-media-bundles.js",
   "patch-v10-direct-core-structured-input.js",
+  "patch-v10-media-delivery-proxy.js",
   "followup-admin-v8.js",
   "followup-admin-v8-client.js",
 ];
@@ -106,10 +107,13 @@ requireToken("patch-v10-product-thread-ai.js", "product_threads: productThreads"
 requireToken("patch-v10-outbound-sovereign-integrity.js", "AIGUKA_V10_OUTBOUND_SOVEREIGN_INTEGRITY_V1");
 requireToken("patch-v10-outbound-sovereign-integrity.js", "EXACT_DUPLICATE_RECENT_REPLY");
 requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-grouped-media-bundles.js")');
+requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-media-delivery-proxy.js")');
 requireToken("patch-v10-grouped-media-bundles.js", "AIGUKA_V10_GROUPED_MEDIA_BUNDLES_V1");
 requireToken("patch-v10-grouped-media-bundles.js", "one_product_group_per_bundle");
 requireToken("patch-v10-direct-core-structured-input.js", "AIGUKA_V10_DIRECT_CORE_STRUCTURED_INPUT_V1");
 requireToken("patch-v10-direct-core-structured-input.js", "postback_payload_preserved: true");
+requireToken("patch-v10-media-delivery-proxy.js", "AIGUKA_V10_MEDIA_DELIVERY_PROXY_V1");
+requireToken("patch-v10-media-delivery-proxy.js", "groupLabel = null");
 
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
@@ -134,4 +138,4 @@ requireToken("followup-admin-v8.js", "installFollowupAdminV8");
 requireToken("followup-admin-v8-client.js", "Lưu Event này");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; rapid structured choices replace earlier choices only inside the same menu window; free-text unresolved needs persist; product threads remain separate; and outbound sends one independent media bundle per broad product group`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; rapid structured choices replace earlier choices only inside the same menu window; free-text unresolved needs persist; product threads remain separate; grouped media uses the Drive image proxy; and outbound sends one independent media bundle per broad product group`);
