@@ -18,7 +18,7 @@ async function reportStartupFailure(error) {
       },
       body: JSON.stringify({
         worker_name: "aiguka-v10-ai",
-        worker_version: "v10_ai_sovereign_validator_v18",
+        worker_version: "v10_ai_product_threads_v19",
         status: "degraded",
         mode: "ACTIVE",
         details: {
@@ -28,6 +28,8 @@ async function reportStartupFailure(error) {
           validator_authority: "reject_and_feedback_only",
           validator_rewrites_business_output: false,
           unresolved_needs_enabled: true,
+          product_threads_enabled: true,
+          separate_media_bundle_per_product_group: true,
           recursive_catalog_advisory: true,
           provider_cooldown_is_per_key: true,
           provider_auto_recovery: true,
@@ -61,6 +63,7 @@ await import("./patch-v10-general-product-sales-handoff.js");
 await import("./patch-v10-general-product-sales-finalize.js");
 await import("./v10-conversation-continuity-runtime.js");
 await import("./patch-v10-ai-sovereign-validator.js");
+await import("./patch-v10-product-thread-ai.js");
 await import("./patch-v10-followup-support-mode.js");
 
 try {
