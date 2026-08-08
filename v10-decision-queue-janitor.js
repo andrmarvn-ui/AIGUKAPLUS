@@ -3,9 +3,11 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-queue-janitor";
 const VERSION = "v10_queue_hygiene_v2";
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_JANITOR_POLL_MS || 2000));
+const CAPACITY_GUARD_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V10_CAPACITY_GUARD_MS || 30 * 60_000));
 const V10 = "v10_ai_sovereign_advisory";
 let running = false;
 let timer;
+let lastCapacityGuardAt = 0;
 
 async function core(path, options = {}) {
   const response = await fetch(`${CORE_BASE}/rest/v1/${path}`, {
@@ -137,6 +139,22 @@ async function cleanup() {
   };
 }
 
+async function maybeCapacityGuard() {
+  const now = Date.now();
+  if (now - lastCapacityGuardAt < CAPACITY_GUARD_MS) return null;
+  lastCapacityGuardAt = now;
+  try {
+    return await core("rpc/v10_capacity_guard_tick", {
+      method: "POST",
+      prefer: "return=representation",
+      body: {},
+      timeout: 20000,
+    });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error).slice(0, 500) };
+  }
+}
+
 async function heartbeat(status, details = {}, error = null) {
   await core("v9_worker_heartbeats?on_conflict=worker_name", {
     method: "POST",
@@ -159,7 +177,8 @@ async function tick() {
   running = true;
   try {
     const details = await cleanup();
-    await heartbeat("healthy", details);
+    const capacityGuard = await maybeCapacityGuard();
+    await heartbeat("healthy", { ...details, capacity_guard: capacityGuard });
   } catch (error) {
     await heartbeat("degraded", {}, error?.message || error).catch(() => {});
   } finally {
@@ -173,6 +192,6 @@ async function tick() {
 if (!CORE_BASE || !CORE_KEY) {
   console.warn("[AIGUKA V10 janitor] Core configuration missing; disabled");
 } else {
-  console.log("[AIGUKA V10 janitor] queue hygiene and V9 pending rehydration started; no business decision authority");
+  console.log("[AIGUKA V10 janitor] queue hygiene, V9 pending rehydration and Core capacity guard started; no business decision authority");
   await tick();
 }
