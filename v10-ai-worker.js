@@ -61,6 +61,7 @@ await import("./patch-v10-general-product-sales-handoff.js");
 await import("./patch-v10-general-product-sales-finalize.js");
 await import("./v10-conversation-continuity-runtime.js");
 await import("./patch-v10-ai-sovereign-validator.js");
+await import("./patch-v10-followup-support-mode.js");
 
 try {
   await import("./v10-ai-worker-final.js");
