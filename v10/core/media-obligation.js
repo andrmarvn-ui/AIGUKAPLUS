@@ -16,10 +16,16 @@ function activeCustomerMessage(message) {
   return !["superseded", "cancelled"].includes(String(message.semantic_status || "active").toLowerCase());
 }
 
+function relationOf(message) {
+  return String(message?.semantic_relation || "CONTINUE").toUpperCase();
+}
+
 // Media obligations survive ordinary text replies. They are cleared only after there
 // is evidence that page/bot/human media was actually delivered. Structured choices
 // that were immediately replaced by a later choice remain in history for audit but
-// are excluded from the active obligation window.
+// are excluded from the active obligation window. An explicit free-text REPLACE such
+// as "chỉ xem gạch thôi" also starts a new active product scope without reviving the
+// older unresolved product list.
 function customerMediaWindow(messages = []) {
   const list = Array.isArray(messages) ? messages : [];
   let lastDeliveredMedia = -1;
@@ -29,7 +35,19 @@ function customerMediaWindow(messages = []) {
       break;
     }
   }
-  return list.slice(lastDeliveredMedia + 1).filter(activeCustomerMessage);
+  const active = list.slice(lastDeliveredMedia + 1).filter(activeCustomerMessage);
+  let lastReplace = -1;
+  for (let index = active.length - 1; index >= 0; index -= 1) {
+    if (relationOf(active[index]) === "REPLACE") {
+      lastReplace = index;
+      break;
+    }
+  }
+  return lastReplace >= 0 ? active.slice(lastReplace) : active;
+}
+
+function positiveMediaWindow(messages = []) {
+  return customerMediaWindow(messages).filter((message) => relationOf(message) !== "CANCEL");
 }
 
 function slideKeySet(slideKeys) {
@@ -42,11 +60,11 @@ export function effectiveCustomerMediaWindow(messages = []) {
 }
 
 export function customerClusterText(messages = []) {
-  return normalizeVietnamese(customerMediaWindow(messages).map((message) => message.text || "").join(" "));
+  return normalizeVietnamese(positiveMediaWindow(messages).map((message) => message.text || "").join(" "));
 }
 
 export function explicitMediaRequestFromMessages(messages = []) {
-  const cluster = customerMediaWindow(messages);
+  const cluster = positiveMediaWindow(messages);
   const raw = cluster.map((message) => String(message.text || "")).join(" ").toLowerCase();
   const text = normalizeVietnamese(raw);
 
@@ -56,6 +74,31 @@ export function explicitMediaRequestFromMessages(messages = []) {
   if (/\bgui\s+anh\s+(?:qua day|tren messenger|o day)\b/.test(text)) return true;
   if (/\b(?:xem them|mau khac|gui them mau|gui lai anh|gui lai hinh)\b/.test(text)) return true;
   return false;
+}
+
+function applyExplicitCancellations(output, messages) {
+  const cancellations = customerMediaWindow(messages)
+    .filter((message) => relationOf(message) === "CANCEL")
+    .map((message) => normalizeVietnamese(message.text || ""));
+  if (!cancellations.length) return output;
+
+  function remove(predicate) {
+    for (let index = output.length - 1; index >= 0; index -= 1) {
+      if (predicate(output[index])) output.splice(index, 1);
+    }
+  }
+
+  for (const text of cancellations) {
+    if (/\b(gach|op lat|lat nen|da op lat)\b/.test(text)) remove((key) => key.startsWith("gach_") || key === "gach_ngoi");
+    if (/\b(quat|quant|den chum|den trum)\b/.test(text)) remove((key) => key.startsWith("quat_") || key === "quat_tran");
+    if (/\b(nha bep|phong bep|bep|chau rua bat|voi rua bat|hut mui)\b/.test(text)) {
+      remove((key) => ["phong_bep", "bep_tu_hut_mui", "bep_tu", "may_hut_mui", "chau_voi_rua_bat"].includes(key));
+    }
+    if (/\b(nha tam|phong tam|nha ve sinh|thiet bi ve sinh|bon cau|lavabo|guong|sen tam)\b/.test(text)) {
+      remove((key) => key === "phong_tam" || key.startsWith("combo_phong_tam") || key.startsWith("bon_cau") || ["lavabo", "guong_tu", "tu_chau_guong", "sen_tam"].includes(key));
+    }
+  }
+  return output;
 }
 
 export function deriveMediaScope(messages = [], slideKeys = new Set()) {
@@ -123,8 +166,6 @@ export function deriveMediaScope(messages = [], slideKeys = new Set()) {
 
   if (tile) addPreferred("gach_ngoi", ["gach_80x80", "gach_an_do", "gach_tay_ban_nha", "gach_stone"]);
 
-  // When the customer explicitly mentions both 8 and 10 blades, preserve both branches.
-  // The older else-if chain silently dropped one of the two product requests.
   if (fan8) {
     if (gold) addPreferred("quat_8_canh_gold", ["quat_8_canh", "quat_tran"]);
     else if (black) addPreferred("quat_8_canh_black", ["quat_8_canh", "quat_tran"]);
@@ -145,7 +186,7 @@ export function deriveMediaScope(messages = [], slideKeys = new Set()) {
     addPreferred("quat_tran", ["quat_10_canh_gold", "quat_8_canh_gold"]);
   }
 
-  return output;
+  return applyExplicitCancellations(output, messages);
 }
 
 export function mediaExpectedFromMessages(messages = [], scope = []) {
@@ -153,7 +194,7 @@ export function mediaExpectedFromMessages(messages = [], scope = []) {
   if (explicitMediaRequestFromMessages(messages)) return true;
   if (scope.length >= 2) return true;
 
-  const cluster = customerMediaWindow(messages);
+  const cluster = positiveMediaWindow(messages);
   const text = customerClusterText(messages);
   const productPostback = cluster.some((message) => {
     if (!/postback/i.test(String(message.event_type || ""))) return false;
@@ -164,4 +205,4 @@ export function mediaExpectedFromMessages(messages = [], scope = []) {
   return /\b(tu van|combo|com bo|tron bo|lam moi|xay nha|hoan thien nha|tham khao|xem mau)\b/.test(text);
 }
 
-export const mediaObligationVersion = "v10_media_obligation_v4_semantic_window";
+export const mediaObligationVersion = "v10_media_obligation_v5_replace_cancel_semantics";
