@@ -44,13 +44,18 @@ function v10MessengerImageUrl(value) {
 `;
 
 patchFile(OUTBOUND, (source) => {
-  const anchor = "async function sendCarousel(pageId, recipientId, assets, salutation = null) {";
-  if (!source.includes(anchor)) throw new Error("V10_MEDIA_PROXY_OUTBOUND_CAROUSEL_ANCHOR_MISSING");
+  const signatures = [
+    "async function sendCarousel(pageId, recipientId, assets, salutation = null, groupLabel = null) {",
+    "async function sendCarousel(pageId, recipientId, assets, salutation = null) {",
+    "async function sendCarousel(pageId, recipientId, assets) {",
+  ];
+  const anchor = signatures.find((item) => source.includes(item));
+  if (!anchor) throw new Error("V10_MEDIA_PROXY_OUTBOUND_CAROUSEL_ANCHOR_MISSING");
   source = source.replace(anchor, helper + "\n" + anchor);
   const imageAnchor = "image_url: asset.source_url,";
   if (!source.includes(imageAnchor)) throw new Error("V10_MEDIA_PROXY_OUTBOUND_IMAGE_URL_ANCHOR_MISSING");
   source = source.replace(imageAnchor, "image_url: v10MessengerImageUrl(asset.source_url),");
-  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_aicake_primary_support_v10_media_proxy";');
+  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_grouped_media_v11_drive_proxy";');
   return source;
 });
 
