@@ -85,3 +85,4 @@ await import("./patch-v10-live-page-reply-guard.js");
 await import("./patch-v10-support-salutation.js");
 await import("./patch-v10-grouped-media-bundles.js");
 await import("./patch-v10-direct-core-structured-input.js");
+await import("./patch-v10-media-delivery-proxy.js");
