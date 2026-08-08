@@ -1,0 +1,26 @@
+name: V10 semantic release check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'v10/**'
+      - 'patch-v10-*.js'
+      - 'v10-*.js'
+      - 'tests/v10-semantic-product-threads.test.js'
+      - '.github/workflows/v10-semantic-release-check.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify release contract
+        run: node v10-live-release.js
+      - name: Test structured choice and product threads
+        run: node --test tests/v10-semantic-product-threads.test.js
