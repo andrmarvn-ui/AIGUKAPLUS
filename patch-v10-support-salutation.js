@@ -1,7 +1,7 @@
 import fs from "node:fs";
 
 const FILE = "v10-outbound-worker.js";
-const MARK = "AIGUKA_V10_SUPPORT_SALUTATION_V1";
+const MARK = "AIGUKA_V10_SUPPORT_SALUTATION_V2_NEUTRAL_CTA";
 
 if (!fs.existsSync(FILE)) throw new Error("V10_SUPPORT_SALUTATION_OUTBOUND_MISSING");
 let source = fs.readFileSync(FILE, "utf8");
@@ -49,20 +49,23 @@ function supportResolveSalutation(customer, decision) {
     || { value: null, source: "neutral_omission" };
 }
 
-function supportCarouselSubtitle(salutation) {
-  if (salutation === "anh") return "Một vài mẫu bán chạy để anh tham khảo trước";
-  if (salutation === "chị") return "Một vài mẫu bán chạy để chị tham khảo trước";
+// Keep carousel copy intentionally neutral. This is safer than guessing gender and
+// works across every product group without making the support message feel templated.
+function supportCarouselSubtitle() {
   return "Một vài mẫu bán chạy để tham khảo trước";
 }
 
 function supportSlideCaption(gate, decision) {
   const recentContactRequest = supportReplyRequestsContact(gate?.livePageReply)
     || String(decision?.output?.contact_state || "").toLowerCase() === "missing_recently_requested";
-  const salutation = gate?.supportSalutation || null;
-  const lead = salutation ? "Em gửi " + salutation + " một số mẫu bán chạy để " + salutation + " tham khảo trước" : "Em gửi một số mẫu bán chạy để tham khảo trước";
-  if (gate?.contactKnown || recentContactRequest) return lead + " ạ.";
-  if (salutation) return lead + "; nếu cần đúng mẫu và báo giá chính xác, " + salutation + " cho em xin SĐT/Zalo nhé.";
-  return lead + "; nếu cần đúng mẫu và báo giá chính xác, cho em xin SĐT/Zalo nhé.";
+
+  // Universal support CTA: useful for every catalog/product and avoids gender mistakes.
+  // Do not repeat the contact request when the customer already has contact info or
+  // AICAKE/page has just asked for it.
+  if (gate?.contactKnown || recentContactRequest) {
+    return "Em gửi một số mẫu bán chạy để tham khảo trước ạ.";
+  }
+  return "Em gửi một số mẫu bán chạy để tham khảo trước; nếu cần đúng mẫu và báo giá chính xác, cho em xin SĐT/Zalo nhé.";
 }
 
 // ${MARK}
@@ -88,7 +91,7 @@ function supportSlideCaption(gate, decision) {
   source = source.replace(carouselSignature, "async function sendCarousel(pageId, recipientId, assets, salutation = null) {");
   source = source.replace(
     'subtitle: "Một vài mẫu bán chạy để anh/chị tham khảo trước",',
-    'subtitle: supportCarouselSubtitle(salutation),',
+    'subtitle: supportCarouselSubtitle(),',
   );
 
   const carouselCall = "const result = await sendCarousel(claimed.page_id, claimed.sender_id, batches[index]);";
@@ -97,13 +100,13 @@ function supportSlideCaption(gate, decision) {
 
   const metadataAnchor = 'support_live_reply_source: gate.livePageReply?.source_system || null,';
   if (!source.includes(metadataAnchor)) throw new Error("V10_SUPPORT_SALUTATION_METADATA_ANCHOR_MISSING");
-  source = source.replace(metadataAnchor, `${metadataAnchor}\n      support_salutation: gate.supportSalutation || null,\n      support_salutation_source: gate.supportSalutationSource || null,\n      support_customer_name: gate.supportCustomerName || null,`);
+  source = source.replace(metadataAnchor, `${metadataAnchor}\n      support_salutation: gate.supportSalutation || null,\n      support_salutation_source: gate.supportSalutationSource || null,\n      support_customer_name: gate.supportCustomerName || null,\n      support_caption_policy: "universal_neutral_contact_cta_v2",`);
 
-  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_aicake_primary_support_v8_salutation";');
-  if (!source.includes(MARK) || !source.includes("supportCarouselSubtitle") || !source.includes("support_salutation_source")) {
+  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_aicake_primary_support_v9_neutral_cta";');
+  if (!source.includes(MARK) || !source.includes("supportCarouselSubtitle") || !source.includes("universal_neutral_contact_cta_v2")) {
     throw new Error("V10_SUPPORT_SALUTATION_INSTALL_FAILED");
   }
   fs.writeFileSync(FILE, source, "utf8");
 }
 
-console.log("[AIGUKA V10] support salutation enabled: use known/AI salutation when reliable; otherwise omit pronoun instead of generic anh/chị");
+console.log("[AIGUKA V10] universal neutral support CTA enabled: every slide can request SĐT/Zalo naturally without gender guessing; repeated contact requests remain suppressed");
