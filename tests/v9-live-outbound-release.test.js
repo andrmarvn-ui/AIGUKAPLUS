@@ -24,7 +24,7 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway verifies a checksummed final AI worker instead of patching source", () => {
-  assert.match(release, /AIGUKA_V10_SEMANTIC_PRODUCT_THREADS_V6/);
+  assert.match(release, /AIGUKA_V10_STORAGE_CAROUSEL_V7/);
   assert.match(release, /v10_queue_hygiene_v2/);
   assert.match(release, /V10_REHYDRATE_LEGACY_PENDING/);
   assert.match(release, /v10_direct_ai_sovereign_v2_frontier_guard/);

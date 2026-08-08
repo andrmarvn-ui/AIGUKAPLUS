@@ -28,8 +28,12 @@ if (source.includes(marker)) {
       res.json({ ok: true, all_sent: success === results.length, total: results.length, success_count: success, failure_count: results.length - success, results });`;
 
   const newBlock = `      // AIGUKA_MESSENGER_GENERIC_CAROUSEL_V1
-      const slideElements = assets.slice(0, 10).map((asset, index) => {
-        const imageUrl = \`${'${requestOrigin(req)}'}/api/slide-manager/image/${'${asset.id}'}\`;
+      const preparedAssets = await prepareCarouselAssets(assets.slice(0, 10), {
+        fetchImpl: fetch,
+        timeoutMs: 15000,
+      });
+      const slideElements = preparedAssets.map((asset, index) => {
+        const imageUrl = asset.source_url;
         const ordinal = String(index + 1).padStart(2, "0");
         const titleBase = clean(mapping.slide_title || mapping.product_name || "Mẫu sản phẩm");
         const title = \`${'${titleBase}'} — Mẫu ${'${ordinal}'}\`.slice(0, 80);
@@ -87,6 +91,8 @@ if (source.includes(marker)) {
         delivery_type: "generic_template",
         message_count: 1,
         slide_count: slideElements.length,
+        media_source: "supabase_storage_static",
+        preflight_count: preparedAssets.length,
         message_id: data.message_id || null,
         recipient_id: data.recipient_id || recipient,
       });`;

@@ -52,6 +52,16 @@ patchFile(OUTBOUND, (source) => {
   const anchor = signatures.find((item) => source.includes(item));
   if (!anchor) throw new Error("V10_MEDIA_PROXY_OUTBOUND_CAROUSEL_ANCHOR_MISSING");
   source = source.replace(anchor, helper + "\n" + anchor);
+  const elementsAnchor = "const elements = assets.slice(0, 10).map((asset, index) => ({";
+  if (!source.includes(elementsAnchor)) throw new Error("V10_MEDIA_PROXY_OUTBOUND_ELEMENTS_ANCHOR_MISSING");
+  source = source.replace(elementsAnchor, `const storageAssets = await prepareCarouselAssets(assets.slice(0, 10), {
+    fetchImpl: fetch,
+    timeoutMs: 15000,
+    lookupStorageAssets: async (fileIds) => knowledge(
+      "v8_drive_assets?drive_file_id=in.(" + fileIds.join(",") + ")&is_active=eq.true&is_image=eq.true&select=drive_file_id,storage_url,storage_status,delivery_url,delivery_status"
+    ),
+  });
+  const elements = storageAssets.map((asset, index) => ({`);
   const imageAnchor = "image_url: asset.source_url,";
   if (!source.includes(imageAnchor)) throw new Error("V10_MEDIA_PROXY_OUTBOUND_IMAGE_URL_ANCHOR_MISSING");
   source = source.replace(imageAnchor, "image_url: v10MessengerImageUrl(asset.source_url),");
@@ -70,4 +80,4 @@ patchFile(FOLLOWUP, (source) => {
   return source;
 });
 
-console.log("[AIGUKA V10] Messenger media proxy enabled: Drive images are served through the verified Supabase image endpoint for live carousels and follow-up images");
+console.log("[AIGUKA V10] Static carousel media enabled: live carousels resolve Drive IDs to verified Supabase Storage URLs before Meta send; follow-up keeps the verified proxy fallback");

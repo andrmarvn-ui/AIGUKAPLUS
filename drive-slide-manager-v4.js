@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { prepareCarouselAssets } from "./v10/core/carousel-media.js";
 import express from "express";
 
 const clean = (value = "") => String(value ?? "").trim();

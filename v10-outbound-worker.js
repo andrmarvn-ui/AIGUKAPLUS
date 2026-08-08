@@ -1,5 +1,6 @@
 import { loadActiveMetaConnection } from "./meta-token-store.js";
 import { normalizeVietnamese } from "./v10/core/advisory-engine.js";
+import { prepareCarouselAssets } from "./v10/core/carousel-media.js";
 import { prioritizeOutboundDecisions } from "./v10/core/outbound-priority.js";
 
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");

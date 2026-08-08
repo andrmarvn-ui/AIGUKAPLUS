@@ -107,7 +107,14 @@ test("release keeps the fresh queue and shared Pancake snapshot guards", () => {
 
 test("slide test recipient validation follows the live Core event source", () => {
   const slideManager = fs.readFileSync(new URL("../drive-slide-manager-v4.js", import.meta.url), "utf8");
+  const slidePatch = fs.readFileSync(new URL("../patch-slide-generic-carousel.js", import.meta.url), "utf8");
+  const liveMediaPatch = fs.readFileSync(new URL("../patch-v10-media-delivery-proxy.js", import.meta.url), "utf8");
   assert.match(slideManager, /v9_events\?page_id=eq\./);
   assert.match(slideManager, /actor_type=eq\.customer&event_type=eq\.customer_message/);
   assert.match(slideManager, /!recentLegacy\?\.length && !recentCore\?\.length/);
+  assert.match(slidePatch, /prepareCarouselAssets/);
+  assert.match(slidePatch, /supabase_storage_static/);
+  assert.match(slidePatch, /const imageUrl = asset\.source_url/);
+  assert.match(liveMediaPatch, /storage_url,storage_status,delivery_url,delivery_status/);
+  assert.match(liveMediaPatch, /prepareCarouselAssets/);
 });
