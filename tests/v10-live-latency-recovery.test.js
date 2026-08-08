@@ -104,3 +104,10 @@ test("release keeps the fresh queue and shared Pancake snapshot guards", () => {
   assert.match(pancakeGuard, /createPancakeConversationSnapshotCache/);
   assert.match(pancakeGuard, /pancake_live_shared_page_snapshot/);
 });
+
+test("slide test recipient validation follows the live Core event source", () => {
+  const slideManager = fs.readFileSync(new URL("../drive-slide-manager-v4.js", import.meta.url), "utf8");
+  assert.match(slideManager, /v9_events\?page_id=eq\./);
+  assert.match(slideManager, /actor_type=eq\.customer&event_type=eq\.customer_message/);
+  assert.match(slideManager, /!recentLegacy\?\.length && !recentCore\?\.length/);
+});

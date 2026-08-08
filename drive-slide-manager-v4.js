@@ -26,6 +26,8 @@ const folderRef = (value) => {
 export function installDriveSlideManagerV4(app, { supabaseUrl, publishableKey, serviceRoleKey }) {
   const dbKey = serviceRoleKey || publishableKey;
   if (!supabaseUrl || !dbKey) throw new Error("DRIVE_MANAGER_SUPABASE_NOT_CONFIGURED");
+  const coreBase = clean(process.env.AIGUKA_V9_CORE_URL).replace(/\/$/, "");
+  const coreKey = clean(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY);
   const encryptionKey = crypto.createHash("sha256").update(`${serviceRoleKey || dbKey}|${supabaseUrl}|AIGUKA_GOOGLE_DRIVE_OAUTH_V2`).digest();
   const encrypt = (value) => {
     if (!value) return null;
@@ -60,6 +62,22 @@ export function installDriveSlideManagerV4(app, { supabaseUrl, publishableKey, s
     let data;
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (!response.ok) throw new Error(data?.message || data?.hint || data?.error || `SUPABASE_${response.status}`);
+    return data;
+  };
+  const coreDb = async (path) => {
+    if (!coreBase || !coreKey) return [];
+    const response = await fetch(`${coreBase}/rest/v1/${path}`, {
+      headers: {
+        apikey: coreKey,
+        authorization: `Bearer ${coreKey}`,
+      },
+      signal: AbortSignal.timeout(10000),
+      cache: "no-store",
+    });
+    const text = await response.text();
+    let data;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!response.ok) throw new Error(data?.message || data?.hint || data?.error || `CORE_${response.status}`);
     return data;
   };
   const getConnection = async () => (await db("v8_google_drive_connections?connection_key=eq.google_drive&select=*&limit=1"))?.[0] || null;
@@ -602,10 +620,15 @@ export function installDriveSlideManagerV4(app, { supabaseUrl, publishableKey, s
       const pageId = clean(req.query.page_id);
       if (!pageId) throw new Error("Chưa chọn Page Facebook");
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const [events, pancakeRows] = await Promise.all([
+      const [legacyEvents, coreEvents, pancakeRows] = await Promise.all([
         db(`v8_meta_events?page_id=eq.${encodeURIComponent(pageId)}&sender_id=not.is.null&event_time=gte.${encodeURIComponent(since)}&select=page_id,sender_id,message_text,event_time&order=event_time.desc&limit=1500`),
+        coreDb(`v9_events?page_id=eq.${encodeURIComponent(pageId)}&sender_id=not.is.null&actor_type=eq.customer&event_type=eq.customer_message&occurred_at=gte.${encodeURIComponent(since)}&select=page_id,sender_id,message_text,occurred_at&order=occurred_at.desc&limit=1500`).catch(() => []),
         db(`v8_pancake_conversation_cache?page_id=eq.${encodeURIComponent(pageId)}&last_customer_message_at=gte.${encodeURIComponent(since)}&select=page_id,customer_id,customer_name,last_customer_message_at&order=last_customer_message_at.desc&limit=1500`).catch(() => []),
       ]);
+      const events = [
+        ...(legacyEvents || []),
+        ...(coreEvents || []).map((row) => ({ ...row, event_time: row.occurred_at })),
+      ].sort((left, right) => Date.parse(right.event_time || 0) - Date.parse(left.event_time || 0));
       const names = new Map((pancakeRows || []).map((row) => [String(row.customer_id || ""), clean(row.customer_name)]));
       const seen = new Set();
       const recipients = [];
@@ -632,8 +655,11 @@ export function installDriveSlideManagerV4(app, { supabaseUrl, publishableKey, s
       const permission = await metaPermissionStatus(pageId);
       if (!permission.ok) { res.status(409).json({ ok: false, code: "META_PAGES_MESSAGING_REQUIRED", error: permission.message, action_url: permission.action_url, permission }); return; }
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const recent = await db(`v8_meta_events?page_id=eq.${encodeURIComponent(pageId)}&sender_id=eq.${encodeURIComponent(recipient)}&event_time=gte.${encodeURIComponent(since)}&select=id,event_time&order=event_time.desc&limit=1`);
-      if (!recent?.length) throw new Error("Khách không thuộc Page đã chọn hoặc đã ngoài cửa sổ 24 giờ");
+      const [recentLegacy, recentCore] = await Promise.all([
+        db(`v8_meta_events?page_id=eq.${encodeURIComponent(pageId)}&sender_id=eq.${encodeURIComponent(recipient)}&event_time=gte.${encodeURIComponent(since)}&select=id,event_time&order=event_time.desc&limit=1`),
+        coreDb(`v9_events?page_id=eq.${encodeURIComponent(pageId)}&sender_id=eq.${encodeURIComponent(recipient)}&actor_type=eq.customer&event_type=eq.customer_message&occurred_at=gte.${encodeURIComponent(since)}&select=id,occurred_at&order=occurred_at.desc&limit=1`).catch(() => []),
+      ]);
+      if (!recentLegacy?.length && !recentCore?.length) throw new Error("Khách không thuộc Page đã chọn hoặc đã ngoài cửa sổ 24 giờ");
       const mapping = (await db(`v8_slide_mapping?id=eq.${encodeURIComponent(mappingId)}&select=*&limit=1`))?.[0];
       if (!mapping) throw new Error("Không tìm thấy mapping");
       const assets = await db(`v8_drive_assets?product_key=eq.${encodeURIComponent(mapping.product_key)}&is_active=eq.true&deleted_from_drive_at=is.null&select=*&order=sort_order.asc&limit=10`);
