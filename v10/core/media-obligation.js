@@ -11,10 +11,15 @@ function hasDeliveredMedia(message) {
   return /slide|carousel|media|image/.test(eventType) && attachments.length > 0;
 }
 
+function activeCustomerMessage(message) {
+  if (!message || message.role !== "customer") return false;
+  return !["superseded", "cancelled"].includes(String(message.semantic_status || "active").toLowerCase());
+}
+
 // Media obligations survive ordinary text replies. They are cleared only after there
-// is evidence that page/bot/human media was actually delivered. This avoids the old
-// "latest turn wins" failure where a phone number or location message erased an earlier
-// request for samples before any images had been sent.
+// is evidence that page/bot/human media was actually delivered. Structured choices
+// that were immediately replaced by a later choice remain in history for audit but
+// are excluded from the active obligation window.
 function customerMediaWindow(messages = []) {
   const list = Array.isArray(messages) ? messages : [];
   let lastDeliveredMedia = -1;
@@ -24,12 +29,16 @@ function customerMediaWindow(messages = []) {
       break;
     }
   }
-  return list.slice(lastDeliveredMedia + 1).filter((message) => message && message.role === "customer");
+  return list.slice(lastDeliveredMedia + 1).filter(activeCustomerMessage);
 }
 
 function slideKeySet(slideKeys) {
   if (slideKeys instanceof Set) return slideKeys;
   return new Set((Array.isArray(slideKeys) ? slideKeys : []).map(String));
+}
+
+export function effectiveCustomerMediaWindow(messages = []) {
+  return customerMediaWindow(messages);
 }
 
 export function customerClusterText(messages = []) {
@@ -82,9 +91,6 @@ export function deriveMediaScope(messages = [], slideKeys = new Set()) {
   const mirror = /\b(guong tu|tu guong|tu lavabo|tu chau|guong lavabo|guong phong tam)\b/.test(text);
   const tile = /\b(gach|gach lat|gach lat nen|lat nen|gach op|gach op lat|da op lat|op lat)\b/.test(text);
 
-  // Common Messenger typo: "quant tran" is usually a mistyped "quat tran". Once a
-  // fan word is present in the unresolved customer window, later shorthand such as
-  // "8 canh, vang" still belongs to the same fan request.
   const fanContext = /\b(?:quat|quant)(?:\s+tran)?\b/.test(text);
   const fan8 = /\b(?:quat|quant).{0,18}8(?:\s*canh)?\b/.test(text) || (fanContext && /\b8\s*canh\b/.test(text));
   const fan10 = /\b(?:quat|quant).{0,18}10(?:\s*canh)?\b/.test(text) || (fanContext && /\b10\s*canh\b/.test(text));
@@ -117,27 +123,25 @@ export function deriveMediaScope(messages = [], slideKeys = new Set()) {
 
   if (tile) addPreferred("gach_ngoi", ["gach_80x80", "gach_an_do", "gach_tay_ban_nha", "gach_stone"]);
 
+  // When the customer explicitly mentions both 8 and 10 blades, preserve both branches.
+  // The older else-if chain silently dropped one of the two product requests.
   if (fan8) {
-    if (gold) addPreferred("quat_8_canh_gold", ["quat_tran"]);
-    else if (black) addPreferred("quat_8_canh_black", ["quat_tran"]);
-    else if (brown) addPreferred("quat_8_canh_brown", ["quat_tran"]);
-    else if (wood) addPreferred("quat_8_canh_wood", ["quat_tran"]);
-    else {
-      add("quat_8_canh_gold");
-      add("quat_8_canh_black");
-      add("quat_8_canh_brown");
-      add("quat_8_canh_wood");
-      if (!output.length) add("quat_tran");
-    }
-  } else if (fan10) {
+    if (gold) addPreferred("quat_8_canh_gold", ["quat_8_canh", "quat_tran"]);
+    else if (black) addPreferred("quat_8_canh_black", ["quat_8_canh", "quat_tran"]);
+    else if (brown) addPreferred("quat_8_canh_brown", ["quat_8_canh", "quat_tran"]);
+    else if (wood) addPreferred("quat_8_canh_wood", ["quat_8_canh", "quat_tran"]);
+    else addPreferred("quat_8_canh", ["quat_8_canh_gold", "quat_8_canh_black", "quat_8_canh_brown", "quat_8_canh_wood", "quat_tran"]);
+  }
+  if (fan10) {
     if (gold) addPreferred("quat_10_canh_gold", ["quat_10_canh", "quat_tran"]);
     else if (black) addPreferred("quat_10_canh_black", ["quat_10_canh", "quat_tran"]);
     else if (brown) addPreferred("quat_10_canh_brown", ["quat_10_canh", "quat_tran"]);
     else if (wood) addPreferred("quat_10_canh_wood", ["quat_10_canh", "quat_tran"]);
     else addPreferred("quat_10_canh", ["quat_10_canh_gold", "quat_10_canh_wood", "quat_10_canh_black", "quat_10_canh_brown", "quat_tran"]);
-  } else if (fan56) {
+  }
+  if (!fan8 && !fan10 && fan56) {
     addPreferred("quat_5_6_canh", ["quat_tran"]);
-  } else if (fan) {
+  } else if (!fan8 && !fan10 && !fan56 && fan) {
     addPreferred("quat_tran", ["quat_10_canh_gold", "quat_8_canh_gold"]);
   }
 
@@ -160,4 +164,4 @@ export function mediaExpectedFromMessages(messages = [], scope = []) {
   return /\b(tu van|combo|com bo|tron bo|lam moi|xay nha|hoan thien nha|tham khao|xem mau)\b/.test(text);
 }
 
-export const mediaObligationVersion = "v10_media_obligation_v3_unresolved_until_media";
+export const mediaObligationVersion = "v10_media_obligation_v4_semantic_window";
