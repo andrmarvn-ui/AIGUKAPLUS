@@ -69,6 +69,33 @@ test("ordinary free text remains additive instead of latest-message-wins", () =>
   assert.deepEqual(new Set(scope), new Set(["combo_phong_tam", "bep_tu_hut_mui", "chau_voi_rua_bat", "gach_ngoi"]));
 });
 
+test("explicit replace starts a new product scope", () => {
+  const context = buildConversationContext([
+    event("r1", "xem nhà tắm và nhà bếp", "2026-08-08T10:10:00.000Z"),
+    event("r2", "chỉ xem gạch ốp lát thôi", "2026-08-08T10:10:03.000Z"),
+  ]);
+  assert.equal(context.messages[1].semantic_relation, "REPLACE");
+  const scope = deriveMediaScope(
+    context.messages,
+    new Set(["combo_phong_tam", "bep_tu_hut_mui", "chau_voi_rua_bat", "gach_ngoi"]),
+  );
+  assert.deepEqual(scope, ["gach_ngoi"]);
+});
+
+test("explicit cancel removes only the cancelled product group", () => {
+  const context = buildConversationContext([
+    event("c1", "xem nhà tắm", "2026-08-08T10:20:00.000Z"),
+    event("c2", "nhà bếp nữa", "2026-08-08T10:20:01.000Z"),
+    event("c3", "không cần nhà bếp nữa", "2026-08-08T10:20:03.000Z"),
+  ]);
+  assert.equal(context.messages[2].semantic_relation, "CANCEL");
+  const scope = deriveMediaScope(
+    context.messages,
+    new Set(["combo_phong_tam", "bep_tu_hut_mui", "chau_voi_rua_bat"]),
+  );
+  assert.deepEqual(scope, ["combo_phong_tam"]);
+});
+
 test("8-blade and 10-blade fan requests are both preserved", () => {
   const context = buildConversationContext([
     event("f1", "xem quạt 8 cánh và quạt 10 cánh", "2026-08-08T11:00:00.000Z"),
