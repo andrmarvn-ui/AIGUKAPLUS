@@ -71,7 +71,8 @@ test("cutover timestamp is normalized and propagated to the inbox bridge", () =>
 
 
 test("legacy inbox bridge accepts only rows created after the durable cutover", () => {
-  assert.match(inboxBridgeSource, /v9_legacy_inbox_bridge_v3_fresh_preemption/);
+  assert.match(inboxBridgeSource, /v9_legacy_inbox_bridge_v4_fresh_preemption/);
+  assert.match(inboxBridgeSource, /const common = `v8_webhook_inbox\?\$\{select\}/);
   assert.match(inboxBridgeSource, /created_at=gte\.\$\{encodeURIComponent\(CUTOVER_AT\)\}/);
   assert.match(inboxBridgeSource, /fresh_received_first_then_bounded_recovery/);
   assert.match(inboxBridgeSource, /historical_replay_enabled: false/);

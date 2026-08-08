@@ -6,7 +6,7 @@ const LEGACY_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v9-legacy-inbox-bridge";
-const VERSION = "v9_legacy_inbox_bridge_v3_fresh_preemption";
+const VERSION = "v9_legacy_inbox_bridge_v4_fresh_preemption";
 const POLL_MS = Math.max(3000, Number(process.env.AIGUKA_V9_BRIDGE_POLL_MS || 5000));
 const BATCH_SIZE = Math.max(1, Math.min(50, Number(process.env.AIGUKA_V9_BRIDGE_BATCH || 20)));
 const RECOVERY_BATCH_SIZE = Math.max(1, Math.min(BATCH_SIZE, Number(process.env.AIGUKA_V9_BRIDGE_RECOVERY_BATCH || 5)));
@@ -66,7 +66,7 @@ async function candidates() {
   const now = encodeURIComponent(nowValue);
   const freshCutoff = bridgeFreshCutoff(Date.now(), FRESH_WINDOW_MS);
   const select = "select=id,page_id,sender_id,recipient_id,message_id,event_time,payload,status,attempts,next_attempt_at,locked_at,locked_by,created_at,updated_at";
-  const common = `${select}&status=in.(pending,error,dead)&created_at=gte.${encodeURIComponent(CUTOVER_AT)}&or=(next_attempt_at.is.null,next_attempt_at.lte.${now})`;
+  const common = `v8_webhook_inbox?${select}&status=in.(pending,error,dead)&created_at=gte.${encodeURIComponent(CUTOVER_AT)}&or=(next_attempt_at.is.null,next_attempt_at.lte.${now})`;
   const fresh = await legacy(`${common}&created_at=gte.${encodeURIComponent(freshCutoff)}&order=created_at.asc,id.asc&limit=${BATCH_SIZE}`);
   const remaining = Math.min(RECOVERY_BATCH_SIZE, Math.max(0, BATCH_SIZE - (fresh?.length || 0)));
   const recovery = remaining > 0

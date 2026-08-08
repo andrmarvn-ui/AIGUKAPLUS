@@ -100,6 +100,7 @@ test("release keeps the fresh queue and shared Pancake snapshot guards", () => {
   assert.match(outbound, /fresh_sla_first_then_recent_recovery/);
   assert.match(bridge, /fresh_received_first_then_bounded_recovery/);
   assert.match(bridge, /AIGUKA_V9_BRIDGE_RECOVERY_BATCH/);
+  assert.match(bridge, /const common = `v8_webhook_inbox\?\$\{select\}/);
   assert.match(pancakeGuard, /createPancakeConversationSnapshotCache/);
   assert.match(pancakeGuard, /pancake_live_shared_page_snapshot/);
 });
