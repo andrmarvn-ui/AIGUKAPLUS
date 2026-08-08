@@ -9,8 +9,20 @@ let source = fs.readFileSync(FILE, "utf8");
 if (!source.includes(MARK)) {
   const finalGateAnchor = "async function finalGate(decision, config) {";
   if (!source.includes(finalGateAnchor)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_FINAL_GATE_MISSING");
+  const importAnchor = 'import { normalizeVietnamese } from "./v10/core/advisory-engine.js";';
+  if (!source.includes(importAnchor)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_IMPORT_MISSING");
+  source = source.replace(
+    importAnchor,
+    importAnchor + '\nimport { createPancakeConversationSnapshotCache } from "./v10/core/pancake-conversation-snapshot.js";',
+  );
 
   const helpers = String.raw`
+const livePageReplySnapshotCache = createPancakeConversationSnapshotCache({
+  timeoutMs: 3500,
+  ttlMs: Math.max(1000, Number(process.env.AIGUKA_PANCAKE_PAGE_SNAPSHOT_TTL_MS || 5000)),
+  maxPages: 4,
+});
+
 function livePageReplyTime(value) {
   const parsed = Date.parse(String(value || ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -101,51 +113,34 @@ async function livePageReplyEvidence(decision, customerAt) {
   if (!pageId || !senderId || !token || !customerAt) return null;
 
   const latestCustomerText = livePageReplyLatestCustomerText(decision);
-  let lastConversationId = "";
-  for (let pageNo = 0; pageNo < 4; pageNo += 1) {
-    let url = "https://pages.fm/api/public_api/v2/pages/" + encodeURIComponent(pageId)
-      + "/conversations?page_access_token=" + encodeURIComponent(token);
-    if (lastConversationId) url += "&last_conversation_id=" + encodeURIComponent(lastConversationId);
+  const snapshot = await livePageReplySnapshotCache.load(pageId, token);
+  const row = (snapshot?.rows || []).find((item) => livePageReplyConversationMatches(item, senderId));
+  if (!row) return null;
 
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(3500),
-      cache: "no-store",
-    });
-    if (!response.ok) return null;
-    const data = await response.json().catch(() => ({}));
-    const rows = Array.isArray(data.conversations) ? data.conversations : Array.isArray(data.data) ? data.data : [];
-    const row = rows.find((item) => livePageReplyConversationMatches(item, senderId));
-    if (row) {
-      const updatedAtValue = row.updated_at || row.last_message?.created_at || row.last_message_at || null;
-      const updatedAt = livePageReplyTime(updatedAtValue);
-      const pancakeCustomerAt = livePageReplyTime(row.last_customer_message_at || row.last_customer_at || "");
-      const effectiveCustomerAt = Math.max(customerAt, pancakeCustomerAt || 0);
-      const snippet = String(row.snippet || row.last_message?.message || row.last_message?.text || "").trim();
-      const normalizedSnippet = livePageReplyText(snippet);
-      const sender = livePageReplySender(row);
+  const updatedAtValue = row.updated_at || row.last_message?.created_at || row.last_message_at || null;
+  const updatedAt = livePageReplyTime(updatedAtValue);
+  const pancakeCustomerAt = livePageReplyTime(row.last_customer_message_at || row.last_customer_at || "");
+  const effectiveCustomerAt = Math.max(customerAt, pancakeCustomerAt || 0);
+  const snippet = String(row.snippet || row.last_message?.message || row.last_message?.text || "").trim();
+  const normalizedSnippet = livePageReplyText(snippet);
+  const sender = livePageReplySender(row);
 
-      if (!sender || !updatedAt || updatedAt <= effectiveCustomerAt + 500) return null;
-      if (latestCustomerText && normalizedSnippet && normalizedSnippet === latestCustomerText) return null;
+  if (!sender || !updatedAt || updatedAt <= effectiveCustomerAt + 500) return null;
+  if (latestCustomerText && normalizedSnippet && normalizedSnippet === latestCustomerText) return null;
 
-      const actorName = String(sender.admin_name || sender.name || sender.actor_name || "").trim();
-      const actorAppId = String(sender.app_id || sender.application_id || sender.bot_id || "").trim();
-      return {
-        source_system: livePageReplySource(row),
-        sent_at: new Date(updatedAt).toISOString(),
-        actor_name: actorName || null,
-        actor_app_id: actorAppId || null,
-        message_text: snippet.slice(0, 600) || null,
-        conversation_id: String(row.id || row.conversation_id || "").trim() || null,
-        evidence: "pancake_live_conversation_summary",
-      };
-    }
-
-    const tail = rows[rows.length - 1];
-    const next = String(tail?.id || tail?.conversation_id || "").trim();
-    if (!next || next === lastConversationId || rows.length === 0) break;
-    lastConversationId = next;
-  }
-  return null;
+  const actorName = String(sender.admin_name || sender.name || sender.actor_name || "").trim();
+  const actorAppId = String(sender.app_id || sender.application_id || sender.bot_id || "").trim();
+  return {
+    source_system: livePageReplySource(row),
+    sent_at: new Date(updatedAt).toISOString(),
+    actor_name: actorName || null,
+    actor_app_id: actorAppId || null,
+    message_text: snippet.slice(0, 600) || null,
+    conversation_id: String(row.id || row.conversation_id || "").trim() || null,
+    evidence: "pancake_live_shared_page_snapshot",
+    snapshot_loaded_at: snapshot?.loaded_at || null,
+    snapshot_attempts: snapshot?.attempts || [],
+  };
 }
 
 // ${MARK}
@@ -274,12 +269,13 @@ async function livePageReplyEvidence(decision, customerAt) {
   if (!source.includes(deliveryMetadataAnchor)) throw new Error("V10_LIVE_PAGE_REPLY_GUARD_DELIVERY_METADATA_ANCHOR_MISSING");
   source = source.replace(deliveryMetadataAnchor, `${deliveryMetadataAnchor}\n      support_mode: Boolean(gate.supportMode),\n      support_primary_bot: gate.supportMode ? "AICAKE" : null,\n      support_live_reply_source: gate.livePageReply?.source_system || null,`);
 
-  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_aicake_primary_support_v7";');
+  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_aicake_primary_support_v8_shared_pancake_snapshot";');
   if (!source.includes(MARK)
     || !source.includes("AICAKE_PRIMARY_SUPPORT")
     || !source.includes("SUPPORT_MEDIA_ONLY")
     || !source.includes("SUPPORT_NO_PUBLISHED_ASSET")
-    || !source.includes("LIVE_PAGE_ALREADY_REPLIED")) {
+    || !source.includes("LIVE_PAGE_ALREADY_REPLIED")
+    || !source.includes("pancake_live_shared_page_snapshot")) {
     throw new Error("V10_LIVE_PAGE_REPLY_GUARD_INSTALL_FAILED");
   }
   fs.writeFileSync(FILE, source, "utf8");

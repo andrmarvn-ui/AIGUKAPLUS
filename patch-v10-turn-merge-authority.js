@@ -15,6 +15,13 @@ if (!outbound.includes(OUTBOUND_MARK)) {
     'v9_runtime_config?select=mode,external_bot_mode,external_bot_policy,ingest_mode,debounce_seconds&id=eq.1&limit=1',
   );
   outbound = outbound.replace(
+    'v9_runtime_config?select=mode,external_bot_mode,external_bot_policy,ingest_mode,response_sla_seconds&id=eq.1&limit=1',
+    'v9_runtime_config?select=mode,external_bot_mode,external_bot_policy,ingest_mode,response_sla_seconds,debounce_seconds&id=eq.1&limit=1',
+  );
+  if (!outbound.includes("response_sla_seconds,debounce_seconds")) {
+    throw new Error("V10_TURN_MERGE_RUNTIME_TIMING_FIELDS_MISSING");
+  }
+  outbound = outbound.replace(
     'v9_conversation_state?select=state,contact_status,phone,zalo,human_takeover,human_takeover_until,last_customer_event_at,last_page_event_at&page_id=',
     'v9_conversation_state?select=state,contact_status,phone,zalo,human_takeover,human_takeover_until,last_customer_event_at,last_page_event_at,last_source_event_id&page_id=',
   );

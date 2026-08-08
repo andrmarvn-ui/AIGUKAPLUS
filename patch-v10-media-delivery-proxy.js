@@ -55,7 +55,7 @@ patchFile(OUTBOUND, (source) => {
   const imageAnchor = "image_url: asset.source_url,";
   if (!source.includes(imageAnchor)) throw new Error("V10_MEDIA_PROXY_OUTBOUND_IMAGE_URL_ANCHOR_MISSING");
   source = source.replace(imageAnchor, "image_url: v10MessengerImageUrl(asset.source_url),");
-  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_grouped_media_v11_drive_proxy";');
+  source = source.replace(/const VERSION = "v10_outbound_[^"]+";/, 'const VERSION = "v10_outbound_grouped_media_v12_sla_priority";');
   return source;
 });
 

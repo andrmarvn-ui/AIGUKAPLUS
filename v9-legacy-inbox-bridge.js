@@ -1,13 +1,16 @@
 import { normalizeLegacyWebhookInboxRow } from "./v9/core/legacy-inbox-normalizer.js";
+import { bridgeFreshCutoff, prioritizeBridgeCandidates } from "./v9/core/bridge-priority.js";
 
 const LEGACY_BASE = String(process.env.SUPABASE_URL || process.env.SUPABASE_PROJECT_URL || "").replace(/\/$/, "");
 const LEGACY_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v9-legacy-inbox-bridge";
-const VERSION = "v9_legacy_inbox_bridge_v2_cutover";
+const VERSION = "v9_legacy_inbox_bridge_v3_fresh_preemption";
 const POLL_MS = Math.max(3000, Number(process.env.AIGUKA_V9_BRIDGE_POLL_MS || 5000));
 const BATCH_SIZE = Math.max(1, Math.min(50, Number(process.env.AIGUKA_V9_BRIDGE_BATCH || 20)));
+const RECOVERY_BATCH_SIZE = Math.max(1, Math.min(BATCH_SIZE, Number(process.env.AIGUKA_V9_BRIDGE_RECOVERY_BATCH || 5)));
+const FRESH_WINDOW_MS = Math.max(30_000, Number(process.env.AIGUKA_V9_BRIDGE_FRESH_WINDOW_MS || 120_000));
 const CUTOVER_AT = Number.isFinite(Date.parse(String(process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT || "")))
   ? new Date(Date.parse(process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT)).toISOString()
   : new Date().toISOString();
@@ -59,10 +62,17 @@ async function recoverStaleClaims() {
 }
 
 async function candidates() {
-  const now = encodeURIComponent(new Date().toISOString());
-  return legacy(
-    `v8_webhook_inbox?select=id,page_id,sender_id,recipient_id,message_id,event_time,payload,status,attempts,next_attempt_at,locked_at,locked_by,created_at,updated_at&status=in.(pending,error,dead)&created_at=gte.${encodeURIComponent(CUTOVER_AT)}&or=(next_attempt_at.is.null,next_attempt_at.lte.${now})&order=created_at.asc,id.asc&limit=${BATCH_SIZE}`,
-  );
+  const nowValue = new Date().toISOString();
+  const now = encodeURIComponent(nowValue);
+  const freshCutoff = bridgeFreshCutoff(Date.now(), FRESH_WINDOW_MS);
+  const select = "select=id,page_id,sender_id,recipient_id,message_id,event_time,payload,status,attempts,next_attempt_at,locked_at,locked_by,created_at,updated_at";
+  const common = `${select}&status=in.(pending,error,dead)&created_at=gte.${encodeURIComponent(CUTOVER_AT)}&or=(next_attempt_at.is.null,next_attempt_at.lte.${now})`;
+  const fresh = await legacy(`${common}&created_at=gte.${encodeURIComponent(freshCutoff)}&order=created_at.asc,id.asc&limit=${BATCH_SIZE}`);
+  const remaining = Math.min(RECOVERY_BATCH_SIZE, Math.max(0, BATCH_SIZE - (fresh?.length || 0)));
+  const recovery = remaining > 0
+    ? await legacy(`${common}&created_at=lt.${encodeURIComponent(freshCutoff)}&order=created_at.asc,id.asc&limit=${remaining}`)
+    : [];
+  return prioritizeBridgeCandidates(fresh, recovery, BATCH_SIZE);
 }
 
 async function claim(candidate) {
@@ -151,10 +161,14 @@ async function tick() {
   let duplicates = 0;
   let skipped = 0;
   let failed = 0;
+  let freshRows = 0;
+  let recoveryRows = 0;
   try {
     await recoverStaleClaims();
     const rows = await candidates();
     for (const candidate of rows || []) {
+      if (candidate.bridge_lane === "fresh") freshRows += 1;
+      if (candidate.bridge_lane === "recovery") recoveryRows += 1;
       const row = await claim(candidate);
       if (!row) continue;
       try {
@@ -180,6 +194,11 @@ async function tick() {
       skipped_last_tick: skipped,
       failed_last_tick: failed,
       batch_size: BATCH_SIZE,
+      fresh_rows_last_tick: freshRows,
+      recovery_rows_last_tick: recoveryRows,
+      recovery_batch_size: RECOVERY_BATCH_SIZE,
+      fresh_window_ms: FRESH_WINDOW_MS,
+      queue_priority: "fresh_received_first_then_bounded_recovery",
       source: "v8_webhook_inbox",
       outbound_enabled: false,
       historical_replay_enabled: false,
@@ -190,6 +209,8 @@ async function tick() {
       duplicates_last_tick: duplicates,
       skipped_last_tick: skipped,
       failed_last_tick: failed,
+      fresh_rows_last_tick: freshRows,
+      recovery_rows_last_tick: recoveryRows,
       source: "v8_webhook_inbox",
       outbound_enabled: false,
       historical_replay_enabled: false,

@@ -17,6 +17,9 @@ const FILES = [
   "v10/core/media-obligation.js",
   "v10/core/unresolved-needs.js",
   "v10/core/product-threads.js",
+  "v10/core/outbound-priority.js",
+  "v10/core/pancake-conversation-snapshot.js",
+  "v9/core/bridge-priority.js",
   "v9-core-fetch-router.js",
   "v10-decision-queue-janitor.js",
   "v10-direct-core-worker.js",
@@ -92,9 +95,14 @@ requireToken("v10-ai-worker-final.js", "providerSettings(provider).max_input_cha
 requireToken("v10-ai-worker-final.js", "AIGUKA_V10_DECISION_INTEGRITY_V10");
 requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
-requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v1";');
+requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v2_sla_priority";');
 requireToken("v10-outbound-worker.js", "AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1");
 requireToken("v10-outbound-worker.js", "AIGUKA_V10_MAX_MEDIA_ASSETS || 20");
+requireToken("v10-outbound-worker.js", "prioritizeOutboundDecisions");
+requireToken("v10-outbound-worker.js", "fresh_sla_first_then_recent_recovery");
+requireToken("v9-legacy-inbox-bridge.js", "fresh_received_first_then_bounded_recovery");
+requireToken("patch-v10-live-page-reply-guard.js", "createPancakeConversationSnapshotCache");
+requireToken("patch-v10-live-page-reply-guard.js", "pancake_live_shared_page_snapshot");
 
 requireToken("patch-v10-specific-price-contact.js", "AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1");
 requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR");

@@ -24,20 +24,21 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway verifies a checksummed final AI worker instead of patching source", () => {
-  assert.match(release, /AIGUKA_V10_AI_SOVEREIGN_FINAL_WORKER_V1/);
+  assert.match(release, /AIGUKA_V10_SEMANTIC_PRODUCT_THREADS_V6/);
   assert.match(release, /v10_queue_hygiene_v2/);
   assert.match(release, /V10_REHYDRATE_LEGACY_PENDING/);
-  assert.match(release, /v10_direct_ai_sovereign_v1/);
+  assert.match(release, /v10_direct_ai_sovereign_v2_frontier_guard/);
   assert.match(release, /v10_ai_quality_guard_v13/);
   assert.match(release, /AIGUKA_V10_DECISION_INTEGRITY_V10/);
   assert.match(release, /AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1/);
-  assert.match(release, /v10_outbound_safety_only_v1/);
+  assert.match(release, /v10_outbound_safety_only_v2_sla_priority/);
   assert.match(release, /createHash\("sha256"\)/);
   assert.match(release, /V10_FINAL_AI_WORKER_CHECKSUM_MISMATCH/);
   assert.doesNotMatch(start, /v9-live-release-patch\.js/);
   assert.doesNotMatch(release, /replaceOnce|replaceBetween|applyStage/);
   assert.match(aiEntry, /v10-ai-worker-final\.js/);
-  assert.doesNotMatch(aiEntry, /patch-v10-/);
+  assert.match(aiEntry, /patch-v10-ai-sovereign-validator\.js/);
+  assert.match(aiEntry, /patch-v10-product-thread-ai\.js/);
   assert.match(ai, /recoverStaleProcessing/);
   assert.match(ai, /providerAvailability/);
   assert.match(ai, /ai_decision_authority: "sole"/);

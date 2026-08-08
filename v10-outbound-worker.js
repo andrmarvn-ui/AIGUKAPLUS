@@ -1,5 +1,6 @@
 import { loadActiveMetaConnection } from "./meta-token-store.js";
 import { normalizeVietnamese } from "./v10/core/advisory-engine.js";
+import { prioritizeOutboundDecisions } from "./v10/core/outbound-priority.js";
 
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
@@ -7,10 +8,12 @@ const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v23.0";
 const NAME = "aiguka-v10-outbound";
-const VERSION = "v10_outbound_safety_only_v1";
+const VERSION = "v10_outbound_safety_only_v2_sla_priority";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_OUTBOUND_POLL_MS || 3000));
 const MAX_DECISION_AGE_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_LIVE_MAX_AGE_MS || 2 * 60 * 60_000));
 const MAX_MEDIA_ASSETS = Math.max(10, Math.min(20, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 20)));
+const CANDIDATE_SCAN_LIMIT = Math.max(20, Math.min(200, Number(process.env.AIGUKA_V10_OUTBOUND_SCAN_LIMIT || 100)));
+const DELIVERY_BATCH_SIZE = Math.max(1, Math.min(20, Number(process.env.AIGUKA_V10_OUTBOUND_BATCH || 10)));
 let running = false;
 let timer;
 let lastHeartbeat = 0;
@@ -70,7 +73,7 @@ async function graph(path, token, options = {}) {
 }
 
 async function runtime() {
-  const rows = await core("v9_runtime_config?select=mode,external_bot_mode,external_bot_policy,ingest_mode&id=eq.1&limit=1", { timeout: 10000 });
+  const rows = await core("v9_runtime_config?select=mode,external_bot_mode,external_bot_policy,ingest_mode,response_sla_seconds&id=eq.1&limit=1", { timeout: 10000 });
   return rows?.[0] || { mode: "OFF", ingest_mode: "OFF" };
 }
 
@@ -451,7 +454,12 @@ async function tick() {
       return;
     }
     await pageTokens();
-    const rows = await core("v9_decisions?select=id,page_id,sender_id,source_event_id,status,action,confidence,output,input_snapshot,created_at,updated_at&status=in.(shadow_ai_completed,live_delivery_failed)&order=created_at.asc&limit=10");
+    const candidates = await core(`v9_decisions?select=id,page_id,sender_id,source_event_id,status,action,confidence,output,input_snapshot,created_at,updated_at&status=in.(shadow_ai_completed,live_delivery_failed)&order=created_at.desc&limit=${CANDIDATE_SCAN_LIMIT}`);
+    const priority = prioritizeOutboundDecisions(candidates, {
+      nowMs: Date.now(),
+      responseSlaSeconds: Number(config.response_sla_seconds || 45),
+    });
+    const rows = priority.rows.slice(0, DELIVERY_BATCH_SIZE);
     for (const decision of rows || []) {
       const result = await processDecision(decision, config);
       sent += result.sent;
@@ -460,7 +468,13 @@ async function tick() {
     }
     await heartbeat(failed ? "degraded" : "healthy", mode, {
       outbound_enabled: true,
-      candidates: rows?.length || 0,
+      candidates: rows.length,
+      candidates_scanned: candidates?.length || 0,
+      fresh_sla_candidates: priority.fresh_count,
+      recovery_backlog_candidates: priority.recovery_count,
+      outbound_priority: "fresh_sla_first_then_recent_recovery",
+      delivery_batch_size: DELIVERY_BATCH_SIZE,
+      candidate_scan_limit: CANDIDATE_SCAN_LIMIT,
       sent,
       suppressed,
       failed,
