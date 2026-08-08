@@ -5,6 +5,11 @@ function messagesOf(conversation = {}) {
   return Array.isArray(conversation?.messages) ? conversation.messages : [];
 }
 
+function activeCustomer(message) {
+  if (!message || message.role !== "customer") return false;
+  return !["superseded", "cancelled"].includes(String(message.semantic_status || "active").toLowerCase());
+}
+
 function currentCustomerCluster(messages = []) {
   let boundary = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -13,7 +18,7 @@ function currentCustomerCluster(messages = []) {
       break;
     }
   }
-  return messages.slice(boundary + 1).filter((message) => message?.role === "customer");
+  return messages.slice(boundary + 1).filter(activeCustomer);
 }
 
 function hasContact(text = "") {
@@ -66,4 +71,4 @@ export function deriveUnresolvedNeeds(conversation = {}, knowledgeAdvisors = {})
   }).slice(0, 12).map((need) => ({ ...need, media_explicit: mediaExplicit }));
 }
 
-export const unresolvedNeedsVersion = "v10_unresolved_needs_v1";
+export const unresolvedNeedsVersion = "v10_unresolved_needs_v2_semantic_active_only";
