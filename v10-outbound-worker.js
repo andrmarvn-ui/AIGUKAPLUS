@@ -322,6 +322,11 @@ async function sendCarousel(pageId, recipientId, assets) {
   const elements = assets.slice(0, 10).map((asset, index) => ({
     title: String(asset.title || `Mẫu ${index + 1}`).slice(0, 80),
     image_url: asset.source_url,
+    default_action: {
+      type: "web_url",
+      url: asset.source_url,
+      webview_height_ratio: "full",
+    },
     subtitle: "Một vài mẫu bán chạy để anh/chị tham khảo trước",
   }));
   return graph("me/messages", token, {

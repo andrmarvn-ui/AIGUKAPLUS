@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_STORAGE_CAROUSEL_V7";
+const RELEASE = "AIGUKA_V10_IMAGE_CLICK_V8";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -126,6 +126,8 @@ requireToken("patch-v10-media-delivery-proxy.js", "groupLabel = null");
 requireToken("patch-v10-media-delivery-proxy.js", "prepareCarouselAssets");
 requireToken("patch-v10-media-delivery-proxy.js", "storage_url,storage_status,delivery_url,delivery_status");
 requireToken("patch-slide-generic-carousel.js", 'media_source: "supabase_storage_static"');
+requireToken("patch-slide-generic-carousel.js", "url: imageUrl,");
+requireToken("v10-outbound-worker.js", "url: asset.source_url,");
 requireToken("v10/core/carousel-media.js", 'carouselMediaVersion = "v10_storage_carousel_v1"');
 requireToken("v10/core/carousel-media.js", "CAROUSEL_PREFLIGHT_FAILED");
 

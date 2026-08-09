@@ -44,8 +44,8 @@ if (source.includes(marker)) {
           subtitle,
           default_action: {
             type: "web_url",
-            url: "https://zalo.me/0989882690",
-            webview_height_ratio: "tall",
+            url: imageUrl,
+            webview_height_ratio: "full",
           },
           buttons: [
             {
