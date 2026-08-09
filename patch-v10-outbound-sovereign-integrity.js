@@ -86,3 +86,4 @@ await import("./patch-v10-support-salutation.js");
 await import("./patch-v10-grouped-media-bundles.js");
 await import("./patch-v10-direct-core-structured-input.js");
 await import("./patch-v10-media-delivery-proxy.js");
+await import("./patch-v10-media-scope-dedupe.js");

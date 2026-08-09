@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_IMAGE_CLICK_V8";
+const RELEASE = "AIGUKA_V10_MEDIA_DEDUPE_V9";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -20,6 +20,7 @@ const FILES = [
   "v10/core/outbound-priority.js",
   "v10/core/pancake-conversation-snapshot.js",
   "v10/core/carousel-media.js",
+  "v10/core/media-dedupe.js",
   "v9/core/bridge-priority.js",
   "v9-core-fetch-router.js",
   "v10-decision-queue-janitor.js",
@@ -38,6 +39,7 @@ const FILES = [
   "patch-v10-grouped-media-bundles.js",
   "patch-v10-direct-core-structured-input.js",
   "patch-v10-media-delivery-proxy.js",
+  "patch-v10-media-scope-dedupe.js",
   "followup-admin-v8.js",
   "followup-admin-v8-client.js",
 ];
@@ -117,6 +119,7 @@ requireToken("patch-v10-outbound-sovereign-integrity.js", "AIGUKA_V10_OUTBOUND_S
 requireToken("patch-v10-outbound-sovereign-integrity.js", "EXACT_DUPLICATE_RECENT_REPLY");
 requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-grouped-media-bundles.js")');
 requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-media-delivery-proxy.js")');
+requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-media-scope-dedupe.js")');
 requireToken("patch-v10-grouped-media-bundles.js", "AIGUKA_V10_GROUPED_MEDIA_BUNDLES_V1");
 requireToken("patch-v10-grouped-media-bundles.js", "one_product_group_per_bundle");
 requireToken("patch-v10-direct-core-structured-input.js", "AIGUKA_V10_DIRECT_CORE_STRUCTURED_INPUT_V1");
@@ -130,6 +133,10 @@ requireToken("patch-slide-generic-carousel.js", "url: imageUrl,");
 requireToken("v10-outbound-worker.js", "url: asset.source_url,");
 requireToken("v10/core/carousel-media.js", 'carouselMediaVersion = "v10_storage_carousel_v1"');
 requireToken("v10/core/carousel-media.js", "CAROUSEL_PREFLIGHT_FAILED");
+requireToken("v10/core/media-dedupe.js", 'mediaDedupeVersion = "v10_media_scope_dedupe_v1"');
+requireToken("patch-v10-media-scope-dedupe.js", "AIGUKA_V10_MEDIA_SCOPE_DEDUPE_V1");
+requireToken("patch-v10-media-scope-dedupe.js", "DUPLICATE_MEDIA_SCOPE_24H");
+requireToken("patch-v10-media-scope-dedupe.js", "resolution=ignore-duplicates,return=representation");
 
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
@@ -154,4 +161,4 @@ requireToken("followup-admin-v8.js", "installFollowupAdminV8");
 requireToken("followup-admin-v8-client.js", "Lưu Event này");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; rapid structured choices replace earlier choices only inside the same menu window; explicit free-text REPLACE/CANCEL changes active media scope; additive unresolved needs persist; product threads remain separate; grouped media resolves Drive IDs to verified static Storage URLs; and outbound sends one independent media bundle per broad product group`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; grouped media resolves to verified static URLs; each customer/catalog media scope has one atomic 24-hour transport claim; and explicit resend requests remain allowed`);
