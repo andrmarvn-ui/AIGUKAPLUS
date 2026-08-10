@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_MEDIA_CONTINUATION_V10";
+const RELEASE = "AIGUKA_V10_MEDIA_CONTINUATION_V11";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -160,6 +160,7 @@ requireToken("v10/core/knowledge-advisor.js", "recursive_assets: true");
 requireToken("v10/core/knowledge-advisor.js", "slide_catalog");
 requireToken("v10/core/knowledge-advisor.js", "fallback.length ? fallback");
 requireToken("v10/core/knowledge-advisor.js", "curated_mapping_fallback");
+requireToken("v10/core/knowledge-advisor.js", "AIGUKA_V10_AD_POST_CONTINUITY_V1");
 requireToken("v10/core/unresolved-needs.js", 'export const unresolvedNeedsVersion = "v10_unresolved_needs_v2_semantic_active_only";');
 requireToken("v10/core/media-obligation.js", 'export const mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback";');
 requireToken("v10/core/product-threads.js", 'export const productThreadsVersion = "v10_product_threads_v1_grouped_media";');

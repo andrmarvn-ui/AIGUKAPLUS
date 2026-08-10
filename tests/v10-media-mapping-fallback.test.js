@@ -42,3 +42,40 @@ test("media obligation runtime contains a high-confidence mapping fallback", () 
   assert.match(patch, /explicitMediaRequestFromMessages/);
   assert.equal(patch.includes("catalog_keys.length <= 3"), false);
 });
+
+test("comment post id restores the ad catalog when Messenger loses referral context", () => {
+  const snapshot = {
+    content: {
+      catalog: [
+        { catalog_key: "quat_tran", display_name: "Quạt trần", assets: [{ source_url: "https://example.test/fan.jpg" }] },
+        { catalog_key: "combo_phong_tam", display_name: "Combo phòng tắm", assets: [{ source_url: "https://example.test/bath.jpg" }] },
+      ],
+      ad_mappings: [{
+        ad_id: "120245541511310424",
+        catalog_keys: ["quat_tran"],
+        is_active: true,
+        metadata: {
+          post_ids: ["1030388066518349"],
+          fallback_catalog_keys: ["quat_tran"],
+        },
+      }],
+    },
+  };
+  const conversation = {
+    messages: [{
+      role: "customer",
+      text: "Gửi mấy mẫu xem nào",
+      payload: {
+        kind: "feed_change",
+        change: { value: { post_id: "104810069068200_1030388066518349" } },
+      },
+    }],
+    referral: {},
+    advisors: { product_candidates: [] },
+  };
+
+  const advisors = buildKnowledgeAdvisors(snapshot, conversation, { maxCatalog: 8 });
+  assert.deepEqual(advisors.slide_catalog.map((item) => item.catalog_key), ["quat_tran"]);
+  assert.deepEqual(advisors.ad_mappings[0].fallback_catalog_keys, ["quat_tran"]);
+  assert.ok(advisors.ad_mappings[0].post_ids.includes("1030388066518349"));
+});

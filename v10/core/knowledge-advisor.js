@@ -2,6 +2,54 @@ import { normalizeVietnamese } from "./advisory-engine.js";
 
 const unique = (values) => [...new Set((values || []).filter(Boolean))];
 
+// AIGUKA_V10_AD_POST_CONTINUITY_V1
+function postIdVariants(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  const pieces = raw.split("_").filter(Boolean);
+  return unique([raw, pieces.length > 1 ? pieces[pieces.length - 1] : null]);
+}
+
+function conversationPostIds(conversation = {}) {
+  const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+  const values = [
+    conversation?.referral?.post_id,
+    conversation?.referral?.ads_context_data?.post_id,
+    conversation?.referral?.adsContextData?.post_id,
+  ];
+  for (const message of messages) {
+    const payload = message?.payload || {};
+    const change = payload?.change?.value || {};
+    const raw = payload?.raw_payload || {};
+    values.push(
+      message?.post_id,
+      message?.referral?.post_id,
+      message?.referral?.ads_context_data?.post_id,
+      message?.referral?.adsContextData?.post_id,
+      change?.post_id,
+      change?.post?.id,
+      raw?.message?.referral?.post_id,
+      raw?.message?.referral?.ads_context_data?.post_id,
+      raw?.message?.referral?.adsContextData?.post_id,
+      raw?.referral?.post_id,
+      raw?.referral?.ads_context_data?.post_id,
+      raw?.referral?.adsContextData?.post_id,
+    );
+  }
+  return unique(values.flatMap(postIdVariants));
+}
+
+function mappingPostIds(mapping = {}) {
+  const metadata = mapping?.metadata || {};
+  return unique([
+    mapping.post_id,
+    metadata.post_id,
+    metadata.page_post_id,
+    ...(Array.isArray(metadata.post_ids) ? metadata.post_ids : []),
+    ...(Array.isArray(metadata.source_post_ids) ? metadata.source_post_ids : []),
+  ].flatMap(postIdVariants));
+}
+
 function words(value) {
   return unique(normalizeVietnamese(value).split(/\s+/).filter((word) => word.length >= 3));
 }
@@ -86,11 +134,16 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
   const maxAssets = Math.max(1, Number(limits.maxAssetsPerCatalog || 6));
 
   const ids = referralIds(conversation.referral || {});
+  const postIds = conversationPostIds(conversation);
   const matchedMappings = mappings.filter((mapping) => {
     if (mapping?.is_active === false) return false;
     if (ids.ad_id) return String(mapping.ad_id || "") === ids.ad_id;
     if (ids.adset_id) return String(mapping.adset_id || "") === ids.adset_id;
     if (ids.campaign_id) return String(mapping.campaign_id || "") === ids.campaign_id;
+    if (postIds.length) {
+      const mappedPosts = new Set(mappingPostIds(mapping));
+      return postIds.some((postId) => mappedPosts.has(postId));
+    }
     return false;
   }).slice(0, 6);
   const curatedFallbackKeys = unique(matchedMappings.flatMap((mapping) =>
@@ -170,6 +223,7 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
     ad_id: mapping.ad_id || null,
     adset_id: mapping.adset_id || null,
     campaign_id: mapping.campaign_id || null,
+    post_ids: mappingPostIds(mapping),
     catalog_keys: Array.isArray(mapping.catalog_keys) ? mapping.catalog_keys : [],
     fallback_catalog_keys: Array.isArray(mapping?.metadata?.fallback_catalog_keys)
       ? mapping.metadata.fallback_catalog_keys
