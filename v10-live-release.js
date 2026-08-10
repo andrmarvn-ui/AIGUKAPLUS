@@ -143,6 +143,7 @@ requireToken("patch-v10-media-scope-dedupe.js", "DUPLICATE_MEDIA_SCOPE_24H");
 requireToken("patch-v10-media-scope-dedupe.js", "resolution=ignore-duplicates,return=representation");
 requireToken("patch-v10-media-obligation-integrity.js", "AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1");
 requireToken("patch-v10-media-obligation-integrity.js", "fallback_catalog_keys");
+requireToken("patch-v10-media-obligation-integrity.js", "explicit_media_backlog_first");
 requireToken("patch-v10-active-intent-focus.js", "AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1");
 requireToken("v10-conversation-continuity-runtime.js", "media_catalog_keys_resolved");
 

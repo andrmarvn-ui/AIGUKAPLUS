@@ -74,6 +74,24 @@ function currentTurnSlideKeys(modelInput, slideKeys) {
 
 `;
   ai = ai.slice(0, start) + scopeReplacement + ai.slice(end);
+
+  const readyAnchor = `    const ready = (rows || []).filter((row) => {
+      if (row?.input_snapshot?.architecture !== ARCHITECTURE) return false;
+      const retryAt = Date.parse(row?.output?.retry_not_before || "");
+      return !Number.isFinite(retryAt) || retryAt <= now;
+    });`;
+  if (!ai.includes(readyAnchor)) throw new Error("V10_MEDIA_PATCH_READY_QUEUE_TARGET_MISSING");
+  ai = ai.replace(readyAnchor, `${readyAnchor}
+    ready.sort(function (left, right) {
+      const leftMessages = left?.input_snapshot?.conversation?.messages || [];
+      const rightMessages = right?.input_snapshot?.conversation?.messages || [];
+      const leftMedia = explicitMediaRequestFromMessages(leftMessages);
+      const rightMedia = explicitMediaRequestFromMessages(rightMessages);
+      if (leftMedia !== rightMedia) return leftMedia ? -1 : 1;
+      const leftTime = Date.parse(left?.created_at || "") || 0;
+      const rightTime = Date.parse(right?.created_at || "") || 0;
+      return leftMedia ? rightTime - leftTime : leftTime - rightTime;
+    }); // explicit_media_backlog_first`);
   ai += `\n// ${AI_MARK}\n`;
   fs.writeFileSync(AI_FILE, ai, "utf8");
 }

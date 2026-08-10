@@ -140,6 +140,7 @@ test("the complete Railway patch chain produces a syntactically valid deduping w
   const aiWorker = fs.readFileSync(path.join(temp, "v10-ai-worker-final.js"), "utf8");
   assert.match(aiWorker, /AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1/);
   assert.match(aiWorker, /AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1/);
+  assert.match(aiWorker, /explicit_media_backlog_first/);
 });
 
 test("all natural more-sample phrases bypass the 24h scope lock", () => {
