@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_MEDIA_DEDUPE_V9";
+const RELEASE = "AIGUKA_V10_MEDIA_CONTINUATION_V10";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -36,10 +36,13 @@ const FILES = [
   "patch-v10-ai-sovereign-validator.js",
   "patch-v10-product-thread-ai.js",
   "patch-v10-outbound-sovereign-integrity.js",
+  "patch-v10-media-obligation-integrity.js",
+  "patch-v10-active-intent-focus.js",
   "patch-v10-grouped-media-bundles.js",
   "patch-v10-direct-core-structured-input.js",
   "patch-v10-media-delivery-proxy.js",
   "patch-v10-media-scope-dedupe.js",
+  "v10-conversation-continuity-runtime.js",
   "followup-admin-v8.js",
   "followup-admin-v8-client.js",
 ];
@@ -117,6 +120,7 @@ requireToken("patch-v10-product-thread-ai.js", "AIGUKA_V10_PRODUCT_THREAD_AI_V1"
 requireToken("patch-v10-product-thread-ai.js", "product_threads: productThreads");
 requireToken("patch-v10-outbound-sovereign-integrity.js", "AIGUKA_V10_OUTBOUND_SOVEREIGN_INTEGRITY_V1");
 requireToken("patch-v10-outbound-sovereign-integrity.js", "EXACT_DUPLICATE_RECENT_REPLY");
+requireToken("patch-v10-outbound-sovereign-integrity.js", "can them mau");
 requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-grouped-media-bundles.js")');
 requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-media-delivery-proxy.js")');
 requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-media-scope-dedupe.js")');
@@ -137,6 +141,10 @@ requireToken("v10/core/media-dedupe.js", 'mediaDedupeVersion = "v10_media_scope_
 requireToken("patch-v10-media-scope-dedupe.js", "AIGUKA_V10_MEDIA_SCOPE_DEDUPE_V1");
 requireToken("patch-v10-media-scope-dedupe.js", "DUPLICATE_MEDIA_SCOPE_24H");
 requireToken("patch-v10-media-scope-dedupe.js", "resolution=ignore-duplicates,return=representation");
+requireToken("patch-v10-media-obligation-integrity.js", "AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1");
+requireToken("patch-v10-media-obligation-integrity.js", "fallback_catalog_keys");
+requireToken("patch-v10-active-intent-focus.js", "AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1");
+requireToken("v10-conversation-continuity-runtime.js", "media_catalog_keys_resolved");
 
 requireToken("v10/core/advisory-engine.js", "advisory_only: true");
 requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
@@ -150,7 +158,7 @@ forbidToken("v10/core/decision-contract.js", "contactRequestSentence");
 requireToken("v10/core/knowledge-advisor.js", "recursive_assets: true");
 requireToken("v10/core/knowledge-advisor.js", "slide_catalog");
 requireToken("v10/core/unresolved-needs.js", 'export const unresolvedNeedsVersion = "v10_unresolved_needs_v2_semantic_active_only";');
-requireToken("v10/core/media-obligation.js", 'export const mediaObligationVersion = "v10_media_obligation_v5_replace_cancel_semantics";');
+requireToken("v10/core/media-obligation.js", 'export const mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback";');
 requireToken("v10/core/product-threads.js", 'export const productThreadsVersion = "v10_product_threads_v1_grouped_media";');
 
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v3";');
@@ -161,4 +169,4 @@ requireToken("followup-admin-v8.js", "installFollowupAdminV8");
 requireToken("followup-admin-v8-client.js", "Lưu Event này");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; grouped media resolves to verified static URLs; each customer/catalog media scope has one atomic 24-hour transport claim; and explicit resend requests remain allowed`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; grouped media resolves to verified static URLs; continuation postbacks inherit product scope; mapped ads provide deterministic media fallback; and explicit resend requests bypass the 24-hour scope lock`);

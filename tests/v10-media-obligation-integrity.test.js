@@ -124,3 +124,46 @@ test("unrelated address-only turn does not force media", () => {
   assert.deepEqual(scope, []);
   assert.equal(mediaExpectedFromMessages(messages, scope), false);
 });
+
+test("Thanh Vương fan postback resolves the fan root even when the button title is generic", () => {
+  const messages = [{
+    role: "customer",
+    event_type: "customer_postback",
+    text: "Xem thêm các mẫu khác",
+    postback: {
+      title: "Xem thêm các mẫu khác",
+      payload: "XEM_MAU_QUAT",
+      effective_payload: "XEM_MAU_QUAT",
+    },
+  }];
+  assert.deepEqual(deriveMediaScope(messages, slideKeys), ["quat_tran"]);
+  assert.equal(explicitMediaRequestFromMessages(messages), true);
+});
+
+test("a generic inbox-sample ad reply is still an explicit media request", () => {
+  const messages = customers("Inbox mẫu cho tôi");
+  assert.equal(explicitMediaRequestFromMessages(messages), true);
+  assert.deepEqual(deriveMediaScope(messages, slideKeys), []);
+});
+
+test("more-sample continuation inherits the last delivered catalog scope", () => {
+  const messages = [
+    { role: "customer", event_type: "customer_message", text: "Cho xem mẫu quạt trần" },
+    {
+      role: "bot",
+      event_type: "bot_message",
+      text: "Em gửi mẫu quạt ạ.",
+      attachments: [{ type: "carousel", catalog_keys: ["quat_tran"] }],
+      media_catalog_keys: ["quat_tran"],
+    },
+    { role: "customer", event_type: "customer_message", text: "Xem tiếp các mẫu khác" },
+  ];
+  assert.deepEqual(deriveMediaScope(messages, slideKeys), ["quat_tran"]);
+  assert.equal(explicitMediaRequestFromMessages(messages), true);
+});
+
+test("natural continuation variants remain deterministic media requests", () => {
+  for (const text of ["Gửi tiếp cho mình", "Xem nữa", "Còn loại khác không?", "Thêm ảnh nhé", "Muốn thêm mẫu"]) {
+    assert.equal(explicitMediaRequestFromMessages(customers(text)), true, text);
+  }
+});

@@ -35,7 +35,19 @@ function currentTurnSlideKeys(modelInput, slideKeys) {
   const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
     ? modelInput.conversation.messages
     : [];
-  return deriveMediaScope(messages, slideKeys);
+  const explicitScope = deriveMediaScope(messages, slideKeys);
+  if (explicitScope.length || !explicitMediaRequestFromMessages(messages)) return explicitScope;
+
+  const mappings = modelInput && modelInput.knowledge_advisors && Array.isArray(modelInput.knowledge_advisors.ad_mappings)
+    ? modelInput.knowledge_advisors.ad_mappings
+    : [];
+  if (mappings.length !== 1) return [];
+  const mapping = mappings[0] || {};
+  const preferred = Array.isArray(mapping.fallback_catalog_keys) && mapping.fallback_catalog_keys.length
+    ? mapping.fallback_catalog_keys
+    : (Array.isArray(mapping.catalog_keys) ? mapping.catalog_keys : []);
+  const available = slideKeys instanceof Set ? slideKeys : new Set(Array.isArray(slideKeys) ? slideKeys.map(String) : []);
+  return [...new Set(preferred.map((value) => String(value || "").trim()).filter((value) => available.has(value)))].slice(0, 3);
 }`);
 
   const scopeStart = '  const scope = scopedSlideKeys(modelInput, slide);';

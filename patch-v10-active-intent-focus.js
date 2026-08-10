@@ -194,6 +194,16 @@ function currentCustomerClusterText(modelInput) {
 // ${MARK}`;
   source = source.slice(0, clusterStart) + clusterReplacement + source.slice(clusterEnd);
 
+  // The canonical media-obligation patch replaces currentTurnSlideKeys with
+  // deriveMediaScope before the AI worker boots. In that runtime order the
+  // kitchen/fan anchors below intentionally no longer exist; the core resolver
+  // already owns the same exact variant logic.
+  if (source.includes("AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1")) {
+    source += `\n// ${MARK}\n`;
+    fs.writeFileSync(file, source, "utf8");
+    return;
+  }
+
   const broadKitchenAnchor = '  const broadKitchen = /\\b(phong bep|nha bep|noi that.{0,12}bep|thiet bi.{0,12}bep|toan bo.{0,20}bep|bep an)\\b/.test(text);';
   if (!source.includes(broadKitchenAnchor)) throw new Error("ACTIVE_INTENT_KITCHEN_SCOPE_ANCHOR_MISSING");
   source = source.replace(

@@ -85,8 +85,20 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
   const maxCatalog = Math.max(1, Number(limits.maxCatalog || 16));
   const maxAssets = Math.max(1, Number(limits.maxAssetsPerCatalog || 6));
 
+  const ids = referralIds(conversation.referral || {});
+  const matchedMappings = mappings.filter((mapping) => {
+    if (mapping?.is_active === false) return false;
+    if (ids.ad_id) return String(mapping.ad_id || "") === ids.ad_id;
+    if (ids.adset_id) return String(mapping.adset_id || "") === ids.adset_id;
+    if (ids.campaign_id) return String(mapping.campaign_id || "") === ids.campaign_id;
+    return false;
+  }).slice(0, 6);
+
   const conversationText = (conversation.messages || []).filter((message) => message.role === "customer").map((message) => message.text).join(" ");
-  const candidateKeys = (conversation.advisors?.product_candidates || []).map((item) => item.key);
+  const candidateKeys = unique([
+    ...(conversation.advisors?.product_candidates || []).map((item) => item.key),
+    ...matchedMappings.flatMap((mapping) => Array.isArray(mapping.catalog_keys) ? mapping.catalog_keys : []),
+  ]);
   const tokens = words(`${conversationText} ${candidateKeys.join(" ")}`);
 
   const rankedDocuments = documents
@@ -143,18 +155,14 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
       };
     });
 
-  const ids = referralIds(conversation.referral || {});
-  const selectedMappings = mappings.filter((mapping) => {
-    if (mapping?.is_active === false) return false;
-    if (ids.ad_id) return String(mapping.ad_id || "") === ids.ad_id;
-    if (ids.adset_id) return String(mapping.adset_id || "") === ids.adset_id;
-    if (ids.campaign_id) return String(mapping.campaign_id || "") === ids.campaign_id;
-    return false;
-  }).slice(0, 6).map((mapping) => ({
+  const selectedMappings = matchedMappings.map((mapping) => ({
     ad_id: mapping.ad_id || null,
     adset_id: mapping.adset_id || null,
     campaign_id: mapping.campaign_id || null,
     catalog_keys: Array.isArray(mapping.catalog_keys) ? mapping.catalog_keys : [],
+    fallback_catalog_keys: Array.isArray(mapping?.metadata?.fallback_catalog_keys)
+      ? mapping.metadata.fallback_catalog_keys
+      : [],
     confidence: Number(mapping.confidence || 0),
     advisory_only: true,
   }));

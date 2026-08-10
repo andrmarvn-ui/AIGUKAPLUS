@@ -183,12 +183,17 @@ async function enrichConversationWithDeliveredReplies(claimed, baseConversation)
     const deliveredAt = output.delivered_at || output.sent_at || null;
     const deliveredTime = continuityTime(deliveredAt);
     if (!text || !deliveredTime || (lowerBound && deliveredTime < lowerBound)) continue;
+    const mediaCatalogKeys = [...new Set([
+      ...(Array.isArray(output.media_catalog_keys_resolved) ? output.media_catalog_keys_resolved : []),
+      ...(Array.isArray(output.selected_catalog_keys) ? output.selected_catalog_keys : []),
+    ].map(function (value) { return String(value || "").trim(); }).filter(Boolean))];
     const message = {
       id: "decision:" + row.id,
       role: "bot",
       event_type: "bot_message",
       text,
-      attachments: [],
+      attachments: mediaCatalogKeys.length ? [{ type: "carousel", catalog_keys: mediaCatalogKeys }] : [],
+      media_catalog_keys: mediaCatalogKeys,
       referral: null,
       occurred_at: deliveredAt,
       source: "v9_delivered_decision",

@@ -2,6 +2,7 @@ import { normalizeVietnamese } from "./advisory-engine.js";
 
 function hasDeliveredMedia(message) {
   if (!message || message.role === "customer") return false;
+  if (Array.isArray(message.media_catalog_keys) && message.media_catalog_keys.length) return true;
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   if (attachments.some((attachment) => {
     const type = String(attachment?.type || attachment?.attachment_type || "").toLowerCase();
@@ -50,6 +51,38 @@ function positiveMediaWindow(messages = []) {
   return customerMediaWindow(messages).filter((message) => relationOf(message) !== "CANCEL");
 }
 
+function customerSemanticText(message = {}) {
+  const postback = message?.postback && typeof message.postback === "object" ? message.postback : {};
+  return [
+    message?.text,
+    postback.effective_payload,
+    postback.payload,
+  ].filter(Boolean).join(" ");
+}
+
+function explicitMoreMediaText(value) {
+  const text = normalizeVietnamese(value);
+  return /\b(xem them|xem tiep|xem nua|gui them|gui tiep|gui nua|xem lai|gui lai|mau khac|anh khac|hinh khac|catalog khac|them mau|them anh|them hinh|can them mau|muon them mau|mau nua|anh nua|hinh nua|con mau|con anh|con hinh|con loai|con cai)\b/.test(text);
+}
+
+function priorDeliveredMediaKeys(messages = [], available = new Set()) {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const message = list[index];
+    if (!hasDeliveredMedia(message)) continue;
+    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    const keys = [
+      ...(Array.isArray(message.media_catalog_keys) ? message.media_catalog_keys : []),
+      ...attachments.flatMap((attachment) => [
+        ...(Array.isArray(attachment?.catalog_keys) ? attachment.catalog_keys : []),
+        attachment?.catalog_key,
+      ]),
+    ].map((value) => String(value || "").trim()).filter((value) => available.has(value));
+    if (keys.length) return [...new Set(keys)];
+  }
+  return [];
+}
+
 function slideKeySet(slideKeys) {
   if (slideKeys instanceof Set) return slideKeys;
   return new Set((Array.isArray(slideKeys) ? slideKeys : []).map(String));
@@ -60,19 +93,22 @@ export function effectiveCustomerMediaWindow(messages = []) {
 }
 
 export function customerClusterText(messages = []) {
-  return normalizeVietnamese(positiveMediaWindow(messages).map((message) => message.text || "").join(" "));
+  return normalizeVietnamese(positiveMediaWindow(messages).map(customerSemanticText).join(" "));
 }
 
 export function explicitMediaRequestFromMessages(messages = []) {
   const cluster = positiveMediaWindow(messages);
-  const raw = cluster.map((message) => String(message.text || "")).join(" ").toLowerCase();
+  const raw = cluster.map(customerSemanticText).join(" ").toLowerCase();
   const text = normalizeVietnamese(raw);
 
   if (/(?:gửi|gui|chụp|chup|cho\s+xem|xem|xin\s+xem|tham\s+khảo|tham\s+khao).{0,32}(?:mẫu|mau|ảnh|ảh|hình|hinh|catalog)/iu.test(raw)) return true;
   if (/(?:ảnh|ảh|hình|hinh|mẫu|mau).{0,20}(?:qua\s+đây|qua\s+day|trên\s+messenger|tren\s+messenger|cho\s+xem)/iu.test(raw)) return true;
   if (/\b(?:gui|chup|cho xem|xem|xin xem|tham khao).{0,28}\b(?:mau|ah|hinh|catalog)\b/.test(text)) return true;
   if (/\bgui\s+anh\s+(?:qua day|tren messenger|o day)\b/.test(text)) return true;
+  if (/\b(?:xin|can|muon).{0,16}\b(?:mau|anh|hinh|catalog)\b/.test(text)) return true;
   if (/\b(?:xem them|mau khac|gui them mau|gui lai anh|gui lai hinh)\b/.test(text)) return true;
+  if (/\binbox\s+(?:cho\s+)?(?:toi\s+)?(?:mau|anh|hinh)\b|\binbox\s+(?:mau|anh|hinh)\s+cho\s+toi\b/.test(text)) return true;
+  if (explicitMoreMediaText(text)) return true;
   return false;
 }
 
@@ -186,7 +222,14 @@ export function deriveMediaScope(messages = [], slideKeys = new Set()) {
     addPreferred("quat_tran", ["quat_10_canh_gold", "quat_8_canh_gold"]);
   }
 
-  return applyExplicitCancellations(output, messages);
+  const current = applyExplicitCancellations(output, messages);
+  if (current.length) return current;
+
+  const activeText = positiveMediaWindow(messages).map(customerSemanticText).join(" ");
+  if (explicitMoreMediaText(activeText)) {
+    return priorDeliveredMediaKeys(messages, available);
+  }
+  return current;
 }
 
 export function mediaExpectedFromMessages(messages = [], scope = []) {
@@ -205,4 +248,4 @@ export function mediaExpectedFromMessages(messages = [], scope = []) {
   return /\b(tu van|combo|com bo|tron bo|lam moi|xay nha|hoan thien nha|tham khao|xem mau)\b/.test(text);
 }
 
-export const mediaObligationVersion = "v10_media_obligation_v5_replace_cancel_semantics";
+export const mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback";

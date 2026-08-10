@@ -22,12 +22,12 @@ function sovereignOutboundCustomerCluster(decision) {
   }
   return normalizeVietnamese(messages.slice(boundary + 1)
     .filter((message) => message?.role === "customer")
-    .map((message) => message.text || "")
+    .map((message) => [message.text, message?.postback?.effective_payload, message?.postback?.payload].filter(Boolean).join(" "))
     .join(" "));
 }
 
 function sovereignOutboundRepeatRequested(decision) {
-  return /\b(gui lai|nhac lai|noi lai|lap lai|gui them|xem lai)\b/.test(sovereignOutboundCustomerCluster(decision));
+  return /\b(gui lai|nhac lai|noi lai|lap lai|gui them|gui tiep|gui nua|xem lai|xem them|xem tiep|xem nua|mau khac|anh khac|hinh khac|catalog khac|them mau|them anh|them hinh|can them mau|muon them mau|mau nua|anh nua|hinh nua|con mau|con anh|con hinh|con loai|con cai)\b/.test(sovereignOutboundCustomerCluster(decision));
 }
 
 async function sovereignRecentDuplicate(decision, text) {

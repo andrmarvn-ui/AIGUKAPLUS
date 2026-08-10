@@ -104,6 +104,7 @@ test("the complete Railway patch chain produces a syntactically valid deduping w
     "patch-v10-general-product-sales-handoff.js",
     "patch-v10-specific-price-contact.js",
     "patch-v10-media-obligation-integrity.js",
+    "patch-v10-active-intent-focus.js",
     "patch-v10-turn-merge-authority.js",
     "patch-v10-outbound-sovereign-integrity.js",
     "patch-v10-live-page-reply-guard.js",
@@ -113,6 +114,8 @@ test("the complete Railway patch chain produces a syntactically valid deduping w
     "patch-v10-media-delivery-proxy.js",
     "patch-v10-media-scope-dedupe.js",
     "v10/core/media-dedupe.js",
+    "v10/core/media-obligation.js",
+    "v10/core/decision-contract.js",
   ];
   for (const relative of files) {
     const target = path.join(temp, relative);
@@ -123,7 +126,7 @@ test("the complete Railway patch chain produces a syntactically valid deduping w
   const patchRun = spawnSync(process.execPath, [
     "--input-type=module",
     "--eval",
-    'await import("./patch-v10-general-product-sales-handoff.js"); await import("./patch-v10-media-obligation-integrity.js"); await import("./patch-v10-turn-merge-authority.js"); await import("./patch-v10-outbound-sovereign-integrity.js");',
+    'await import("./patch-v10-general-product-sales-handoff.js"); await import("./patch-v10-media-obligation-integrity.js"); await import("./patch-v10-active-intent-focus.js"); await import("./patch-v10-turn-merge-authority.js"); await import("./patch-v10-outbound-sovereign-integrity.js");',
   ], { cwd: temp, encoding: "utf8", timeout: 30_000 });
   assert.equal(patchRun.status, 0, `${patchRun.stdout}\n${patchRun.stderr}`);
 
@@ -134,4 +137,14 @@ test("the complete Railway patch chain produces a syntactically valid deduping w
   assert.match(worker, /v10_outbound_media_scope_dedupe_v13/);
   assert.match(worker, /DUPLICATE_MEDIA_SCOPE_24H/);
   assert.match(worker, /mediaDedupe\.by_bundle_key/);
+  const aiWorker = fs.readFileSync(path.join(temp, "v10-ai-worker-final.js"), "utf8");
+  assert.match(aiWorker, /AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1/);
+  assert.match(aiWorker, /AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1/);
+});
+
+test("all natural more-sample phrases bypass the 24h scope lock", () => {
+  const sovereign = fs.readFileSync(new URL("../patch-v10-outbound-sovereign-integrity.js", import.meta.url), "utf8");
+  for (const phrase of ["xem them", "xem tiep", "xem nua", "gui tiep", "mau khac", "anh khac", "them mau", "can them mau", "mau nua", "con loai"]) {
+    assert.match(sovereign, new RegExp(phrase));
+  }
 });
