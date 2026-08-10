@@ -158,6 +158,7 @@ requireToken("v10/core/decision-contract.js", "V10_DECISION_CONTACT_STATE_MISMAT
 forbidToken("v10/core/decision-contract.js", "contactRequestSentence");
 requireToken("v10/core/knowledge-advisor.js", "recursive_assets: true");
 requireToken("v10/core/knowledge-advisor.js", "slide_catalog");
+requireToken("v10/core/knowledge-advisor.js", "fallback.length ? fallback");
 requireToken("v10/core/unresolved-needs.js", 'export const unresolvedNeedsVersion = "v10_unresolved_needs_v2_semantic_active_only";');
 requireToken("v10/core/media-obligation.js", 'export const mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback";');
 requireToken("v10/core/product-threads.js", 'export const productThreadsVersion = "v10_product_threads_v1_grouped_media";');

@@ -97,7 +97,12 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
   const conversationText = (conversation.messages || []).filter((message) => message.role === "customer").map((message) => message.text).join(" ");
   const candidateKeys = unique([
     ...(conversation.advisors?.product_candidates || []).map((item) => item.key),
-    ...matchedMappings.flatMap((mapping) => Array.isArray(mapping.catalog_keys) ? mapping.catalog_keys : []),
+    ...matchedMappings.flatMap((mapping) => {
+      const fallback = Array.isArray(mapping?.metadata?.fallback_catalog_keys)
+        ? mapping.metadata.fallback_catalog_keys
+        : [];
+      return fallback.length ? fallback : (Array.isArray(mapping.catalog_keys) ? mapping.catalog_keys : []);
+    }),
   ]);
   const tokens = words(`${conversationText} ${candidateKeys.join(" ")}`);
 
@@ -136,7 +141,7 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
       return { node, score };
     })
     .sort((a, b) => b.score - a.score)
-    .filter((item, index) => item.score > 0 || index < 4)
+    .filter((item, index) => item.score > 0 || (!candidateKeys.length && index < 4))
     .slice(0, maxCatalog)
     .map(({ node, score }) => {
       const assets = recursiveAssets(node);

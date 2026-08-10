@@ -9,6 +9,8 @@ test("broad ad mapping publishes curated fallback catalogs into the AI advisor",
       catalog: [
         { catalog_key: "combo_phong_tam", display_name: "Combo phòng tắm", aliases: ["nhà tắm"], assets: [{ source_url: "https://example.test/bath.jpg" }] },
         { catalog_key: "bep_tu_hut_mui", display_name: "Bếp từ hút mùi", aliases: ["nhà bếp"], assets: [{ source_url: "https://example.test/kitchen.jpg" }] },
+        { catalog_key: "chau_voi_rua_bat", display_name: "Chậu vòi rửa bát", aliases: ["chậu rửa"], assets: [{ source_url: "https://example.test/sink.jpg" }] },
+        { catalog_key: "bon_cau", display_name: "Bồn cầu", aliases: ["bệt"], assets: [{ source_url: "https://example.test/toilet.jpg" }] },
       ],
       ad_mappings: [{
         ad_id: "120245615010400424",
