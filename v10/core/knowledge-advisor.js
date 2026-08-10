@@ -93,6 +93,10 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
     if (ids.campaign_id) return String(mapping.campaign_id || "") === ids.campaign_id;
     return false;
   }).slice(0, 6);
+  const curatedFallbackKeys = unique(matchedMappings.flatMap((mapping) =>
+    Array.isArray(mapping?.metadata?.fallback_catalog_keys) ? mapping.metadata.fallback_catalog_keys : []
+  ));
+  const curatedFallbackActive = curatedFallbackKeys.length > 0;
 
   const conversationText = (conversation.messages || []).filter((message) => message.role === "customer").map((message) => message.text).join(" ");
   const candidateKeys = unique([
@@ -110,15 +114,17 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
     .map((document) => ({ document, score: scoreText(documentText(document), tokens) }))
     .sort((a, b) => b.score - a.score)
     .filter((item, index) => item.score > 0 || index < 2)
-    .slice(0, maxDocuments);
+    .slice(0, curatedFallbackActive ? 1 : maxDocuments);
 
   const selectedDocuments = [];
   let usedDocumentChars = 0;
+  const documentCharBudget = curatedFallbackActive ? 2500 : maxTotalDocumentChars;
+  const perDocumentCharBudget = curatedFallbackActive ? 2500 : maxDocumentChars;
   for (const { document, score } of rankedDocuments) {
     const raw = String(document.content || document.text || document.body || "");
-    const remaining = maxTotalDocumentChars - usedDocumentChars;
+    const remaining = documentCharBudget - usedDocumentChars;
     if (remaining <= 0) break;
-    const selectedContent = raw.slice(0, Math.min(maxDocumentChars, remaining));
+    const selectedContent = raw.slice(0, Math.min(perDocumentCharBudget, remaining));
     usedDocumentChars += selectedContent.length;
     selectedDocuments.push({
       document_key: document.document_key,
@@ -154,7 +160,7 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
         asset_count: assets.length,
         own_asset_count: Array.isArray(node.assets) ? node.assets.filter((asset) => asset?.source_url).length : 0,
         recursive_assets: true,
-        assets: assets.slice(0, maxAssets),
+        assets: assets.slice(0, curatedFallbackActive ? Math.min(2, maxAssets) : maxAssets),
         relevance_score: score,
         advisory_only: true,
       };
@@ -178,5 +184,6 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
     catalog: selectedCatalog,
     slide_catalog: selectedCatalog.filter((item) => Number(item.asset_count || 0) > 0),
     ad_mappings: selectedMappings,
+    curated_mapping_fallback: curatedFallbackActive,
   };
 }

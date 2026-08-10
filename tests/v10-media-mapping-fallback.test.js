@@ -30,6 +30,9 @@ test("broad ad mapping publishes curated fallback catalogs into the AI advisor",
   const advisors = buildKnowledgeAdvisors(snapshot, conversation, { maxCatalog: 12 });
   assert.deepEqual(advisors.ad_mappings[0].fallback_catalog_keys, ["combo_phong_tam", "bep_tu_hut_mui"]);
   assert.deepEqual(advisors.slide_catalog.map((item) => item.catalog_key), ["combo_phong_tam", "bep_tu_hut_mui"]);
+  assert.equal(advisors.curated_mapping_fallback, true);
+  assert.ok(advisors.documents.length <= 1);
+  assert.ok(advisors.slide_catalog.every((item) => item.assets.length <= 2));
 });
 
 test("media obligation runtime contains a high-confidence mapping fallback", () => {
