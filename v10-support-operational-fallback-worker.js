@@ -5,7 +5,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-support-failover";
-const VERSION = "v10_support_failover_v1_no_drop";
+const VERSION = "v10_support_failover_v2_recover_media_only";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_POLL_MS || 3000));
 const MIN_ASSETS = Math.max(1, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_MIN_CATALOG_ASSETS || 5));
 const SCAN_LIMIT = Math.max(20, Math.min(200, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_SCAN_LIMIT || 100)));
@@ -204,16 +204,25 @@ async function tick() {
       return;
     }
 
-    const [rows, slideKeys] = await Promise.all([
-      core(`v9_decisions?select=id,source_event_id,page_id,sender_id,mode,status,goal,action,confidence,input_snapshot,output,created_at,updated_at&status=in.(shadow_context_ready,shadow_ai_error)&created_at=gte.${encodeURIComponent(new Date(Date.now() - RESPONSE_WINDOW_MS).toISOString())}&order=created_at.asc&limit=${SCAN_LIMIT}`),
+    const decisionFields = "id,source_event_id,page_id,sender_id,mode,status,goal,action,confidence,input_snapshot,output,created_at,updated_at";
+    const recoverySince = encodeURIComponent(new Date(Date.now() - RESPONSE_WINDOW_MS).toISOString());
+    const [pendingRows, mediaOnlyRows, slideKeys] = await Promise.all([
+      core(`v9_decisions?select=${decisionFields}&status=in.(shadow_context_ready,shadow_ai_error)&created_at=gte.${recoverySince}&order=created_at.asc&limit=${SCAN_LIMIT}`),
+      core(`v9_decisions?select=${decisionFields}&status=eq.live_suppressed&output->>live_suppression_reason=eq.SUPPORT_MEDIA_ONLY&created_at=gte.${recoverySince}&order=created_at.asc&limit=${SCAN_LIMIT}`),
       availableSlideKeys(),
     ]);
+    const rows = [...(pendingRows || []), ...(mediaOnlyRows || [])]
+      .sort((a, b) => Date.parse(a.created_at || "") - Date.parse(b.created_at || ""));
     scanned = rows?.length || 0;
     const waitMs = fallbackWaitMs(config);
     const nowMs = Date.now();
     const candidates = (rows || []).filter((row) => {
       if (!enabledPages.has(String(row.page_id))) return false;
       if (row?.input_snapshot?.architecture !== "v10_ai_sovereign_advisory") return false;
+      if (row.status === "live_suppressed") {
+        if (row?.output?.live_suppression_reason !== "SUPPORT_MEDIA_ONLY") return false;
+        if (row?.output?.operational_support_fallback === true) return false;
+      }
       const customerAt = supportFallbackCustomerAt(row.input_snapshot);
       return customerAt > 0 && nowMs - customerAt >= waitMs;
     }).slice(0, BATCH_SIZE);

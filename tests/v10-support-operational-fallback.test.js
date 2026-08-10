@@ -97,6 +97,9 @@ test("support failover worker is conditional, audited and has no direct Meta tra
   const worker = fs.readFileSync(new URL("../v10-support-operational-fallback-worker.js", import.meta.url), "utf8");
   assert.match(worker, /support_operational_fallback_enabled/);
   assert.match(worker, /status=in\.\(shadow_context_ready,shadow_ai_error\)/);
+  assert.match(worker, /status=eq\.live_suppressed&output->>live_suppression_reason=eq\.SUPPORT_MEDIA_ONLY/);
+  assert.match(worker, /live_suppression_reason !== "SUPPORT_MEDIA_ONLY"/);
+  assert.match(worker, /operational_support_fallback === true/);
   assert.match(worker, /&status=eq\.\$\{encodeURIComponent\(row\.status\)\}/);
   assert.match(worker, /provider_independent: true/);
   assert.match(worker, /support_fallback_recovery_clone/);
