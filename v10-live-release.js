@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_MEDIA_CONTINUATION_V11";
+const RELEASE = "AIGUKA_V10_SUPPORT_NO_DROP_V12";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -21,6 +21,7 @@ const FILES = [
   "v10/core/pancake-conversation-snapshot.js",
   "v10/core/carousel-media.js",
   "v10/core/media-dedupe.js",
+  "v10/core/support-operational-fallback.js",
   "v9/core/bridge-priority.js",
   "v9-core-fetch-router.js",
   "v10-decision-queue-janitor.js",
@@ -30,12 +31,14 @@ const FILES = [
   "v10-outbound-worker.js",
   "v10-followup-worker.js",
   "v10-pancake-contact-guard-worker.js",
+  "v10-support-operational-fallback-worker.js",
   "patch-v10-specific-price-contact.js",
   "patch-v10-general-product-sales-handoff.js",
   "patch-v10-general-product-sales-finalize.js",
   "patch-v10-ai-sovereign-validator.js",
   "patch-v10-product-thread-ai.js",
   "patch-v10-outbound-sovereign-integrity.js",
+  "patch-v10-live-page-reply-guard.js",
   "patch-v10-media-obligation-integrity.js",
   "patch-v10-active-intent-focus.js",
   "patch-v10-grouped-media-bundles.js",
@@ -109,6 +112,13 @@ requireToken("v10-outbound-worker.js", "fresh_sla_first_then_recent_recovery");
 requireToken("v9-legacy-inbox-bridge.js", "fresh_received_first_then_bounded_recovery");
 requireToken("patch-v10-live-page-reply-guard.js", "createPancakeConversationSnapshotCache");
 requireToken("patch-v10-live-page-reply-guard.js", "pancake_live_shared_page_snapshot");
+requireToken("patch-v10-live-page-reply-guard.js", "SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK");
+requireToken("patch-v10-live-page-reply-guard.js", "SUPPORT_FALLBACK_PANCAKE_CHECK_RETRY");
+requireToken("v10/core/support-operational-fallback.js", 'supportOperationalFallbackVersion = "v10_support_operational_fallback_v1"');
+requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v1_no_drop";');
+requireToken("v10-support-operational-fallback-worker.js", "support_operational_fallback_enabled");
+requireToken("v10-support-operational-fallback-worker.js", "provider_independent: true");
+requireToken("v10-support-operational-fallback-worker.js", "support_fallback_recovery_clone");
 
 requireToken("patch-v10-specific-price-contact.js", "AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1");
 requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR");

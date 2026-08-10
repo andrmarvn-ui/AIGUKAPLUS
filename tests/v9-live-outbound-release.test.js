@@ -14,8 +14,10 @@ test("live transport starts only after the isolated Core router and queue cleanu
   assert.match(start, /v9-core-fetch-router\.js/);
   assert.match(start, /await safeImport\("\.\/v10-decision-queue-janitor\.js", true\)/);
   assert.match(start, /startDetached\("\.\/v10-outbound-worker\.js"\)/);
+  assert.match(start, /startDetached\("\.\/v10-support-operational-fallback-worker\.js"\)/);
   assert.ok(start.indexOf("v9-core-fetch-router.js") < start.indexOf("v10-decision-queue-janitor.js"));
   assert.ok(start.indexOf("v10-decision-queue-janitor.js") < start.indexOf("v10-outbound-worker.js"));
+  assert.ok(start.indexOf("v10-support-operational-fallback-worker.js") < start.indexOf("v10-outbound-worker.js"));
 });
 
 test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () => {
@@ -24,7 +26,7 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway verifies a checksummed final AI worker instead of patching source", () => {
-  assert.match(release, /AIGUKA_V10_MEDIA_CONTINUATION_V11/);
+  assert.match(release, /AIGUKA_V10_SUPPORT_NO_DROP_V12/);
   assert.match(release, /fallback_catalog_keys/);
   assert.match(release, /media_catalog_keys_resolved/);
   assert.match(release, /v10_queue_hygiene_v2/);
@@ -36,6 +38,8 @@ test("Railway verifies a checksummed final AI worker instead of patching source"
   assert.match(release, /v10_outbound_safety_only_v2_sla_priority/);
   assert.match(release, /createHash\("sha256"\)/);
   assert.match(release, /V10_FINAL_AI_WORKER_CHECKSUM_MISMATCH/);
+  assert.match(release, /SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK/);
+  assert.match(release, /v10_support_failover_v1_no_drop/);
   assert.doesNotMatch(start, /v9-live-release-patch\.js/);
   assert.doesNotMatch(release, /replaceOnce|replaceBetween|applyStage/);
   assert.match(aiEntry, /v10-ai-worker-final\.js/);

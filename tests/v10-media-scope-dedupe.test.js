@@ -137,6 +137,10 @@ test("the complete Railway patch chain produces a syntactically valid deduping w
   assert.match(worker, /v10_outbound_media_scope_dedupe_v13/);
   assert.match(worker, /DUPLICATE_MEDIA_SCOPE_24H/);
   assert.match(worker, /mediaDedupe\.by_bundle_key/);
+  assert.match(worker, /SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK/);
+  assert.match(worker, /SUPPORT_FALLBACK_PANCAKE_CHECK_RETRY/);
+  assert.match(worker, /supportTextFallbackEligible/);
+  assert.match(worker, /support_operational_fallback_delivered/);
   const aiWorker = fs.readFileSync(path.join(temp, "v10-ai-worker-final.js"), "utf8");
   assert.match(aiWorker, /AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1/);
   assert.match(aiWorker, /AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1/);
