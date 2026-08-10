@@ -29,6 +29,7 @@ async function reportStartupFailure(error) {
           validator_rewrites_business_output: false,
           unresolved_needs_enabled: true,
           product_threads_enabled: true,
+          active_intent_focus_enabled: true,
           separate_media_bundle_per_product_group: true,
           recursive_catalog_advisory: true,
           provider_cooldown_is_per_key: true,
@@ -64,6 +65,7 @@ await import("./patch-v10-general-product-sales-finalize.js");
 await import("./v10-conversation-continuity-runtime.js");
 await import("./patch-v10-ai-sovereign-validator.js");
 await import("./patch-v10-product-thread-ai.js");
+await import("./patch-v10-active-intent-focus.js");
 await import("./patch-v10-followup-support-mode.js");
 
 try {
