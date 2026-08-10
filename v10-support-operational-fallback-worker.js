@@ -5,7 +5,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-support-failover";
-const VERSION = "v10_support_failover_v2_recover_media_only";
+const VERSION = "v10_support_failover_v3_close_recovery_race";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_POLL_MS || 3000));
 const MIN_ASSETS = Math.max(1, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_MIN_CATALOG_ASSETS || 5));
 const SCAN_LIMIT = Math.max(20, Math.min(200, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_SCAN_LIMIT || 100)));
@@ -124,7 +124,11 @@ async function completeWithFallback(row, plan, customerAt, waitMs) {
         updated_at: now,
       },
     });
-    const clone = inserted?.[0];
+    let clone = inserted?.[0] || null;
+    if (!clone) {
+      const existing = await core(`v9_decisions?select=id,status,action,output,created_at,updated_at&source_event_id=eq.${encodeURIComponent(recoverySource)}&limit=1`);
+      clone = existing?.[0] || null;
+    }
     if (!clone) return null;
     await core(`v9_decisions?id=eq.${encodeURIComponent(row.id)}&status=eq.${encodeURIComponent(row.status)}`, {
       method: "PATCH",

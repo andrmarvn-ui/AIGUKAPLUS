@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_SUPPORT_NO_DROP_V13";
+const RELEASE = "AIGUKA_V10_SUPPORT_NO_DROP_V14";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -115,11 +115,12 @@ requireToken("patch-v10-live-page-reply-guard.js", "pancake_live_shared_page_sna
 requireToken("patch-v10-live-page-reply-guard.js", "SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK");
 requireToken("patch-v10-live-page-reply-guard.js", "SUPPORT_FALLBACK_PANCAKE_CHECK_RETRY");
 requireToken("v10/core/support-operational-fallback.js", 'supportOperationalFallbackVersion = "v10_support_operational_fallback_v1"');
-requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v2_recover_media_only";');
+requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v3_close_recovery_race";');
 requireToken("v10-support-operational-fallback-worker.js", "support_operational_fallback_enabled");
 requireToken("v10-support-operational-fallback-worker.js", "provider_independent: true");
 requireToken("v10-support-operational-fallback-worker.js", "support_fallback_recovery_clone");
 requireToken("v10-support-operational-fallback-worker.js", 'live_suppression_reason !== "SUPPORT_MEDIA_ONLY"');
+requireToken("v10-support-operational-fallback-worker.js", "clone = existing?.[0] || null");
 
 requireToken("patch-v10-specific-price-contact.js", "AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1");
 requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR");

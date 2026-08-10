@@ -104,5 +104,7 @@ test("support failover worker is conditional, audited and has no direct Meta tra
   assert.match(worker, /provider_independent: true/);
   assert.match(worker, /support_fallback_recovery_clone/);
   assert.match(worker, /on_conflict=source_event_id/);
+  assert.match(worker, /source_event_id=eq\.\$\{encodeURIComponent\(recoverySource\)\}/);
+  assert.match(worker, /clone = existing\?\.\[0\] \|\| null/);
   assert.doesNotMatch(worker, /graph\.facebook\.com|me\/messages|messaging_type/);
 });
