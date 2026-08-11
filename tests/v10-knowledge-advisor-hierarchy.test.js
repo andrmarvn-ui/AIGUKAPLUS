@@ -43,4 +43,44 @@ test("parent catalog inherits child assets without selecting only one child", ()
   assert.equal(parent.asset_count, 2);
   assert.deepEqual(new Set(parent.assets.map((asset) => asset.source_catalog_key)), new Set(["bep_tu_hut_mui", "chau_voi_rua_bat"]));
   assert.ok(result.slide_catalog.some((item) => item.catalog_key === "phong_bep"));
+  assert.deepEqual(result.product_candidates.map((item) => item.key), ["phong_bep"]);
+});
+
+test("production advisor preserves high-confidence product evidence used by media obligations", () => {
+  const snapshot = {
+    content: {
+      documents: [],
+      ad_mappings: [],
+      catalog: [{
+        catalog_key: "quat_10_canh_gold",
+        display_name: "Quạt 10 cánh màu vàng",
+        aliases: ["quạt vàng 10 cánh"],
+        assets: [{ asset_id: "fan-1", source_url: "https://example.test/fan-1.jpg", sort_order: 1 }],
+      }],
+    },
+  };
+  const conversation = {
+    messages: [
+      { id: "event:samples", role: "customer", text: "Gui mẩu a chọn voi" },
+      { id: "event:refine", role: "customer", text: "10\nCanh mà vàng" },
+    ],
+    advisors: {
+      product_candidates: [{
+        key: "quat_10_canh",
+        label: "quạt trần 10 cánh",
+        confidence: 0.92,
+        sources: ["customer_message", "ad_referral"],
+        evidence: [{ message_id: "event:refine", text: "10\nCanh mà vàng" }],
+      }],
+    },
+  };
+
+  const result = buildKnowledgeAdvisors(snapshot, conversation, { maxCatalog: 10 });
+  assert.equal(result.product_candidates[0].key, "quat_10_canh");
+  assert.equal(result.product_candidates[0].confidence, 0.92);
+  assert.deepEqual(result.product_candidates[0].evidence, [{
+    message_id: "event:refine",
+    text: "10\nCanh mà vàng",
+    occurred_at: null,
+  }]);
 });
