@@ -1,5 +1,5 @@
 import { normalizeVietnamese } from "./v10/core/advisory-engine.js";
-import { MEDIA_DEDUPE_WINDOW_MS, mediaClaimDisposition, mediaScopeIdempotencyKey, mediaScopeMatchesAssetRefs } from "./v10/core/media-dedupe.js";
+import { MEDIA_DEDUPE_WINDOW_MS, mediaClaimDisposition, mediaRequestedAfterDelivery, mediaScopeIdempotencyKey, mediaScopeMatchesAssetRefs } from "./v10/core/media-dedupe.js";
 import { createPancakeConversationSnapshotCache } from "./v10/core/pancake-conversation-snapshot.js";
 import { prepareCarouselAssets } from "./v10/core/carousel-media.js";
 import { prioritizeOutboundDecisions } from "./v10/core/outbound-priority.js";
@@ -11,7 +11,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-outbound";
-const VERSION = "v10_outbound_single_gateway_v14";
+const VERSION = "v10_outbound_single_gateway_v15_customer_media_reask";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_OUTBOUND_POLL_MS || 3000));
 const MAX_DECISION_AGE_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_LIVE_MAX_AGE_MS || 2 * 60 * 60_000));
 const MAX_MEDIA_ASSETS = Math.max(10, Math.min(20, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 20)));
@@ -632,9 +632,7 @@ async function finalGate(decision, config) {
     Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_SECONDS || 90) * 1000,
     (Number(config.response_sla_seconds || 45) + 30) * 1000,
   );
-  // A text response from AICake/Page can satisfy a text fallback, but it cannot
-  // satisfy an unresolved carousel obligation. Keep the text-fallback reply guard
-  // out of the media path so SUPPORT still delivers the requested catalog.
+  // AICake text can satisfy a text fallback, but never a pending media duty.
   const supportTextFallbackEligible = !supportSlideEligible
     && !supportImageEligible
     && supportFallbackRequested
@@ -871,7 +869,14 @@ async function recentDeliveredMediaScope(decision, group, nowMs = Date.now()) {
 }
 
 async function claimMediaScope(decision, group, nowMs = Date.now()) {
-  const repeatRequested = sovereignOutboundRepeatRequested(decision);
+  const phraseRepeatRequested = sovereignOutboundRepeatRequested(decision);
+  const delivered = phraseRepeatRequested ? null : await recentDeliveredMediaScope(decision, group, nowMs);
+  const customerReaskedAfterDelivery = Boolean(delivered) && mediaRequestedAfterDelivery(
+    decision?.input_snapshot?.conversation?.messages || [],
+    delivered.updated_at || delivered.created_at,
+    { decisionAction: decision.action },
+  );
+  const repeatRequested = phraseRepeatRequested || customerReaskedAfterDelivery;
   const idempotencyKey = mediaScopeIdempotencyKey({
     pageId: decision.page_id,
     senderId: decision.sender_id,
@@ -881,9 +886,7 @@ async function claimMediaScope(decision, group, nowMs = Date.now()) {
   });
   const now = new Date(nowMs).toISOString();
 
-  if (!repeatRequested) {
-    const delivered = await recentDeliveredMediaScope(decision, group, nowMs);
-    if (delivered) {
+  if (!repeatRequested && delivered) {
       const memorial = await core("v9_delivery_bundles?on_conflict=idempotency_key", {
         method: "POST",
         prefer: "resolution=ignore-duplicates,return=representation",
@@ -905,7 +908,6 @@ async function claimMediaScope(decision, group, nowMs = Date.now()) {
         duplicate_bundle_id: delivered.id,
         idempotency_key: idempotencyKey,
       };
-    }
   }
 
   const inserted = await core("v9_delivery_bundles?on_conflict=idempotency_key", {
@@ -923,7 +925,14 @@ async function claimMediaScope(decision, group, nowMs = Date.now()) {
     },
   });
   if (inserted?.[0]) {
-    return { allowed: true, reason: repeatRequested ? "EXPLICIT_REPEAT_REQUEST" : "NEW_MEDIA_SCOPE", bundle: inserted[0], idempotency_key: idempotencyKey };
+    return {
+      allowed: true,
+      reason: customerReaskedAfterDelivery
+        ? "CUSTOMER_MEDIA_REASK_AFTER_DELIVERY"
+        : (repeatRequested ? "EXPLICIT_REPEAT_REQUEST" : "NEW_MEDIA_SCOPE"),
+      bundle: inserted[0],
+      idempotency_key: idempotencyKey,
+    };
   }
 
   const rows = await core(
