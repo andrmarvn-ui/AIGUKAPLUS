@@ -12,6 +12,19 @@ function latestActiveCustomerMessage(messages = []) {
   }) || messages.at(-1) || null;
 }
 
+function activeMessagesAfterCancellation(messages = []) {
+  let boundary = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const relation = String(messages[index]?.semantic_relation || "").toUpperCase();
+    const status = String(messages[index]?.semantic_status || "active").toLowerCase();
+    if (relation === "CANCEL" || ["cancelled", "superseded"].includes(status)) {
+      boundary = index;
+      break;
+    }
+  }
+  return messages.slice(boundary + 1);
+}
+
 function unique(values = []) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
@@ -80,7 +93,8 @@ function safeProductReply(labels = [], knownContact = false) {
 
 export function buildSupportOperationalFallback(inputSnapshot = {}, availableSlideKeys = new Set()) {
   const messages = customerMessages(inputSnapshot);
-  const latest = latestActiveCustomerMessage(messages);
+  const activeMessages = activeMessagesAfterCancellation(messages);
+  const latest = latestActiveCustomerMessage(activeMessages);
   const latestText = String(latest?.text || "").trim();
   const latestSemantic = latestSemanticText(latest);
   const labels = productLabels(inputSnapshot);
@@ -103,7 +117,8 @@ export function buildSupportOperationalFallback(inputSnapshot = {}, availableSli
     };
   }
 
-  if (isTrivialAcknowledgement(latestSemantic)) {
+  const latestSubstantive = [...activeMessages].reverse().find((message) => !isTrivialAcknowledgement(latestSemanticText(message))) || null;
+  if (isTrivialAcknowledgement(latestSemantic) && !latestSubstantive) {
     return {
       kind: "suppress",
       action: "suppress",
@@ -116,7 +131,14 @@ export function buildSupportOperationalFallback(inputSnapshot = {}, availableSli
     };
   }
 
-  if (asksAddress(latestSemantic)) {
+  // A short acknowledgement cannot erase an older unanswered need in the same
+  // customer cluster. Outbound still verifies AICake/Page activity before sending,
+  // so this only closes the silence gap when the primary bot truly did not reply.
+  const effective = isTrivialAcknowledgement(latestSemantic) ? latestSubstantive : latest;
+  const effectiveText = String(effective?.text || "").trim();
+  const effectiveSemantic = latestSemanticText(effective);
+
+  if (asksAddress(effectiveSemantic)) {
     return {
       kind: "text",
       action: "reply_text",
@@ -129,7 +151,7 @@ export function buildSupportOperationalFallback(inputSnapshot = {}, availableSli
     };
   }
 
-  if (contactOnly(latestText) || (knownContact && /\b(sdt|so dien thoai|zalo)\b/.test(latestSemantic))) {
+  if (contactOnly(effectiveText) || (knownContact && /\b(sdt|so dien thoai|zalo)\b/.test(effectiveSemantic))) {
     return {
       kind: "text",
       action: "reply_text",
@@ -142,7 +164,7 @@ export function buildSupportOperationalFallback(inputSnapshot = {}, availableSli
     };
   }
 
-  if (visitOrAppointment(latestSemantic)) {
+  if (visitOrAppointment(effectiveSemantic)) {
     return {
       kind: "text",
       action: "reply_text",
@@ -189,4 +211,4 @@ export function supportFallbackCustomerAt(inputSnapshot = {}) {
   return Math.max(0, ...times);
 }
 
-export const supportOperationalFallbackVersion = "v10_support_operational_fallback_v2_candidate_media_scope";
+export const supportOperationalFallbackVersion = "v10_support_operational_fallback_v3_no_silent_ack_gap";
