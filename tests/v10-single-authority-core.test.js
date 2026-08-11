@@ -100,9 +100,20 @@ test("dispatch migration is private, bridge-authorized and live-first", () => {
   assert.match(migration, /LIVE_DECISION_PENDING/);
 });
 
+test("legacy follow-up storage is restricted to the authenticated Core bridge", () => {
+  const migration = fs.readFileSync(new URL("../supabase/migrations/20260811170000_v10_followup_bridge_rls_hardening.sql", import.meta.url), "utf8");
+  for (const table of ["config", "events", "log", "contact_guard"]) {
+    assert.match(migration, new RegExp(`alter table public\\.v10_followup_${table} enable row level security`, "i"));
+  }
+  assert.match(migration, /v9_bridge_authorized\(\)/);
+  assert.match(migration, /v9_bridge_request_allowed\(\)/);
+  assert.match(migration, /V10_CORE_BRIDGE_FORBIDDEN/);
+  assert.match(migration, /revoke all on function public\.v10_followup_schedule_next_after_delivery\(\) from public, anon, authenticated/i);
+  assert.match(migration, /v10_followup_log_event_id_idx/);
+});
+
 test("load shed circuit only observes the Supabase Data API", () => {
   const source = fs.readFileSync(new URL("../patch-supabase-load-shed-fetch.js", import.meta.url), "utf8");
   assert.match(source, /!url\.pathname\.startsWith\("\/rest\/v1\/"\)/);
   assert.match(source, /if \(wasOpen\) console\.log\("\[AIGUKA load shed\] Supabase recovered/);
 });
-
