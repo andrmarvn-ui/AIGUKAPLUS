@@ -49,20 +49,28 @@ export function normalizeLegacyWebhookInboxRow(row, nowMs = Date.now()) {
     const value = object(change.value);
     const pageId = text(row.page_id || payload.page_id);
     const senderId = text(value.from?.id || row.sender_id);
+    const item = text(value.item);
+    const verb = text(value.verb);
+    const isComment = item === "comment" && ["add", "edited"].includes(String(verb || ""));
+    const isPageActor = Boolean(pageId && senderId && pageId === senderId);
+    const isCustomerComment = Boolean(isComment && senderId && !isPageActor);
     return {
       source_system: "legacy_webhook_inbox",
       source_event_id: sourceEventId,
       page_id: pageId,
       sender_id: senderId,
       recipient_id: pageId,
-      customer_id: senderId,
+      customer_id: isCustomerComment ? senderId : null,
       message_id: text(row.message_id) || sourceEventId,
-      actor_type: senderId ? "customer" : "unknown",
+      actor_type: isCustomerComment ? "customer" : (isPageActor ? "page_unknown" : "unknown"),
       actor_evidence: {
-        method: "legacy_feed_change_v1",
+        method: "legacy_feed_change_v2_actor_direction",
         human_verified: false,
+        page_authored: isPageActor,
+        item,
+        verb,
       },
-      event_type: "customer_comment",
+      event_type: isCustomerComment ? "customer_comment" : (isPageActor && isComment ? "page_comment" : "feed_activity"),
       message_text: text(value.message),
       attachments: [],
       referral: null,
@@ -125,3 +133,5 @@ export function normalizeLegacyWebhookInboxRow(row, nowMs = Date.now()) {
     contact_phone: contact.primaryPhone,
   };
 }
+
+export const legacyInboxNormalizerVersion = "v9_legacy_inbox_normalizer_v2_feed_actor_direction";
