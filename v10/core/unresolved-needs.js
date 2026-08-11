@@ -37,7 +37,11 @@ export function deriveUnresolvedNeeds(conversation = {}, knowledgeAdvisors = {})
     : catalog.filter((item) => Number(item?.asset_count || 0) > 0);
   const slideKeys = new Set(slideCatalog.map((item) => String(item?.catalog_key || "").trim()).filter(Boolean));
   const catalogByKey = new Map(catalog.map((item) => [String(item?.catalog_key || "").trim(), item]).filter(([key]) => Boolean(key)));
-  const scope = deriveMediaScope(messages, slideKeys);
+  const scope = deriveMediaScope(messages, slideKeys, {
+    productCandidates: Array.isArray(knowledgeAdvisors?.product_candidates)
+      ? knowledgeAdvisors.product_candidates
+      : [],
+  });
   const mediaExplicit = explicitMediaRequestFromMessages(messages);
   const mediaExpected = mediaExpectedFromMessages(messages, scope);
   const cluster = currentCustomerCluster(messages);
@@ -71,4 +75,4 @@ export function deriveUnresolvedNeeds(conversation = {}, knowledgeAdvisors = {})
   }).slice(0, 12).map((need) => ({ ...need, media_explicit: mediaExplicit }));
 }
 
-export const unresolvedNeedsVersion = "v10_unresolved_needs_v2_semantic_active_only";
+export const unresolvedNeedsVersion = "v10_unresolved_needs_v3_candidate_media_scope";

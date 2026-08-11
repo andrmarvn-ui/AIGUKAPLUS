@@ -20,6 +20,7 @@ const slideKeys = new Set([
   "gach_tay_ban_nha",
   "gach_stone",
   "quat_tran",
+  "quat_10_canh_gold",
   "quat_8_canh_gold",
   "quat_8_canh_black",
   "quat_8_canh_brown",
@@ -116,6 +117,39 @@ test("common Quant tran typo still resolves exact 8-canh gold slide", () => {
   assert.deepEqual(scope, ["quat_8_canh_gold"]);
   assert.equal(explicitMediaRequestFromMessages(messages), true);
   assert.equal(mediaExpectedFromMessages(messages, scope), true);
+});
+
+test("split fan refinement uses active high-confidence product evidence to resolve gold 10-canh media", () => {
+  const messages = [
+    { id: "event:open", role: "customer", event_type: "customer_message", text: "Ib" },
+    { id: "event:samples", role: "customer", event_type: "customer_message", text: "Gui mẩu a chọn voi" },
+    { id: "event:refine", role: "customer", event_type: "customer_message", text: "10\nCanh mà vàng" },
+  ];
+  const scope = deriveMediaScope(messages, slideKeys, {
+    productCandidates: [{
+      key: "quat_10_canh",
+      label: "quạt trần 10 cánh",
+      confidence: 0.92,
+      evidence: [{ message_id: "event:refine", text: "10\nCanh mà vàng" }],
+    }],
+  });
+  assert.deepEqual(scope, ["quat_10_canh_gold"]);
+  assert.equal(explicitMediaRequestFromMessages(messages), true);
+  assert.equal(mediaExpectedFromMessages(messages, scope), true);
+});
+
+test("low-confidence referral hint cannot force a catalog for a generic sample request", () => {
+  const messages = customers("Gửi mẫu cho tôi chọn");
+  const scope = deriveMediaScope(messages, slideKeys, {
+    productCandidates: [{
+      key: "quat_10_canh",
+      label: "quạt trần 10 cánh",
+      confidence: 0.55,
+      sources: ["ad_referral"],
+      evidence: [],
+    }],
+  });
+  assert.deepEqual(scope, []);
 });
 
 test("unrelated address-only turn does not force media", () => {

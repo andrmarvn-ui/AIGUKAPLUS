@@ -85,7 +85,9 @@ export function buildSupportOperationalFallback(inputSnapshot = {}, availableSli
   const latestSemantic = latestSemanticText(latest);
   const labels = productLabels(inputSnapshot);
   const knownContact = contactKnown(inputSnapshot);
-  const selectedCatalogKeys = deriveMediaScope(messages, availableSlideKeys);
+  const selectedCatalogKeys = deriveMediaScope(messages, availableSlideKeys, {
+    productCandidates: productCandidates(inputSnapshot),
+  });
   const shouldSendMedia = mediaExpectedFromMessages(messages, selectedCatalogKeys);
 
   if (shouldSendMedia && selectedCatalogKeys.length) {
@@ -187,4 +189,4 @@ export function supportFallbackCustomerAt(inputSnapshot = {}) {
   return Math.max(0, ...times);
 }
 
-export const supportOperationalFallbackVersion = "v10_support_operational_fallback_v1";
+export const supportOperationalFallbackVersion = "v10_support_operational_fallback_v2_candidate_media_scope";

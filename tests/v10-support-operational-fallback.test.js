@@ -48,6 +48,28 @@ test("overdue explicit multi-product requests become provider-independent media 
   assert.deepEqual(plan.selected_catalog_keys, ["combo_phong_tam", "bep_tu_hut_mui", "chau_voi_rua_bat"]);
 });
 
+test("Truong Hung split sample request resolves 10-canh gold without an AI provider", () => {
+  const input = snapshot([
+    { id: "event:open", text: "Ib" },
+    { id: "event:samples", text: "Gui mẩu a chọn voi" },
+    { id: "event:refine", text: "10\nCanh mà vàng" },
+    { id: "event:complaint", text: "Sao ko gui mẩu mà nói nhiều rua hẹ" },
+  ], {
+    products: [{
+      key: "quat_10_canh",
+      label: "quạt trần 10 cánh",
+      confidence: 0.92,
+      evidence: [{ message_id: "event:refine", text: "10\nCanh mà vàng" }],
+    }],
+  });
+  const plan = buildSupportOperationalFallback(input, new Set(["quat_10_canh_gold"]));
+  assert.equal(plan.kind, "media");
+  assert.equal(plan.action, "reply_with_slides");
+  assert.equal(plan.needs_slides, true);
+  assert.deepEqual(plan.selected_catalog_keys, ["quat_10_canh_gold"]);
+  assert.equal(plan.reason, "overdue_support_media_obligation");
+});
+
 test("an unanswered address question gets only the verified showroom address", () => {
   const plan = buildSupportOperationalFallback(snapshot([
     { text: "Cho em xin địa chỉ cửa hàng ạ" },
@@ -107,4 +129,7 @@ test("support failover worker is conditional, audited and has no direct Meta tra
   assert.match(worker, /source_event_id=eq\.\$\{encodeURIComponent\(recoverySource\)\}/);
   assert.match(worker, /clone = existing\?\.\[0\] \|\| null/);
   assert.doesNotMatch(worker, /graph\.facebook\.com|me\/messages|messaging_type/);
+
+  const outbound = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
+  assert.match(outbound, /const supportTextFallbackEligible = !supportSlideEligible\s*&& !supportImageEligible\s*&& supportFallbackRequested/);
 });

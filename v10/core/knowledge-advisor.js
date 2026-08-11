@@ -133,6 +133,25 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
   const maxCatalog = Math.max(1, Number(limits.maxCatalog || 16));
   const maxAssets = Math.max(1, Number(limits.maxAssetsPerCatalog || 6));
 
+  const productCandidates = (Array.isArray(conversation?.advisors?.product_candidates)
+    ? conversation.advisors.product_candidates
+    : [])
+    .filter((candidate) => candidate && typeof candidate === "object")
+    .slice(0, 12)
+    .map((candidate) => ({
+      key: String(candidate.key || "").trim(),
+      label: String(candidate.label || candidate.key || "").trim(),
+      confidence: Math.max(0, Math.min(1, Number(candidate.confidence || 0))),
+      sources: Array.isArray(candidate.sources) ? candidate.sources.slice(0, 8) : [],
+      evidence: (Array.isArray(candidate.evidence) ? candidate.evidence : []).slice(0, 12).map((item) => ({
+        message_id: item?.message_id || null,
+        text: String(item?.text || "").slice(0, 500),
+        occurred_at: item?.occurred_at || null,
+      })),
+      advisory_only: true,
+    }))
+    .filter((candidate) => candidate.key);
+
   const ids = referralIds(conversation.referral || {});
   const postIds = conversationPostIds(conversation);
   const matchedMappings = mappings.filter((mapping) => {
@@ -153,7 +172,7 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
 
   const conversationText = (conversation.messages || []).filter((message) => message.role === "customer").map((message) => message.text).join(" ");
   const candidateKeys = unique([
-    ...(conversation.advisors?.product_candidates || []).map((item) => item.key),
+    ...productCandidates.map((item) => item.key),
     ...matchedMappings.flatMap((mapping) => {
       const fallback = Array.isArray(mapping?.metadata?.fallback_catalog_keys)
         ? mapping.metadata.fallback_catalog_keys
@@ -234,6 +253,7 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
 
   return {
     policy: "Knowledge, catalog and mapping are evidence for AI, never authoritative decisions.",
+    product_candidates: productCandidates,
     documents: selectedDocuments,
     catalog: selectedCatalog,
     slide_catalog: selectedCatalog.filter((item) => Number(item.asset_count || 0) > 0),
