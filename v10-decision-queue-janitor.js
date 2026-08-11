@@ -1,7 +1,7 @@
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-queue-janitor";
-const VERSION = "v10_queue_hygiene_v2";
+const VERSION = "v10_queue_hygiene_v3_merge_safe";
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_JANITOR_POLL_MS || 2000));
 const CAPACITY_GUARD_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V10_CAPACITY_GUARD_MS || 30 * 60_000));
 const V10 = "v10_ai_sovereign_advisory";
@@ -83,21 +83,37 @@ async function requeueLegacySource(row) {
   return Boolean(updated?.length);
 }
 
+
+function clusterFrontier(row) {
+  const messages = row?.input_snapshot?.conversation?.messages || [];
+  const customers = messages.filter((message) => message && message.role === "customer");
+  const latest = customers.at(-1);
+  if (!latest) return "";
+  return String(latest.id || latest.occurred_at || "").trim();
+}
+
+// AIGUKA_V10_CLUSTER_FRONTIER_DEDUPE_V1
+
 async function cleanup() {
   const rows = await core("v9_decisions?select=id,source_event_id,page_id,sender_id,status,action,input_snapshot,output,created_at,updated_at&status=in.(shadow_context_ready,shadow_ai_processing,shadow_ai_completed,live_delivery_failed)&order=created_at.desc&limit=500");
   let legacyRehydrated = 0;
   let legacyQuarantined = 0;
   let superseded = 0;
-  const latestByConversation = new Map();
+  let duplicateClusters = 0;
+  const seenClusterFrontiers = new Set();
 
   for (const row of rows || []) {
-    const key = `${row.page_id}:${row.sender_id}`;
-    if (latestByConversation.has(key)) {
-      await suppress(row, "superseded", "A newer pending customer event exists in the same conversation and will carry the full history.");
-      superseded += 1;
+    if (isV10(row)) {
+      const frontier = clusterFrontier(row);
+      const clusterKey = frontier ? `${row.page_id}:${row.sender_id}:${frontier}` : "";
+      if (clusterKey && seenClusterFrontiers.has(clusterKey)) {
+        await suppress(row, "duplicate_customer_cluster", "Another pending V10 decision already represents the exact same customer-message frontier.");
+        duplicateClusters += 1;
+      } else if (clusterKey) {
+        seenClusterFrontiers.add(clusterKey);
+      }
       continue;
     }
-    latestByConversation.set(key, row);
 
     if (!isV10(row)) {
       const requeued = await requeueLegacySource(row);
@@ -135,6 +151,8 @@ async function cleanup() {
     legacyRehydrated,
     legacyQuarantined,
     superseded,
+    duplicateClusters,
+    conversation_merge_authority: "core_ingest_debounce",
     deliveryRecovered,
   };
 }

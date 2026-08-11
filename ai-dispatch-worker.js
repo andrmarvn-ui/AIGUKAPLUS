@@ -1,9 +1,13 @@
 import crypto from "node:crypto";
+import { dispatchFollowUpWithFallback } from "./ai-follow-up-provider.js";
+// AIGUKA_AI_FOLLOW_UP_PROVIDER_FALLBACK_V1
 
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const BRAIN_SECRET = process.env.AIGUKA_V8_ADMIN_SECRET || process.env.META_VERIFY_TOKEN || ""; // AIGUKA_AI_BRAIN_INTERNAL_AUTH_V1
 const WORKER_NAME = process.env.AIGUKA_AI_DISPATCH_WORKER_NAME || "aiguka-railway-ai-dispatch";
-const WORKER_VERSION = "profile_preflight_v6_dynamic_follow_up_slide_recovery";
+const WORKER_VERSION = "profile_gender_preflight_v7";
+const PROFILE_FRESH_MS = 24 * 60 * 60 * 1000;
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_AI_DISPATCH_POLL_MS || 1200));
 const FOLLOW_UP_SCAN_MS = Math.max(60_000, Number(process.env.AIGUKA_FOLLOW_UP_SCAN_MS || 120_000));
 
@@ -78,16 +82,39 @@ async function heartbeat(status = "healthy", lastError = null, details = {}) {
 
 async function readCustomer(pageId, senderId) {
   const rows = await rest(
-    `v8_customers?select=id,display_name,gender,gender_source,preferred_salutation,profile_sync_status&page_id=eq.${encodeURIComponent(pageId)}&sender_id=eq.${encodeURIComponent(senderId)}&limit=1`,
+    `v8_customers?select=id,display_name,gender,gender_source,preferred_salutation,profile_sync_status,profile_synced_at,gender_synced_at&page_id=eq.${encodeURIComponent(pageId)}&sender_id=eq.${encodeURIComponent(senderId)}&limit=1`,
   );
   return rows?.[0] || null;
 }
 
+function hasKnownGender(customer) {
+  return /^(male|nam|man|female|nữ|nu|woman)$/i.test(String(customer?.gender || "").trim());
+}
+
+function hasFreshProfileCheck(customer) {
+  const syncedAt = Date.parse(String(customer?.profile_synced_at || ""));
+  if (!Number.isFinite(syncedAt)) return false;
+  if (Date.now() - syncedAt > PROFILE_FRESH_MS) return false;
+  return !["deferred_on_demand", "error", "empty_profile"].includes(String(customer?.profile_sync_status || ""));
+}
+
 async function ensureProfile(item) {
   let customer = await readCustomer(item.page_id, item.sender_id);
-  const needsSync = !customer || placeholderName(customer.display_name)
+  const previousProfileSyncedAt = customer?.profile_synced_at || null;
+  const needsSync = !customer
+    || placeholderName(customer.display_name)
+    || !hasFreshProfileCheck(customer)
     || ["deferred_on_demand", "error", "empty_profile"].includes(String(customer.profile_sync_status || ""));
-  if (!needsSync) return { attempted: false, ready: true, customer };
+
+  if (!needsSync) {
+    return {
+      attempted: false,
+      checked: true,
+      ready: true,
+      genderKnown: hasKnownGender(customer),
+      customer,
+    };
+  }
 
   await rpc("v8_dispatch_single_customer_profile_sync", {
     p_page_id: item.page_id,
@@ -97,9 +124,20 @@ async function ensureProfile(item) {
   for (let attempt = 0; attempt < 12; attempt += 1) {
     await sleep(400);
     customer = await readCustomer(item.page_id, item.sender_id);
-    if (customer && !placeholderName(customer.display_name)) break;
+    const profileUpdated = Boolean(
+      customer?.profile_synced_at
+      && customer.profile_synced_at !== previousProfileSyncedAt,
+    );
+    if (profileUpdated || hasKnownGender(customer)) break;
   }
-  return { attempted: true, ready: Boolean(customer && !placeholderName(customer.display_name)), customer };
+
+  return {
+    attempted: true,
+    checked: hasFreshProfileCheck(customer),
+    ready: Boolean(customer && !placeholderName(customer.display_name)),
+    genderKnown: hasKnownGender(customer),
+    customer,
+  };
 }
 
 function decryptProviderKey(value) {
@@ -152,65 +190,7 @@ async function scheduleFollowUpsIfDue() {
 }
 
 async function dispatchFollowUp(item) {
-  const prepared = await rpc("v8_prepare_follow_up_ai_request", { p_request_id: item.id });
-  if (!prepared?.ok || prepared?.skipped) return prepared;
-
-  const [providers, governance] = await Promise.all([
-    rest(`v8_ai_providers?provider_key=eq.${encodeURIComponent(prepared.provider_key || "openai")}&select=provider_key,provider_type,base_url,model_name,api_key_ciphertext,is_enabled&limit=1`),
-    loadFollowUpGovernance(prepared.page_id),
-  ]);
-  const provider = providers?.[0];
-  if (!provider?.is_enabled || !provider?.api_key_ciphertext) throw new Error("AI_PROVIDER_NOT_READY");
-  const apiKey = decryptProviderKey(provider.api_key_ciphertext);
-  const base = String(prepared.provider_base_url || provider.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
-  const schema = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      should_reply: { type: "boolean" },
-      final_reply: { type: "string" },
-      confidence: { type: "number", minimum: 0, maximum: 1 },
-      action_type: { type: "string" },
-      should_request_contact: { type: "boolean" },
-      reason: { type: "string" },
-      risk_flags: { type: "array", items: { type: "string" }, maxItems: 8 },
-    },
-    required: ["should_reply", "final_reply", "confidence", "action_type", "should_request_contact", "reason", "risk_flags"],
-  };
-  const response = await fetch(`${base}/responses`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      model: prepared.model_name || provider.model_name,
-      instructions: "Bạn là AIGUKA Follow-up Brain và là bên duy nhất quyết định có chăm sóc lại khách hay không. Đọc toàn bộ hội thoại, customer profile, AI memory, slide_context, priority_event và governance mới nhất. Context, rule, template và bài học chỉ là cố vấn; bạn quyết định nội dung cuối cùng. Chỉ nhắn khi khách chưa phản hồi, chưa có SĐT/Zalo và không có Sale/Admin chăm mới hơn. Tin ngắn, tự nhiên, không lặp tin cũ, không lặp ảnh đã gửi, không bịa giá, thông số hoặc cam kết. Nếu khách đã xin mẫu, chưa được gửi slide, slide_context có tài sản verified đúng sản phẩm và Admin/Sale mới chỉ xin liên hệ, bạn có thể quyết định gửi mẫu lần đầu bằng action_type=follow_up_with_requested_slides; không dùng action_type này khi ảnh sai, đã gửi hoặc không còn phù hợp. Dùng đúng preferred_salutation: self-reference/Admin xác minh ưu tiên, nhận diện tên độ tin cậy cao là bằng chứng phụ, tên mơ hồ dùng bạn/câu trung tính, tuyệt đối không dùng anh/chị. Khách có tín hiệu mua như hỏi giá, xin mẫu, combo, kích thước, vận chuyển, showroom, đang hoàn thiện nhà hoặc nói muốn mua thì ưu tiên xin SĐT/Zalo bằng lợi ích cụ thể. Với Page Tổng Kho có thể lồng tối đa hai quyền lợi ngắn, đúng ngữ cảnh và chưa lặp: quà tặng tùy đơn hàng/chương trình và hỗ trợ chi phí di chuyển khi khách đến showroom xem, đặt hàng/đặt cọc, tùy khoảng cách. Không nêu con số hoặc cam kết chưa được xác minh, không gửi cả khối chương trình. Nếu không phù hợp thì should_reply=false. Bắt buộc gọi submit_follow_up_decision.",
-      tools: [{ type: "function", name: "submit_follow_up_decision", strict: true, description: "Nộp quyết định chăm sóc lại.", parameters: schema }],
-      tool_choice: "required",
-      parallel_tool_calls: false,
-      input: [{ role: "user", content: [{ type: "input_text", text: JSON.stringify({
-        task: "scheduled_follow_up_after_silence",
-        trigger: prepared.details,
-        slide_context: prepared.slide_context,
-        slide_candidates: prepared.slide_candidates,
-        customer: prepared.customer,
-        conversation_state: prepared.conversation_state,
-        ai_memory: prepared.memory,
-        conversation: prepared.conversation,
-        governance,
-      }) }] }],
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  const rawText = await response.text();
-  let payload;
-  try { payload = rawText ? JSON.parse(rawText) : {}; } catch { payload = { raw: rawText.slice(0, 500) }; }
-  if (!response.ok || payload?.error) throw new Error(payload?.error?.message || `OPENAI_FOLLOW_UP_HTTP_${response.status}`);
-  const decision = parseFollowUpDecision(payload);
-  return rpc("v8_complete_follow_up_ai_request", {
-    p_request_id: item.id,
-    p_decision: decision,
-    p_model_name: prepared.model_name || provider.model_name,
-    p_response_id: payload.id || null,
-  });
+  return dispatchFollowUpWithFallback(item);
 }
 
 async function dispatchBrain(item) {
@@ -230,6 +210,7 @@ async function dispatchBrain(item) {
     headers: {
       apikey: SERVICE_ROLE_KEY,
       authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      "x-aiguka-brain-secret": BRAIN_SECRET,
       "content-type": "application/json",
     },
     body: JSON.stringify({ request_id: item.id }),
@@ -255,9 +236,14 @@ async function processItem(item) {
       p_error: null,
       p_details: {
         profile_sync_attempted: profile.attempted,
+        profile_checked: profile.checked,
         profile_ready: profile.ready,
+        profile_gender_known: profile.genderKnown,
         display_name: profile.customer?.display_name || null,
         gender: profile.customer?.gender || null,
+        gender_source: profile.customer?.gender_source || null,
+        profile_sync_status: profile.customer?.profile_sync_status || null,
+        profile_synced_at: profile.customer?.profile_synced_at || null,
         preferred_salutation: profile.customer?.preferred_salutation || null,
         brain_result: result?.ok ?? true,
         requested_by: item.requested_by || null,
@@ -332,3 +318,5 @@ export async function startAiDispatchWorker() {
 }
 
 await startAiDispatchWorker();
+
+// profile_gender_preflight_v7

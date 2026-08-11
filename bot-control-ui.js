@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import { installFollowupAdminV8 } from "./followup-admin-v8.js";
 
 export function installBotControlUi(app, options) {
+  installFollowupAdminV8(app); // AIGUKA_FOLLOWUP_ADMIN_V8_EVENT_V1
   const { supabaseUrl, serviceRoleKey, publishableKey } = options;
   const key = serviceRoleKey || publishableKey;
   const coreBase = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");

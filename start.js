@@ -52,41 +52,9 @@ try {
   console.error("[AIGUKA] Could not load saved Meta OAuth connection:", error.message);
 }
 
-// Active feature-source compatibility patches. These patch feature modules only;
-// the Railway HTTP server and AI worker are committed checksummed artifacts.
-for (const patch of [
-  "./patch-learning-client.js",
-  "./patch-bot-page-mode-save.js",
-  "./patch-bot-page-support-mode.js",
-  "./patch-bot-clock-24h.js",
-  "./patch-ai-context-nav.js",
-  "./patch-ai-context-card-selection.js",
-  "./patch-ai-context-center-validation.js",
-  "./patch-ai-provider-tokenrouter.js",
-  "./patch-ai-provider-manager-compact-ui.js",
-  "./patch-ai-provider-resilience-ui.js",
-  "./patch-ai-provider-temporary-errors.js",
-  "./patch-meta-pages-messaging-scope.js",
-  "./patch-drive-v4-key-compat.js",
-  "./patch-drive-v4-api-key-folder-action.js",
-  "./patch-drive-folder-tree-hierarchy.js",
-  "./patch-catalog-key-rename.js",
-  "./patch-slide-generic-carousel.js",
-  "./seed-tong-hop-context.js",
-  "./patch-mapping-meta-midnight-delivery.js",
-]) await safeImport(patch);
-
 // TokenRouter's free Kimi K3 route documents streaming chat completions. Install the
 // SSE aggregator before the HTTP server so both manager smoke tests and the worker use it.
 await safeImport("./v10-tokenrouter-runtime-adapter.js");
-
-await safeImport("./patch-outbound-human-takeover.js");
-await safeImport("./patch-outbound-comment-private-reply.js");
-await safeImport("./patch-outbound-binary-image-upload.js");
-await safeImport("./patch-outbound-drive-image-proxy-v2.js");
-await safeImport("./patch-outbound-marketing-notifications.js");
-await safeImport("./patch-ai-brain-internal-auth.js");
-await safeImport("./patch-ai-dispatch-profile-gender-preflight.js");
 
 // Bind the checksummed Railway HTTP server before background workers.
 await safeImport("./v10-server-release.js", true);
@@ -94,27 +62,7 @@ console.log("[AIGUKA startup] final V10 HTTP server initialized; verifying V10 A
 await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
 
-// Apply the stable sales patch first. The Core router then installs the legacy V10
-// quality/hierarchy compatibility chain against its expected source layout.
-await safeImport("./patch-v10-general-product-sales-handoff.js", true);
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
-
-// Media obligation integrity is deliberately the last resolver layer. It replaces the
-// already-patched outbound resolver, so legacy quality patches never have to parse the
-// new layout. Keep fail-open behavior for future source-layout changes.
-await safeImport("./patch-v10-media-obligation-integrity.js");
-
-// Core ingest/debounce is the single authority for merging rapid customer messages.
-// This final patch removes conversation-level "latest decision wins" behavior: stale
-// outbound work is held, a merged job is guaranteed, and janitor only dedupes decisions
-// that represent the exact same customer-message frontier. It is fail-open so an
-// auxiliary patch failure can never take down the customer-facing worker stack.
-await safeImport("./patch-v10-turn-merge-authority.js");
-
-// After media resolution and turn merging have reached their final layouts, install the
-// safety-only outbound integrity layer. It blocks exact cross-decision duplicates and
-// audits requested/resolved media scopes without rewriting the AI's business decision.
-await safeImport("./patch-v10-outbound-sovereign-integrity.js");
 
 const v9CoreReady = v9CoreBridgeState.ready === true
   && v9CoreModule?.v9CoreRoutingState?.enabled === true;

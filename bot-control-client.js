@@ -42,6 +42,21 @@ function scheduleModeHelp(mode) {
   return "BOT tắt hoàn toàn trong khung giờ này.";
 }
 
+// AIGUKA_BOT_CLOCK_24H_V1
+function normalizeClock24(value) {
+  const raw = String(value || "").trim().replace(/[.hH]/g, ":").replace(/\s+/g, "");
+  const compact = raw.match(/^(\d{1,2})(?::?(\d{2}))?$/);
+  if (!compact) return raw;
+  const hour = Number(compact[1]);
+  const minute = Number(compact[2] || 0);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return raw;
+  return String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+}
+
+function isValidClock24(value) {
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value || ""));
+}
+
 function refreshWindow(row) {
   const mode = row.querySelector(".w-mode").value;
   const delay = row.querySelector(".w-delay");
@@ -56,8 +71,8 @@ function windowHtml(window = {}) {
   const waitMinutes = mode === "support" ? Number(window.wait_minutes ?? window.delay_minutes ?? 5) : 0;
   return '<div class="schedule-window">'
     + '<div><label>Tên khoảng</label><input class="w-label" value="' + escapeHtml(window.label || window.name || "Khung giờ mới") + '"></div>'
-    + '<div><label>Bắt đầu</label><input class="w-start" type="time" value="' + escapeHtml(String(window.start || "08:00").slice(0, 5)) + '"></div>'
-    + '<div><label>Kết thúc</label><input class="w-end" type="time" value="' + escapeHtml(String(window.end || "12:00").slice(0, 5)) + '"></div>'
+    + '<div><label>Bắt đầu (24h)</label><input class="w-start clock-24h" type="text" inputmode="numeric" maxlength="5" pattern="(?:[01]\d|2[0-3]):[0-5]\d" placeholder="08:00" value="' + escapeHtml(normalizeClock24(String(window.start || "08:00").slice(0, 5))) + '"></div>'
+    + '<div><label>Kết thúc (24h)</label><input class="w-end clock-24h" type="text" inputmode="numeric" maxlength="5" pattern="(?:[01]\d|2[0-3]):[0-5]\d" placeholder="23:59" value="' + escapeHtml(normalizeClock24(String(window.end || "12:00").slice(0, 5))) + '"></div>'
     + '<div><label>Chế độ BOT</label><select class="w-mode">'
     + '<option value="on" ' + (mode === "on" ? "selected" : "") + '>ON — Bật BOT</option>'
     + '<option value="support" ' + (mode === "support" ? "selected" : "") + '>Hỗ trợ Sale</option>'
@@ -69,7 +84,7 @@ function windowHtml(window = {}) {
 }
 
 function renderWindows(rows) {
-  byId("schedule-windows").innerHTML = '<div class="schedule-head"><span>Tên khoảng</span><span>Bắt đầu</span><span>Kết thúc</span><span>Chế độ BOT</span><span>Chờ hỗ trợ</span><span>Hoạt động</span><span></span></div>'
+  byId("schedule-windows").innerHTML = '<div class="schedule-head"><span>Tên khoảng</span><span>Bắt đầu (24h)</span><span>Kết thúc (24h)</span><span>Chế độ BOT</span><span>Chờ hỗ trợ</span><span>Hoạt động</span><span></span></div>'
     + (rows || []).map(windowHtml).join("");
 }
 
@@ -77,7 +92,7 @@ function addWindow() {
   byId("schedule-windows").insertAdjacentHTML("beforeend", windowHtml({
     label: "Khung giờ mới",
     start: "08:00",
-    end: "12:00",
+    end: "23:59",
     mode: "support",
     enabled: true,
     wait_minutes: 5,
@@ -91,8 +106,8 @@ function collectWindows() {
     return {
       label,
       name: label,
-      start: row.querySelector(".w-start").value,
-      end: row.querySelector(".w-end").value,
+      start: normalizeClock24(row.querySelector(".w-start").value),
+      end: normalizeClock24(row.querySelector(".w-end").value),
       mode,
       enabled: row.querySelector(".w-enabled").checked,
       wait_minutes: mode === "support" ? Math.max(0, Number(row.querySelector(".w-delay").value || 5)) : 0,
@@ -286,6 +301,9 @@ async function saveSchedule() {
     const windows = collectWindows();
     if (!windows.length) throw new Error("Cần ít nhất một khoảng thời gian");
     if (windows.some((window) => !window.start || !window.end)) throw new Error("Mỗi khoảng phải có giờ bắt đầu và kết thúc");
+    if (windows.some((window) => !isValidClock24(window.start) || !isValidClock24(window.end))) {
+      throw new Error("Giờ phải theo định dạng 24 giờ HH:MM, từ 00:00 đến 23:59");
+    }
     const active = windows.filter((window) => window.enabled && window.mode !== "off");
     const supportWaits = windows.filter((window) => window.enabled && window.mode === "support").map((window) => window.wait_minutes || 5);
     await api("/bot-control/api/schedule", {
@@ -317,8 +335,19 @@ async function saveSchedule() {
 }
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches(".clock-24h")) {
+    const normalized = normalizeClock24(event.target.value);
+    if (isValidClock24(normalized)) event.target.value = normalized;
+  }
   if (event.target.matches(".w-mode")) refreshWindow(event.target.closest(".schedule-window"));
   if (event.target.matches("#feature-text,#feature-slide,#feature-care")) updateFeatureGuide();
+});
+
+document.addEventListener("focusout", (event) => {
+  if (!event.target.matches(".clock-24h")) return;
+  const normalized = normalizeClock24(event.target.value);
+  event.target.value = normalized;
+  event.target.setCustomValidity(isValidClock24(normalized) ? "" : "Nhập giờ 24h dạng HH:MM, ví dụ 08:00 hoặc 23:59");
 });
 
 document.addEventListener("click", (event) => {

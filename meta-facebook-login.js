@@ -10,11 +10,11 @@ const META_APP_ID = process.env.META_APP_ID || "";
 const META_APP_SECRET = process.env.META_APP_SECRET || "";
 const REQUESTED_SCOPES = String(
   process.env.META_OAUTH_SCOPES ||
-    "ads_read,business_management,pages_show_list,pages_read_engagement",
+    "ads_read,business_management,pages_show_list,pages_read_engagement,pages_messaging,pages_manage_metadata",
 )
   .split(",")
   .map((value) => value.trim())
-  .filter(Boolean);
+  .filter((value) => value && value !== "pages_read_user_content");
 
 const esc = (value = "") =>
   String(value).replace(/[&<>"']/g, (char) => ({

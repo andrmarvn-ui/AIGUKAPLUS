@@ -1,13 +1,16 @@
 import crypto from "node:crypto";
 import { buildDecisionInstructions, decisionSchema, validateDecision } from "./v10/core/decision-contract.js";
 import { buildKnowledgeAdvisors } from "./v10/core/knowledge-advisor.js";
+import { deriveUnresolvedNeeds } from "./v10/core/unresolved-needs.js";
+import { deriveProductThreads } from "./v10/core/product-threads.js";
+import { deriveMediaScope, explicitMediaRequestFromMessages, mediaExpectedFromMessages } from "./v10/core/media-obligation.js";
 
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-ai";
-const VERSION = "v10_ai_quality_guard_v13"; // AIGUKA_PROVIDER_LOAD_BALANCER_V4
+const VERSION = "v10_ai_product_threads_v19"; // AIGUKA_PROVIDER_LOAD_BALANCER_V4 // AIGUKA_PROVIDER_RESILIENCE_V1
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_AI_POLL_MS || 3000));
 const BATCH_SIZE = Math.max(1, Math.min(4, Number(process.env.AIGUKA_V10_AI_BATCH_SIZE || 3)));
 const PROVIDER_CACHE_MS = Math.max(3000, Number(process.env.AIGUKA_V10_PROVIDER_CACHE_MS || 5000));
@@ -15,7 +18,7 @@ const RATE_LIMIT_MAX_COOLDOWN_MS = Math.max(15 * 60_000, Number(process.env.AIGU
 const DECISION_ERROR_COOLDOWN_MS = Math.max(60_000, Number(process.env.AIGUKA_PROVIDER_DECISION_ERROR_COOLDOWN_MS || 5 * 60_000));
 const LEASE_MS = Math.max(60_000, Number(process.env.AIGUKA_V10_AI_LEASE_MS || 90_000));
 const MAX_DECISION_ERRORS = Math.max(3, Number(process.env.AIGUKA_V10_AI_MAX_DECISION_ERRORS || 5));
-const GEMINI_MIN_INTERVAL_MS = Math.max(30_000, Number(process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS || 60_000));
+const GEMINI_MIN_INTERVAL_MS = Math.max(3_000, Number(process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS || 5_000));
 const GEMINI_MIN_COOLDOWN_MS = Math.max(120_000, Number(process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS || 120_000));
 const GEMINI_MAX_COOLDOWN_MS = Math.max(GEMINI_MIN_COOLDOWN_MS, Number(process.env.AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS || 300_000));
 const OPENAI_CREDIT_COOLDOWN_MS = Math.max(30 * 60_000, Number(process.env.AIGUKA_OPENAI_CREDIT_COOLDOWN_MS || 6 * 60 * 60_000));
@@ -60,8 +63,12 @@ function providerName(provider = {}) {
 }
 
 function isGemini(provider = {}) {
-  return providerName(provider).includes("gemini");
+  const type = String(provider?.provider_type || "").trim().toLowerCase();
+  const key = providerName(provider);
+  return type === "gemini" || type.includes("gemini") || key.includes("gemini") || key === "google" || key === "gemma";
 }
+
+// AIGUKA_V10_GEMINI_PROVIDER_TYPE_V1
 
 function providerSettings(provider = {}) {
   return provider?.settings && typeof provider.settings === "object" ? provider.settings : {};
@@ -133,18 +140,10 @@ function healthFor(provider = {}) {
   return providerHealth.get(key);
 }
 
-function providerOrder(rows = [], now = Date.now(), inputChars = 0) {
-  const eligible = (rows || []).filter((provider) => {
-    const learned = Number(healthFor(provider).contextLimitChars || 0);
-    const configured = Number(providerSettings(provider).max_input_chars || 0);
-    const limits = [learned, configured].filter((value) => Number.isFinite(value) && value > 0);
-    const limit = limits.length ? Math.min(...limits) : 0;
-    return !limit || !inputChars || inputChars < limit;
-  });
-  const pool = eligible.length ? eligible : (rows || []);
+function weightedProviderOrder(pool = [], now = Date.now()) {
   const scored = [];
   let totalWeight = 0;
-  for (const provider of pool) {
+  for (const provider of pool || []) {
     const health = healthFor(provider);
     const baseWeight = providerWeight(provider);
     const latencyPenalty = health.ewmaLatencyMs > 0 ? Math.min(0.65, health.ewmaLatencyMs / 45_000) : 0;
@@ -169,6 +168,25 @@ function providerOrder(rows = [], now = Date.now(), inputChars = 0) {
   return [winner.provider, ...rest];
 }
 
+function providerOrder(rows = [], now = Date.now(), inputChars = 0) {
+  const eligible = (rows || []).filter((provider) => {
+    const learned = Number(healthFor(provider).contextLimitChars || 0);
+    const configured = Number(providerSettings(provider).max_input_chars || 0);
+    const limits = [learned, configured].filter((value) => Number.isFinite(value) && value > 0);
+    const limit = limits.length ? Math.min(...limits) : 0;
+    return !limit || !inputChars || inputChars < limit;
+  });
+  const pool = eligible.length ? eligible : (rows || []);
+  const googlePrimary = pool.filter((provider) => isGemini(provider));
+  const fallback = pool.filter((provider) => !isGemini(provider));
+  return [
+    ...weightedProviderOrder(googlePrimary, now),
+    ...weightedProviderOrder(fallback, now),
+  ];
+}
+
+// AIGUKA_V10_GOOGLE_PRIMARY_POOL_V1
+
 function decryptProviderKey(value) {
   const [iv, tag, body] = String(value || "").split(".");
   if (!iv || !tag || !body) throw new Error("AI_PROVIDER_KEY_FORMAT_INVALID");
@@ -180,7 +198,7 @@ function decryptProviderKey(value) {
 
 async function providers() {
   if (providerCache.rows.length && providerCache.expiresAt > Date.now()) return providerCache.rows;
-  const rows = await knowledge("ai_providers?select=provider_key,provider_type,base_url,model_name,api_key_ciphertext,is_enabled,updated_at,settings,connection_status,last_error&is_enabled=eq.true&order=updated_at.desc&limit=10", { timeout: 10000 });
+  const rows = await knowledge("ai_providers?select=provider_key,provider_type,base_url,model_name,api_key_ciphertext,is_enabled,updated_at,settings,connection_status,last_error&is_enabled=eq.true&order=updated_at.desc&limit=50", { timeout: 10000 });
   const usable = (rows || []).filter((row) => row?.api_key_ciphertext && row?.connection_status !== "error");
   if (!usable.length) throw new Error("V10_AI_PROVIDER_NOT_READY");
   providerCache = { rows: usable, expiresAt: Date.now() + PROVIDER_CACHE_MS, lastProviderKey: providerCache.lastProviderKey };
@@ -221,8 +239,10 @@ function parseResponsesDecision(payload) {
 
 function providerReadyAt(provider, now = Date.now()) {
   const health = healthFor(provider);
+  const settings = providerSettings(provider);
+  const persistedCooldown = Date.parse(settings.runtime_cooldown_until || settings.cooldown_until || "");
   let readyAt = Math.max(0, Number(health.disabledUntil || 0), Number(health.nextAllowedAt || 0));
-  if (isGemini(provider)) readyAt = Math.max(readyAt, gemini.nextAllowedAt, gemini.cooldownUntil);
+  if (Number.isFinite(persistedCooldown)) readyAt = Math.max(readyAt, persistedCooldown);
   return readyAt <= now ? now : readyAt;
 }
 
@@ -265,9 +285,12 @@ function recordProviderFailure(provider, classification, error = null, inputChar
   }
   if (classification === "rate_limit") {
     health.rateLimitFailures += 1;
-    const steps = [60_000, 2 * 60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000, 6 * 60 * 60_000];
+    const steps = isGemini(provider)
+      ? [2_000, 4_000, 8_000, 16_000, 30_000, 60_000, 2 * 60_000, 5 * 60_000, 15 * 60_000]
+      : [60_000, 2 * 60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000, 6 * 60 * 60_000];
     const adaptive = steps[Math.min(steps.length - 1, health.rateLimitFailures - 1)];
-    health.disabledUntil = now + Math.min(RATE_LIMIT_MAX_COOLDOWN_MS, Math.max(retryAfter, adaptive));
+    const jitter = isGemini(provider) ? Math.floor(Math.random() * 1_000) : 0;
+    health.disabledUntil = now + Math.min(RATE_LIMIT_MAX_COOLDOWN_MS, Math.max(retryAfter, adaptive + jitter));
   } else if (classification === "no_credit") {
     health.disabledUntil = now + OPENAI_CREDIT_COOLDOWN_MS;
   } else if (classification === "auth_error") {
@@ -279,11 +302,6 @@ function recordProviderFailure(provider, classification, error = null, inputChar
     health.disabledUntil = now + Math.min(5 * 60_000, 15_000 * (2 ** Math.min(4, health.failures - 1)));
   } else {
     health.disabledUntil = now + Math.min(5 * 60_000, 30_000 * Math.max(1, health.failures));
-  }
-  if (isGemini(provider) && classification === "rate_limit") {
-    gemini.consecutive429 += 1;
-    gemini.cooldownUntil = Math.max(gemini.cooldownUntil, health.disabledUntil);
-    gemini.nextAllowedAt = Math.max(gemini.nextAllowedAt, gemini.cooldownUntil);
   }
 }
 
@@ -300,11 +318,6 @@ function recordProviderSuccess(provider, latencyMs = 0, inputChars = 0) {
     health.ewmaLatencyMs = health.ewmaLatencyMs > 0 ? Math.round(health.ewmaLatencyMs * 0.75 + latencyMs * 0.25) : Math.round(latencyMs);
   }
   health.nextAllowedAt = Date.now() + providerMinIntervalMs(provider);
-  if (isGemini(provider)) {
-    gemini.consecutive429 = 0;
-    gemini.cooldownUntil = 0;
-    gemini.nextAllowedAt = health.nextAllowedAt;
-  }
 }
 
 async function providerCall(provider, modelInput) {
@@ -323,7 +336,7 @@ async function providerCall(provider, modelInput) {
         ],
         tools: [{ type: "function", function: { name: "submit_v10_decision", description: "Submit the sole AI business decision", parameters: decisionSchema() } }],
         tool_choice: "required",
-        reasoning_effort: "none",
+        ...(providerName(provider) === "gemma" ? {} : { reasoning_effort: "none" }),
       }),
       signal: AbortSignal.timeout(providerTimeoutMs(provider)),
     });
@@ -608,7 +621,7 @@ function latestExplicitText(modelInput) {
 }
 
 function activeProductText(modelInput) {
-  return qualityNormalize(customerMessagesFrom(modelInput).slice(-5).map(function (message) { return message.text || ""; }).join(" "));
+  return currentCustomerClusterText(modelInput);
 }
 
 function scopedSlideKeys(modelInput, slideKeys) {
@@ -655,15 +668,18 @@ function unsupportedPriceReply(reply, modelInput) {
   });
 }
 
+
 function explicitSlideRequest(modelInput) {
-  const active = activeProductText(modelInput);
-  return /\b(xem|gui|cho xem|tham khao).{0,24}\bmau\b|\bmau khac\b|\bxem them\b/.test(active);
+  const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
+    ? modelInput.conversation.messages
+    : [];
+  return explicitMediaRequestFromMessages(messages);
 }
 
 function languageLooksCorrupted(value) {
   const text = String(value || "");
   const normalized = qualityNormalize(text);
-  if (/[�åäöüæøßłŁćĆśŚźŹżŻńŃ]/i.test(text)) return true;
+  if (/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(text) || /[�åäöüæøßłŁćĆśŚźŹżŻńŃ]/i.test(text)) return true;
   if (/\b(cosi|ldo|showoom|gia lam noii|zddw)\b/i.test(normalized)) return true;
   if (/\b(?:ld|dd|lđ)[a-z]{1,8}\b/i.test(normalized)) return true;
   const words = text.match(/[A-Za-zÀ-ỹĐđ]+/g) || [];
@@ -708,27 +724,293 @@ function unsupportedTechnicalFacts(value, modelInput) {
   });
 }
 
+function specificPriceSubject(modelInput) {
+  const raw = customerMessagesFrom(modelInput)
+    .slice(-6)
+    .map(function (message) { return String(message && message.text || ""); })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const normalized = qualityNormalize(raw);
+
+  let category = "mẫu sản phẩm";
+  if (/\b(bon cau|bet ve sinh|bet)\b/.test(normalized)) category = "bồn cầu";
+  else if (/\b(quat tran|quat)\b/.test(normalized)) category = "quạt trần";
+  else if (/\b(bep tu|bep dien|may hut mui|hut mui)\b/.test(normalized)) category = "sản phẩm phòng bếp";
+  else if (/\b(sen tam|sen cay)\b/.test(normalized)) category = "sen tắm";
+  else if (/\b(lavabo|chau rua mat)\b/.test(normalized)) category = "lavabo";
+  else if (/\b(chau rua bat|voi rua bat)\b/.test(normalized)) category = "chậu/vòi rửa bát";
+
+  const brandModelMatches = raw.match(/[A-Za-zÀ-ỹĐđ]{3,24}\s+[A-Za-z]{1,8}[-_.\/]?\d{2,6}[A-Za-z0-9._\/-]*/g) || [];
+  const codeMatches = raw.match(/\b[A-Za-z]{1,8}[-_.\/]?\d{2,6}[A-Za-z0-9._\/-]*\b/g) || [];
+  let reference = brandModelMatches.length ? brandModelMatches[brandModelMatches.length - 1] : (codeMatches[codeMatches.length - 1] || "");
+  const firstWord = qualityNormalize(reference).split(" ")[0] || "";
+  if (["cau", "quat", "bep", "sen", "voi", "chau", "mau", "pham"].includes(firstWord) && codeMatches.length) {
+    reference = codeMatches[codeMatches.length - 1];
+  }
+  reference = String(reference || "").replace(/[.,!?;:]+$/g, "").trim();
+
+  if (reference) return category + " " + reference;
+  if (category !== "mẫu sản phẩm") return category + " anh/chị đang quan tâm";
+  return "mẫu sản phẩm anh/chị đang quan tâm";
+}
+
+// AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1
+
 function safePriceReply(decision, modelInput) {
-  const active = activeProductText(modelInput);
   const known = contactIsKnown(modelInput);
   const style = salutationStyle(modelInput);
-  let subject = "mẫu này";
-  if (/\bquat.{0,20}10(?: canh)?\b/.test(active)) {
-    const color = /\bmau vang\b/.test(active) ? " màu vàng" : /\bmau den\b/.test(active) ? " màu đen" : /\bmau nau\b/.test(active) ? " màu nâu" : /\bvan go\b/.test(active) ? " màu vân gỗ" : "";
-    const size = /\b1\s*[,.]?\s*67\b|\b1m67\b/.test(active) ? ", sải cánh 1,67 m" : "";
-    subject = "mẫu quạt trần 10 cánh" + color + size;
-  } else if (/\b(phong bep|nha bep|bep tu|hut mui|chau|voi rua)\b/.test(active)) {
-    subject = "nhóm sản phẩm phòng bếp mình đang quan tâm";
-  } else if (/\b(phong tam|bon cau|sen tam|lavabo)\b/.test(active)) {
-    subject = "nhóm sản phẩm phòng tắm mình đang quan tâm";
-  }
+  const subject = generalSalesSubject(modelInput);
   const text = known
-    ? "Dạ, giá " + subject + " cần kiểm tra theo đúng phiên bản. Bên em đã nhận số của anh/chị và sẽ báo giá chính xác cho mình ạ."
-    : "Dạ, giá " + subject + " cần kiểm tra theo đúng phiên bản. Anh/chị cho em xin SĐT hoặc Zalo, bên em báo giá chính xác ạ.";
+    ? "Dạ, giá của " + subject + " còn phụ thuộc đúng mẫu/phiên bản và ưu đãi tại thời điểm kiểm tra. Em chuyển chuyên viên sản phẩm xác nhận và gửi báo giá chuẩn theo thông tin liên hệ mình đã để lại ạ."
+    : "Dạ, giá của " + subject + " còn phụ thuộc đúng mẫu/phiên bản và ưu đãi tại thời điểm kiểm tra. Anh/chị cho em xin SĐT hoặc Zalo, em chuyển chuyên viên sản phẩm xác nhận, gửi mẫu chuẩn và báo giá hiện tại ạ.";
   return applySalutation(text, style);
 }
 
 // AIGUKA_V10_DECISION_INTEGRITY_V8
+
+function currentCustomerRawCluster(modelInput) {
+  const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
+    ? modelInput.conversation.messages
+    : [];
+  let boundary = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index] && messages[index].role !== "customer") {
+      boundary = index;
+      break;
+    }
+  }
+  return messages.slice(boundary + 1)
+    .filter(function (message) { return message && message.role === "customer"; })
+    .map(function (message) { return String(message.text || ""); })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hardContactRefusalInTurn(modelInput) {
+  const text = qualityNormalize(currentCustomerRawCluster(modelInput));
+  return /\b(dung xin|dung hoi|khong cho so|khong dua so|khong can goi|khong lien he|khong sdt|khong so dien thoai|khong zalo)\b/.test(text);
+}
+
+function commercialProductNeedDetected(decision, modelInput) {
+  const raw = currentCustomerRawCluster(modelInput);
+  const text = qualityNormalize(raw);
+  const intents = qualityNormalize((Array.isArray(decision && decision.intents) ? decision.intents : []).join(" "));
+  const advisors = modelInput && modelInput.knowledge_advisors ? modelInput.knowledge_advisors : {};
+  const advisorProducts = Array.isArray(advisors.product_candidates) ? advisors.product_candidates : [];
+  const selected = Array.isArray(decision && decision.selected_catalog_keys) ? decision.selected_catalog_keys : [];
+  const hasProductEvidence = advisorProducts.length > 0 || selected.length > 0 || /\b(bon cau|bet|sen tam|sen cay|lavabo|guong|tu chau|tu lavabo|bon tam|bep tu|hut mui|chau rua|voi rua|phu kien|quat|den|gach|ngoi|combo|phong tam|nha tam|phong bep|nha bep|san pham|mau)\b/.test(text);
+  const commercialSignal = /\b(price|gia|bao gia|bao nhieu|samples|sample|xem mau|gui mau|gui anh|catalog|specs|thong so|kich thuoc|cong suat|stock|con hang|co hang|availability|delivery|giao hang|van chuyen|lap dat|bao hanh|xuat xu|thuong hieu|brand|purchase|mua|dat hang|lay hang|chot|uu dai|khuyen mai|giam gia)\b/.test(intents + " " + text);
+  return (hasProductEvidence && commercialSignal) || /\b(muon mua|can mua|dat hang|chot don|mua hang)\b/.test(text);
+}
+
+function strongCommercialSignal(decision, modelInput) {
+  const raw = currentCustomerRawCluster(modelInput);
+  const text = qualityNormalize(raw);
+  const intents = qualityNormalize((Array.isArray(decision && decision.intents) ? decision.intents : []).join(" "));
+  return priceIntentDetected(decision, modelInput)
+    || /\b(muon mua|can mua|dat hang|chot|lay hang|bao gia|uu dai|khuyen mai|con hang|giao hang|van chuyen|lap dat|bao hanh|xem mau|gui mau|gui anh|catalog)\b/.test(intents + " " + text)
+    || Boolean(decision && (decision.needs_slides || decision.action === "reply_with_slides"));
+}
+
+function specificOrComplexProductRequest(modelInput) {
+  const raw = currentCustomerRawCluster(modelInput);
+  const text = qualityNormalize(raw);
+  const codeLike = /\b[A-Za-z]{1,10}[-_.\/]?\d{2,7}[A-Za-z0-9._\/-]*\b/.test(raw);
+  const specification = /\b(kich thuoc|cong suat|dong co|chat lieu|xuat xu|thuong hieu|bao hanh|lap dat|phien ban|model|ma san pham|mau sac|sai canh|dien ap)\b/.test(text);
+  return codeLike || specification;
+}
+
+function containsCjkOrForeignGlyph(value) {
+  return /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(String(value || ""));
+}
+
+function stripRepeatedBusinessIntroduction(value) {
+  let text = String(value || "").trim();
+  text = text
+    .replace(/^\s*(?:chào|xin chào)[^.!?]{0,80}[.!?]\s*/i, "")
+    .replace(/^\s*(?:dạ[, ]*)?(?:em|cháu)\s+là\s+(?:nhân viên|tư vấn viên|trợ lý|cố vấn|顾问)[^.!?]{0,160}[.!?]?\s*/i, "")
+    .replace(/^\s*(?:em|cháu)\s+(?:đến|từ)\s+showroom[^.!?]{0,120}[.!?]?\s*/i, "")
+    .trim();
+  return text;
+}
+
+function specialistHandoffDetected(value) {
+  const text = qualityNormalize(value);
+  return /\b(chuyen|noi|gui|nhờ).{0,28}\b(sale|nhan vien kinh doanh|tu van vien|chuyen vien|chuyen vien san pham)\b|\b(sale|nhan vien kinh doanh|tu van vien|chuyen vien|chuyen vien san pham).{0,36}\b(kiem tra|bao gia|lien he|tu van|gui mau|xac nhan)\b/.test(text);
+}
+
+function unresolvedPromiseWithoutHandoff(value) {
+  const text = qualityNormalize(value);
+  return /\b(de em|em se|cho em).{0,40}\b(kiem tra|xem lai).{0,40}\b(bao lai|phan hoi lai|tra loi lai)\b/.test(text)
+    && !specialistHandoffDetected(value)
+    && !contactRequestDetected(value);
+}
+
+function sentenceParts(value) {
+  return (String(value || "").match(/[^.!?\n]+[.!?]?/g) || []).map(function (part) { return part.trim(); }).filter(Boolean);
+}
+
+function removeContactRequestSentences(value) {
+  return sentenceParts(value).filter(function (part) { return !contactRequestDetected(part); }).join(" ").trim();
+}
+
+function appendSentence(value, sentence) {
+  const base = String(value || "").trim();
+  const extra = String(sentence || "").trim();
+  if (!base) return extra;
+  if (!extra) return base;
+  return base + (/[.!?]$/.test(base) ? " " : ". ") + extra;
+}
+
+function trimReplyWithoutDestroyingAnswer(value, maxSentences, maxChars) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars && sentenceParts(text).length <= maxSentences) return text;
+  const kept = sentenceParts(text).slice(0, maxSentences).join(" ").trim();
+  return (kept || text.slice(0, maxChars)).slice(0, maxChars).trim();
+}
+
+function replyHasUsefulAnswer(value) {
+  const text = qualityNormalize(stripRepeatedBusinessIntroduction(value));
+  if (text.length < 28) return false;
+  if (/^(da|vang|ok|em ghi nhan|em hieu|de em kiem tra|cho em xin chut thoi gian)\b/.test(text) && text.length < 90) return false;
+  return true;
+}
+
+function generalSalesSubject(modelInput) {
+  const subject = typeof specificPriceSubject === "function" ? specificPriceSubject(modelInput) : "mẫu sản phẩm anh/chị đang quan tâm";
+  return String(subject || "mẫu sản phẩm anh/chị đang quan tâm")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function difficultProductCase(decision, modelInput, reply) {
+  return containsCjkOrForeignGlyph(reply)
+    || languageLooksCorrupted(reply)
+    || unsupportedPriceReply(reply, modelInput)
+    || unsupportedStockClaim(reply, modelInput)
+    || unsupportedTechnicalFacts(reply, modelInput)
+    || unresolvedPromiseWithoutHandoff(reply)
+    || (priceIntentDetected(decision, modelInput) && !replyContainsVerifiedPrice(reply, modelInput))
+    || specificOrComplexProductRequest(modelInput);
+}
+
+function smartSpecialistFallback(decision, modelInput, refused) {
+  const known = contactIsKnown(modelInput);
+  const style = salutationStyle(modelInput);
+  const subject = generalSalesSubject(modelInput);
+  let text;
+  if (refused) {
+    text = "Dạ, phần " + subject + " còn phụ thuộc đúng mã/phiên bản nên em chưa muốn báo sai. Anh/chị gửi thêm ảnh hoặc mã đầy đủ, em hỗ trợ tiếp ngay tại đây ạ.";
+  } else if (known) {
+    text = "Dạ, phần " + subject + " còn phụ thuộc đúng mẫu/phiên bản nên em chưa muốn báo sai. Em chuyển chuyên viên sản phẩm kiểm tra và gửi mẫu chuẩn, báo giá cùng ưu đãi hiện tại theo thông tin liên hệ mình đã để lại ạ.";
+  } else {
+    text = "Dạ, phần " + subject + " còn phụ thuộc đúng mẫu/phiên bản nên em chưa muốn báo sai. Anh/chị cho em xin SĐT hoặc Zalo, em chuyển chuyên viên sản phẩm kiểm tra, gửi mẫu chuẩn, báo giá và ưu đãi hiện tại ạ.";
+  }
+  return applySalutation(text, style);
+}
+
+function smartContactSentence(modelInput) {
+  const style = salutationStyle(modelInput);
+  return applySalutation("Anh/chị cho em xin SĐT hoặc Zalo, em chuyển chuyên viên sản phẩm gửi mẫu chuẩn, báo giá và ưu đãi hiện tại ạ.", style);
+}
+
+function smartKnownContactSentence(modelInput) {
+  const style = salutationStyle(modelInput);
+  return applySalutation("Em chuyển chuyên viên sản phẩm kiểm tra đúng mẫu/phiên bản và phản hồi theo thông tin liên hệ mình đã để lại ạ.", style);
+}
+
+function smartSpecialistReasonSentence(modelInput) {
+  const style = salutationStyle(modelInput);
+  return applySalutation("Em chuyển chuyên viên sản phẩm kiểm tra đúng mẫu/phiên bản để tư vấn và báo giá chuẩn cho mình ạ.", style);
+}
+
+function enforceGeneralProductSalesHandoff(decision, modelInput) {
+  if (!commercialProductNeedDetected(decision, modelInput)) return decision;
+
+  const known = contactIsKnown(modelInput);
+  const refused = hardContactRefusalInTurn(modelInput);
+  const highIntent = strongCommercialSignal(decision, modelInput);
+  let reply = stripRepeatedBusinessIntroduction(decision.final_reply || "");
+  let repairMode = "preserved";
+
+  const unsafe = containsCjkOrForeignGlyph(reply)
+    || languageLooksCorrupted(reply)
+    || unsupportedPriceReply(reply, modelInput)
+    || unsupportedStockClaim(reply, modelInput)
+    || unsupportedTechnicalFacts(reply, modelInput);
+  const difficult = difficultProductCase(decision, modelInput, reply);
+  const shouldAskContact = !known && !refused && (highIntent || difficult);
+
+  if (unsafe) {
+    reply = smartSpecialistFallback(decision, modelInput, refused);
+    repairMode = "safe_specialist_fallback";
+  } else {
+    if (unresolvedPromiseWithoutHandoff(reply)) {
+      reply = smartSpecialistFallback(decision, modelInput, refused);
+      repairMode = "promise_repaired";
+    } else if (known) {
+      if (contactRequestDetected(reply)) {
+        reply = removeContactRequestSentences(reply);
+        repairMode = "removed_duplicate_contact_request";
+      }
+      if ((highIntent || difficult) && !specialistHandoffDetected(reply)) {
+        reply = appendSentence(reply, smartKnownContactSentence(modelInput));
+        repairMode = "appended_known_contact_handoff";
+      }
+    } else if (refused) {
+      if (contactRequestDetected(reply)) {
+        reply = removeContactRequestSentences(reply);
+        repairMode = "honored_contact_refusal";
+      }
+      if (!replyHasUsefulAnswer(reply) && difficult) {
+        reply = smartSpecialistFallback(decision, modelInput, true);
+        repairMode = "messenger_clarification_fallback";
+      }
+    } else if (shouldAskContact) {
+      if (!replyHasUsefulAnswer(reply)) {
+        reply = smartSpecialistFallback(decision, modelInput, false);
+        repairMode = "missing_answer_fallback";
+      } else {
+        if (!contactRequestDetected(reply)) {
+          reply = appendSentence(reply, smartContactSentence(modelInput));
+          repairMode = "appended_contact_cta";
+        }
+        if ((difficult || highIntent) && !specialistHandoffDetected(reply)) {
+          reply = appendSentence(reply, smartSpecialistReasonSentence(modelInput));
+          repairMode = repairMode === "preserved" ? "appended_specialist_reason" : repairMode + "+specialist_reason";
+        }
+      }
+    }
+  }
+
+  reply = stripRepeatedBusinessIntroduction(reply).replace(/\s+/g, " ").trim();
+  if (containsCjkOrForeignGlyph(reply) || !reply) {
+    reply = smartSpecialistFallback(decision, modelInput, refused);
+    repairMode = "final_safe_fallback";
+  }
+  reply = trimReplyWithoutDestroyingAnswer(reply, 4, 760);
+
+  decision.final_reply = applySalutation(reply, salutationStyle(modelInput));
+  decision.contact_state = known ? "known" : "missing";
+  decision.should_request_contact = shouldAskContact;
+  decision.contact_benefit = known
+    ? "chuyên viên sản phẩm kiểm tra đúng mẫu/phiên bản và phản hồi theo liên hệ đã có"
+    : refused
+      ? "tiếp tục hỗ trợ tại Messenger, xin thêm ảnh hoặc mã đầy đủ khi cần"
+      : shouldAskContact
+        ? "chuyên viên sản phẩm gửi mẫu chuẩn, báo giá và ưu đãi hiện tại"
+        : "trả lời trực tiếp phần dữ liệu đã chắc chắn";
+  decision.sales_handoff_required = !refused && (highIntent || difficult);
+  decision.specialist_handoff_recommended = !refused && commercialProductNeedDetected(decision, modelInput);
+  decision.general_product_sales_guard = true;
+  decision.smart_reply_repair = repairMode;
+  decision.hard_output_blocking = false;
+  return decision;
+}
+
+// AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR
 
 function unsupportedStockClaim(value, modelInput) {
   const text = qualityNormalize(value);
@@ -773,6 +1055,53 @@ function groundedProductReply(decision, modelInput) {
 
 // AIGUKA_V10_DECISION_INTEGRITY_V7
 
+function currentFocusTags(message) {
+  const text = qualityNormalize(message && message.text || "");
+  const tags = [];
+  function add(value) { if (value && !tags.includes(value)) tags.push(value); }
+  const toilet = /\b(bon cau|bet|bet lien khoi|bet thong minh|bet trung|qua trung|toilet)\b/.test(text);
+  const shower = /\b(sen tam|sen cay|voi sen|sen voi)\b/.test(text);
+  const bathSink = /\b(lavabo|chau rua mat|bon rua mat|tu lavabo|tu chau|guong lavabo)\b/.test(text);
+  const kitchenSink = /\b(chau rua bat|chau rua chen|chau rua bep|voi rua bat|voi rua chen|voi rua bep|chau voi)\b/.test(text);
+  const kitchenAppliance = /\b(bep tu|bep dien|hut mui|may hut|hut khoi)\b/.test(text);
+  const kitchenFurniture = /\b(tu bep|bo bep|he tu bep|bep dai|tu bep dai|noi that bep theo met)\b/.test(text)
+    || /\b(?:bo|tu)\s*bep.{0,24}\b(?:m|met)\b/.test(text);
+  const fan = /\b(?:quat|quant)(?:\s+tran)?(?:.{0,22}(?:5|6|8|10)\s*canh)?\b/.test(text);
+  const tile = /\b(gach|op lat|lat nen|da op lat)\b/.test(text);
+  if (toilet) add("toilet");
+  if (shower) add("shower");
+  if (bathSink) add("bath_sink");
+  if (kitchenSink) add("kitchen_sink");
+  if (kitchenAppliance) add("kitchen_appliance");
+  if (kitchenFurniture) add("kitchen_furniture");
+  if (fan) add("fan");
+  if (tile) add("tile");
+  if (!(toilet || shower || bathSink) && /\b(phong tam|nha tam|nha ve sinh|nha vs|wc|thiet bi ve sinh|combo.{0,12}(tam|ve sinh))\b/.test(text)) add("bathroom");
+  if (!(kitchenSink || kitchenAppliance || kitchenFurniture) && /\b(phong bep|nha bep|noi that.{0,12}bep|thiet bi.{0,12}bep|combo.{0,12}bep|com bo.{0,12}bep|bep an)\b/.test(text)) add("kitchen");
+  if (/\b(noi that nha moi|hoan thien nha|trang bi nha moi|xem het|tat ca mau|toan bo san pham)\b/.test(text)) add("whole_home");
+  return tags;
+}
+
+function focusCurrentCustomerMessages(messages) {
+  if (!Array.isArray(messages) || messages.length < 2) return messages || [];
+  let focusIndex = -1;
+  let tags = [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const found = currentFocusTags(messages[index]);
+    if (!found.length) continue;
+    focusIndex = index;
+    tags = found;
+    break;
+  }
+  if (focusIndex <= 0 || tags.length !== 1 || tags[0] === "whole_home") return messages;
+  const target = tags[0];
+  const newer = messages.slice(focusIndex + 1).flatMap(currentFocusTags);
+  if (newer.some(function (tag) { return tag !== target; })) return messages;
+  const earlier = messages.slice(0, focusIndex).flatMap(currentFocusTags);
+  if (!earlier.some(function (tag) { return tag !== target; })) return messages;
+  return messages.slice(focusIndex);
+}
+
 function currentCustomerClusterText(modelInput) {
   const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
     ? modelInput.conversation.messages
@@ -784,55 +1113,32 @@ function currentCustomerClusterText(modelInput) {
       break;
     }
   }
-  return qualityNormalize(messages.slice(boundary + 1).filter(function (message) {
-    return message && message.role === "customer";
-  }).map(function (message) {
+  const current = messages.slice(boundary + 1).filter(function (message) {
+    return message && message.role === "customer" && !["superseded", "cancelled"].includes(String(message.semantic_status || "active").toLowerCase());
+  });
+  return qualityNormalize(focusCurrentCustomerMessages(current).map(function (message) {
     return message.text || "";
   }).join(" "));
 }
 
+// AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1
 function currentTurnSlideKeys(modelInput, slideKeys) {
-  const text = currentCustomerClusterText(modelInput);
-  const output = [];
-  function key(value) { return slideKeys.has(value) ? value : null; }
-  function add() {
-    for (const value of arguments) {
-      if (value && !output.includes(value)) output.push(value);
-    }
-  }
+  const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
+    ? modelInput.conversation.messages
+    : [];
+  const explicitScope = deriveMediaScope(messages, slideKeys);
+  if (explicitScope.length || !explicitMediaRequestFromMessages(messages)) return explicitScope;
 
-  const broadHome = /\b(noi that nha moi|hoan thien nha|trang bi nha moi|xem het|tat ca mau|toan bo san pham)\b/.test(text);
-  const asksKitchenAndBath = /\b(nha tam|phong tam|thiet bi ve sinh)\b/.test(text)
-    && /\b(nha bep|phong bep|bep tu|hut mui|chau rua bat|voi rua bat)\b/.test(text);
-  const sink = /\b(chau|voi rua|bon rua|rua bat|rua chen)\b/.test(text);
-  const stove = /\b(bep tu|hut mui|may hut|hut khoi)\b/.test(text);
-  const broadKitchen = /\b(phong bep|nha bep|noi that.{0,12}bep|thiet bi.{0,12}bep|toan bo.{0,20}bep|bep an)\b/.test(text);
-  const toilet = /\b(bon cau|bet lien khoi|bet thong minh|bet trung|qua trung)\b/.test(text);
-  const bathroom = /\b(phong tam|nha tam|nha ve sinh|thiet bi ve sinh|combo.{0,10}(tam|ve sinh))\b/.test(text);
-  const mirror = /\b(guong tu|tu guong|tu lavabo|tu chau|guong lavabo)\b/.test(text);
-  const fan = /\b(quat tran|quat 10(?: canh)?|quat 8(?: canh)?|quat 5(?: canh)?|quat 6(?: canh)?)\b/.test(text);
-
-  if (broadHome || asksKitchenAndBath) {
-    add(
-      key("combo_phong_tam_ban_chay"), key("combo_phong_tam_dep_moi"), key("combo_phong_tam"),
-      key("bep_tu_hut_mui"), key("chau_voi_rua_bat")
-    );
-    return output;
-  }
-
-  if (sink) add(key("chau_voi_rua_bat"));
-  else if (stove) add(key("bep_tu_hut_mui"), key("bep_tu"), key("may_hut_mui"));
-  else if (broadKitchen) add(key("bep_tu_hut_mui"), key("chau_voi_rua_bat"));
-
-  if (mirror) add(key("guong_tu"), key("tu_chau_guong"));
-  else if (toilet) add(key("bon_cau"), key("bon_cau_lien_khoi"), key("bon_cau_thong_minh"));
-  else if (bathroom) add(key("combo_phong_tam_ban_chay"), key("combo_phong_tam_dep_moi"), key("combo_phong_tam"));
-
-  if (fan) add(
-    key("quat_10_canh_gold"), key("quat_10_canh_wood"), key("quat_10_canh_black"),
-    key("quat_10_canh_brown"), key("quat_8_canh_gold"), key("quat_8_canh_wood"), key("quat_tran")
-  );
-  return output;
+  const mappings = modelInput && modelInput.knowledge_advisors && Array.isArray(modelInput.knowledge_advisors.ad_mappings)
+    ? modelInput.knowledge_advisors.ad_mappings
+    : [];
+  if (mappings.length !== 1) return [];
+  const mapping = mappings[0] || {};
+  const preferred = Array.isArray(mapping.fallback_catalog_keys) && mapping.fallback_catalog_keys.length
+    ? mapping.fallback_catalog_keys
+    : (Array.isArray(mapping.catalog_keys) ? mapping.catalog_keys : []);
+  const available = slideKeys instanceof Set ? slideKeys : new Set(Array.isArray(slideKeys) ? slideKeys.map(String) : []);
+  return [...new Set(preferred.map((value) => String(value || "").trim()).filter((value) => available.has(value)))].slice(0, 3);
 }
 
 function continuationSlideRequest(modelInput) {
@@ -992,12 +1298,17 @@ function enforceDecisionIntegrity(input, modelInput) {
     if (selectedKey && !selected.includes(selectedKey)) selected.push(selectedKey);
   }
 
-  const scope = scopedSlideKeys(modelInput, slide);
+  const scope = currentTurnSlideKeys(modelInput, slide);
   const slideRequested = explicitSlideRequest(modelInput);
-  if (scope.length && (slideRequested || decision.needs_slides || decision.action === "reply_with_slides")) {
-    if (slideRequested) {
+  const messagesForMedia = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
+    ? modelInput.conversation.messages
+    : [];
+  const mediaExpected = mediaExpectedFromMessages(messagesForMedia, scope);
+  if (scope.length && (mediaExpected || decision.needs_slides || decision.action === "reply_with_slides")) {
+    if (mediaExpected) {
       decision.needs_slides = true;
       decision.action = "reply_with_slides";
+      decision.decision_reason = String(decision.decision_reason || "") + " | customer_media_obligation_preserved";
     }
     decision.selected_catalog_keys = scope.slice(0, 6);
   } else {
@@ -1049,6 +1360,11 @@ function enforceDecisionIntegrity(input, modelInput) {
   const knownAtFinal = contactIsKnown(modelInput);
   if (priceIntentDetected(decision, modelInput) && !replyContainsVerifiedPrice(decision.final_reply, modelInput)) {
     decision.final_reply = safePriceReply(decision, modelInput);
+    decision.contact_state = knownAtFinal ? "known" : "missing";
+    decision.should_request_contact = !knownAtFinal;
+    decision.contact_benefit = knownAtFinal
+      ? "gửi mẫu, báo giá chính xác và ưu đãi hiện tại theo thông tin liên hệ đã có"
+      : "gửi mẫu, báo giá chính xác và ưu đãi hiện tại";
   } else if (unsupportedStockClaim(decision.final_reply, modelInput) || unsupportedTechnicalFacts(decision.final_reply, modelInput) || languageLooksCorrupted(decision.final_reply) || (knownAtFinal && contactRequestDetected(decision.final_reply))) {
     decision.final_reply = groundedProductReply(decision, modelInput);
   }
@@ -1057,26 +1373,460 @@ function enforceDecisionIntegrity(input, modelInput) {
     decision.should_request_contact = false;
   }
   ensureCurrentTurnCoverage(decision, modelInput);
+  enforceGeneralProductSalesHandoff(decision, modelInput);
+  enforceConversationContinuity(decision, modelInput);
   if (DECISION_LEAK_PATTERN.test(String(decision.final_reply || ""))) throw new Error("V10_DECISION_FINAL_REPLY_LEAK_REJECTED");
   return decision;
 }
 // AIGUKA_V10_DECISION_INTEGRITY_V3
 
+async function persistProviderRuntimeState(provider, state, classification = null, error = null) {
+  const current = providerSettings(provider);
+  const health = healthFor(provider);
+  const now = new Date().toISOString();
+  const cooldownUntil = state === "cooldown" && health.disabledUntil > Date.now()
+    ? new Date(health.disabledUntil).toISOString()
+    : null;
+
+  if (state === "ready"
+      && provider.connection_status === "production_ready"
+      && current.runtime_state !== "cooldown"
+      && !current.runtime_cooldown_until
+      && !provider.last_error) return;
+
+  const settings = {
+    ...current,
+    runtime_state: state,
+    runtime_error_class: state === "ready" ? null : classification,
+    runtime_cooldown_until: cooldownUntil,
+    runtime_auto_recover: true,
+    runtime_state_updated_at: now,
+  };
+  const connectionStatus = state === "ready" ? "production_ready" : "cooldown";
+  const lastError = state === "ready" ? null : String(error?.message || error || classification || "provider_cooldown").slice(0, 800);
+
+  provider.settings = settings;
+  provider.connection_status = connectionStatus;
+  provider.last_error = lastError;
+
+  await knowledge(`ai_providers?provider_key=eq.${encodeURIComponent(providerKey(provider))}`, {
+    method: "PATCH",
+    prefer: "return=minimal",
+    timeout: 10000,
+    body: {
+      connection_status: connectionStatus,
+      last_error: lastError,
+      settings,
+      updated_at: now,
+    },
+  }).catch(() => {});
+}
+
+
+function continuityTime(value) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function continuityContactRequestDetected(value) {
+  const text = qualityNormalize(value);
+  return /\b(xin|cho|gui|de lai|nhan|qua).{0,40}\b(sdt|so dien thoai|zalo|so lien he)\b|\b(sdt|so dien thoai|zalo|so lien he).{0,30}\b(nhe|a|de|qua|cho em|gui em)\b/.test(text);
+}
+
+function continuitySentenceParts(value) {
+  return (String(value || "").match(/[^.!?\n]+[.!?]?/g) || [])
+    .map(function (part) { return part.trim(); })
+    .filter(Boolean);
+}
+
+function continuityRemoveContactRequests(value) {
+  return continuitySentenceParts(value)
+    .filter(function (part) { return !continuityContactRequestDetected(part); })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function continuityCurrentCustomerCluster(modelInput) {
+  const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
+    ? modelInput.conversation.messages
+    : [];
+  let boundary = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index] && messages[index].role !== "customer") {
+      boundary = index;
+      break;
+    }
+  }
+  return messages.slice(boundary + 1)
+    .filter(function (message) { return message && message.role === "customer"; })
+    .map(function (message) { return String(message.text || ""); })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function continuityContactCooldown(modelInput) {
+  const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
+    ? [...modelInput.conversation.messages]
+    : [];
+  messages.sort(function (a, b) { return continuityTime(a?.occurred_at) - continuityTime(b?.occurred_at); });
+  let lastRequestIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (!message || message.role === "customer") continue;
+    if (continuityContactRequestDetected(message.text || "")) lastRequestIndex = index;
+  }
+  if (lastRequestIndex < 0) return { active: false, customerMessagesSince: 999, lastRequestAt: null };
+  const after = messages.slice(lastRequestIndex + 1);
+  const customerMessagesSince = after.filter(function (message) { return message && message.role === "customer"; }).length;
+  const requestAt = messages[lastRequestIndex]?.occurred_at || null;
+  return { active: customerMessagesSince < 2, customerMessagesSince, lastRequestAt: requestAt };
+}
+
+function continuityPriorPageReply(modelInput) {
+  const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
+    ? modelInput.conversation.messages
+    : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message && message.role !== "customer" && String(message.text || "").trim()) return message;
+  }
+  return null;
+}
+
+function continuityPruneIrrelevantSalesTangents(value, modelInput) {
+  const current = qualityNormalize(continuityCurrentCustomerCluster(modelInput));
+  if (!current) return String(value || "").trim();
+  const explicitlyAskedPromo = /\b(khuyen mai|uu dai|giam gia|qua tang|ho tro chi phi|chi phi di lai|dat coc)\b/.test(current);
+  const productQuestion = /\b(gia|bao gia|mau|san pham|phong bep|nha bep|phong tam|nha tam|bon cau|sen|lavabo|bep tu|hut mui|chau|voi rua|quat|den|gach|ngoi|mua|dat hang)\b/.test(current);
+  const locationContext = /\b(dia chi|showroom|o gan|gan|khu vuc|nga tu|ha noi|hn|van chuyen|giao hang|o dau)\b/.test(current);
+  const locationStatement = locationContext && !/\b(dia chi|showroom|o dau|cho xin dia chi)\b/.test(current);
+  if (!locationContext || productQuestion || explicitlyAskedPromo) return String(value || "").trim();
+
+  const previous = continuityPriorPageReply(modelInput);
+  const previousText = qualityNormalize(previous?.text || "");
+  const previousAlreadyGaveAddress = /\b(pho keo|gia lam|showroom|hotline)\b/.test(previousText);
+
+  return continuitySentenceParts(value)
+    .filter(function (part) {
+      const text = qualityNormalize(part);
+      if (/\b(dat coc|chi phi di lai|ho tro di lai|khuyen mai|uu dai|giam gia|qua tang)\b/.test(text)) return false;
+      if (locationStatement && previousAlreadyGaveAddress && /\b(showroom|pho keo|gia lam|hotline|dia chi)\b/.test(text)) return false;
+      return true;
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function continuityFallbackReply(modelInput) {
+  const style = salutationStyle(modelInput);
+  const current = qualityNormalize(continuityCurrentCustomerCluster(modelInput));
+  let text = "Dạ, em đã ghi nhận thông tin mình vừa gửi và tiếp tục hỗ trợ đúng nội dung này ạ.";
+  if (/\bnga tu so\b/.test(current)) {
+    text = "Dạ, em ghi nhận chị ở gần Ngã Tư Sở, Hà Nội ạ. Em sẽ tư vấn theo đúng khu vực này cho chị.";
+  } else if (/\b(o gan|khu vuc|ha noi|hn|nga tu)\b/.test(current)) {
+    text = "Dạ, em ghi nhận khu vực của anh/chị rồi ạ. Em sẽ tư vấn và kiểm tra vận chuyển theo đúng khu vực này.";
+  } else if (/\b(dia chi|showroom|o dau)\b/.test(current) && typeof verifiedAddressSentence === "function") {
+    text = verifiedAddressSentence(modelInput) || text;
+  }
+  return applySalutation(text, style);
+}
+
+function enforceConversationContinuity(decision, modelInput) {
+  const known = contactIsKnown(modelInput);
+  const cooldown = continuityContactCooldown(modelInput);
+  let reply = continuityPruneIrrelevantSalesTangents(decision.final_reply || "", modelInput);
+
+  if (known) {
+    decision.contact_state = "known";
+    decision.should_request_contact = false;
+    reply = continuityRemoveContactRequests(reply);
+  } else if (cooldown.active) {
+    decision.contact_state = "missing_recently_requested";
+    decision.should_request_contact = false;
+    decision.contact_benefit = "đã vừa xin SĐT/Zalo; chờ ít nhất 2 tin nhắn mới của khách trước khi nhắc lại";
+    decision.contact_cooldown_guard = true;
+    decision.customer_messages_since_contact_request = cooldown.customerMessagesSince;
+    decision.last_contact_request_at = cooldown.lastRequestAt;
+    reply = continuityRemoveContactRequests(reply);
+  }
+
+  if (!reply) reply = continuityFallbackReply(modelInput);
+  reply = applySalutation(reply, salutationStyle(modelInput));
+  const parts = continuitySentenceParts(reply);
+  if (parts.length > 3) reply = parts.slice(0, 3).join(" ");
+  decision.final_reply = String(reply || "").replace(/\s+/g, " ").trim().slice(0, 650);
+  decision.conversation_continuity_guard = true;
+  return decision;
+}
+
+function continuityMessageKey(message) {
+  const id = String(message?.id || "").trim();
+  if (id) return "id:" + id;
+  const text = qualityNormalize(message?.text || "").slice(0, 180);
+  const time = continuityTime(message?.occurred_at);
+  return "text:" + text + ":" + Math.floor(time / 5000);
+}
+
+async function enrichConversationWithDeliveredReplies(claimed, baseConversation) {
+  const conversation = baseConversation && typeof baseConversation === "object" ? structuredClone(baseConversation) : {};
+  const original = Array.isArray(conversation.messages) ? conversation.messages : [];
+  const pageId = String(claimed?.page_id || claimed?.input_snapshot?.page_id || "").trim();
+  const senderId = String(claimed?.sender_id || claimed?.input_snapshot?.sender_id || "").trim();
+  if (!pageId || !senderId) return conversation;
+
+  const path = "v9_decisions?select=id,status,output,created_at,updated_at&page_id=eq." + encodeURIComponent(pageId)
+    + "&sender_id=eq." + encodeURIComponent(senderId)
+    + "&id=neq." + encodeURIComponent(claimed.id)
+    + "&order=created_at.desc&limit=30";
+  const rows = await core(path).catch(function () { return []; });
+
+  const existingKeys = new Set(original.map(continuityMessageKey));
+  const additions = [];
+  const originalTimes = original.map(function (message) { return continuityTime(message?.occurred_at); }).filter(Boolean);
+  const earliestOriginal = originalTimes.length ? Math.min(...originalTimes) : 0;
+  const lowerBound = earliestOriginal ? earliestOriginal - 6 * 60 * 60_000 : 0;
+
+  for (const row of rows || []) {
+    const output = row && row.output && typeof row.output === "object" ? row.output : {};
+    const text = String(output.final_reply || "").trim();
+    const deliveredAt = output.delivered_at || output.sent_at || null;
+    const deliveredTime = continuityTime(deliveredAt);
+    if (!text || !deliveredTime || (lowerBound && deliveredTime < lowerBound)) continue;
+    const mediaCatalogKeys = [...new Set([
+      ...(Array.isArray(output.media_catalog_keys_resolved) ? output.media_catalog_keys_resolved : []),
+      ...(Array.isArray(output.selected_catalog_keys) ? output.selected_catalog_keys : []),
+    ].map(function (value) { return String(value || "").trim(); }).filter(Boolean))];
+    const message = {
+      id: "decision:" + row.id,
+      role: "bot",
+      event_type: "bot_message",
+      text,
+      attachments: mediaCatalogKeys.length ? [{ type: "carousel", catalog_keys: mediaCatalogKeys }] : [],
+      media_catalog_keys: mediaCatalogKeys,
+      referral: null,
+      occurred_at: deliveredAt,
+      source: "v9_delivered_decision",
+    };
+    const key = continuityMessageKey(message);
+    if (existingKeys.has(key)) continue;
+    const duplicateByTextAndTime = original.concat(additions).some(function (item) {
+      return item && item.role !== "customer"
+        && qualityNormalize(item.text || "") === qualityNormalize(text)
+        && Math.abs(continuityTime(item.occurred_at) - deliveredTime) <= 5000;
+    });
+    if (duplicateByTextAndTime) continue;
+    additions.push(message);
+    existingKeys.add(key);
+  }
+
+  const merged = original.concat(additions)
+    .map(function (message, order) { return { ...message, __order: order }; })
+    .sort(function (a, b) { return continuityTime(a.occurred_at) - continuityTime(b.occurred_at) || a.__order - b.__order; })
+    .map(function ({ __order, ...message }) { return message; })
+    .slice(-60);
+
+  conversation.messages = merged;
+  conversation.continuity = {
+    source: "v9_delivered_decisions",
+    delivered_bot_replies_added: additions.length,
+    contact_cooldown_enforced: true,
+    min_customer_messages_before_contact_retry: 2,
+  };
+  return conversation;
+}
+
+// AIGUKA_V10_CONVERSATION_CONTINUITY_V2
+
+
+function sovereignRecentPageReply(modelInput) {
+  const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
+    ? modelInput.conversation.messages
+    : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message && message.role !== "customer" && String(message.text || "").trim()) return message;
+  }
+  return null;
+}
+
+function sovereignCustomerAskedRepeat(modelInput) {
+  const text = qualityNormalize(typeof continuityCurrentCustomerCluster === "function"
+    ? continuityCurrentCustomerCluster(modelInput)
+    : currentCustomerClusterText(modelInput));
+  return /\b(gui lai|nhac lai|noi lai|lap lai|gui them|mau khac|xem lai)\b/.test(text);
+}
+
+function sovereignReplyPromisesMedia(value) {
+  const text = qualityNormalize(value);
+  return /\b(gui|dua|cho xem).{0,32}\b(mau|anh|hinh|catalog)\b/.test(text);
+}
+
+function sovereignCatalogIsAncestor(ancestorKey, descendantKey, allowed) {
+  if (!ancestorKey || !descendantKey) return false;
+  let cursor = String(descendantKey);
+  const visited = new Set();
+  while (cursor && !visited.has(cursor)) {
+    if (cursor === String(ancestorKey)) return true;
+    visited.add(cursor);
+    cursor = String(allowed.get(cursor)?.parent_key || "").trim();
+  }
+  return false;
+}
+
+function sovereignCatalogCovers(selectedKey, requiredKey, allowed) {
+  if (!selectedKey || !requiredKey) return false;
+  if (selectedKey === requiredKey) return true;
+  return sovereignCatalogIsAncestor(selectedKey, requiredKey, allowed)
+    || sovereignCatalogIsAncestor(requiredKey, selectedKey, allowed);
+}
+
+function sovereignDecisionViolations(decision, modelInput) {
+  const violations = [];
+  const reply = String(decision?.final_reply || "").trim();
+  const replyNorm = qualityNormalize(reply);
+  const catalogContext = exactCatalogContext(modelInput);
+  const allowed = catalogContext.allowed;
+  const slide = catalogContext.slide;
+  const selected = Array.isArray(decision?.selected_catalog_keys) ? decision.selected_catalog_keys : [];
+  const known = contactIsKnown(modelInput) || (typeof currentTurnContainsPhone === "function" && currentTurnContainsPhone(modelInput));
+  const asksContact = Boolean(decision?.should_request_contact) || contactRequestDetected(reply);
+  const cooldown = typeof continuityContactCooldown === "function"
+    ? continuityContactCooldown(modelInput)
+    : { active: false, customerMessagesSince: 999 };
+
+  if (DECISION_LEAK_PATTERN.test([reply, decision?.decision_reason, decision?.contact_benefit].join(" "))) {
+    violations.push("INTERNAL_TEXT_LEAK");
+  }
+  if (DECISION_GIBBERISH_PATTERN.test(reply) || languageLooksCorrupted(reply)) {
+    violations.push("CORRUPTED_LANGUAGE");
+  }
+  if (unsupportedPriceReply(reply, modelInput)) violations.push("UNVERIFIED_PRICE_CLAIM");
+  if (unsupportedStockClaim(reply, modelInput)) violations.push("UNVERIFIED_STOCK_CLAIM");
+  if (unsupportedTechnicalFacts(reply, modelInput)) violations.push("UNVERIFIED_TECHNICAL_CLAIM");
+
+  if (known && decision?.contact_state !== "known") violations.push("CONTACT_ALREADY_KNOWN_STATE_REQUIRED");
+  if (known && asksContact) violations.push("CONTACT_ALREADY_KNOWN_DO_NOT_REQUEST_AGAIN");
+  if (!known && cooldown.active && asksContact) violations.push("CONTACT_COOLDOWN_" + cooldown.customerMessagesSince + "_CUSTOMER_MESSAGES");
+  if (!known && hardContactRefusalInTurn(modelInput) && asksContact) violations.push("CUSTOMER_REFUSED_CONTACT");
+  if (decision?.should_request_contact && !contactRequestDetected(reply)) violations.push("CONTACT_FLAG_WITHOUT_CONTACT_SENTENCE");
+  if (!decision?.should_request_contact && contactRequestDetected(reply)) violations.push("CONTACT_SENTENCE_WITHOUT_CONTACT_FLAG");
+
+  const invalidKeys = selected.filter((key) => !allowed.has(String(key)));
+  if (invalidKeys.length) violations.push("UNKNOWN_CATALOG_KEYS:" + invalidKeys.join(","));
+  if (decision?.needs_slides || decision?.action === "reply_with_slides") {
+    if (!selected.length) violations.push("MEDIA_REQUEST_WITHOUT_CATALOG");
+    const noMediaKeys = selected.filter((key) => !slide.has(String(key)));
+    if (noMediaKeys.length) violations.push("CATALOG_WITHOUT_PUBLISHED_MEDIA:" + noMediaKeys.join(","));
+  }
+  if (sovereignReplyPromisesMedia(reply) && !decision?.needs_slides) violations.push("REPLY_PROMISES_MEDIA_BUT_MEDIA_DISABLED");
+
+  const unresolved = Array.isArray(modelInput?.unresolved_needs) ? modelInput.unresolved_needs : [];
+  const pendingMedia = unresolved.filter((need) => need?.status === "pending_media" && Array.isArray(need.catalog_keys) && need.catalog_keys.length);
+  if (pendingMedia.length && !(decision?.needs_slides && decision?.action === "reply_with_slides")) {
+    violations.push("UNRESOLVED_MEDIA_NEEDS_NOT_SCHEDULED");
+  }
+  for (const need of pendingMedia) {
+    const covered = need.catalog_keys.some((requiredKey) => selected.some((selectedKey) => sovereignCatalogCovers(String(selectedKey), String(requiredKey), allowed)));
+    if (!covered) violations.push("UNRESOLVED_PRODUCT_DROPPED:" + (need.topic || need.catalog_keys.join(",")));
+  }
+
+  const prior = sovereignRecentPageReply(modelInput);
+  if (prior && !sovereignCustomerAskedRepeat(modelInput)) {
+    const previous = qualityNormalize(prior.text || "");
+    if (previous && replyNorm && previous === replyNorm) violations.push("EXACT_DUPLICATE_RECENT_PAGE_REPLY");
+  }
+
+  return [...new Set(violations)];
+}
+
+function sovereignValidationError(error) {
+  const message = String(error?.message || error || "V10_DECISION_INVALID").replace(/\s+/g, " ").trim();
+  return message.slice(0, 300);
+}
+
+async function sovereignProviderDecision(provider, modelInput) {
+  let feedback = [];
+  let firstRawDecision = null;
+  let finalRawDecision = null;
+  let lastAttempt = null;
+
+  for (let round = 0; round < 2; round += 1) {
+    const attemptInput = round === 0
+      ? modelInput
+      : {
+          ...modelInput,
+          validation_feedback: {
+            validator: "v10_sovereign_feedback_v1",
+            instruction: "Correct these validation failures yourself. Preserve all unresolved customer needs and do not repeat the rejected reply.",
+            violations: feedback,
+          },
+        };
+
+    const attempt = await providerCall(provider, attemptInput);
+    lastAttempt = attempt;
+    if (!firstRawDecision) firstRawDecision = structuredClone(attempt.decision);
+    finalRawDecision = structuredClone(attempt.decision);
+
+    let decision = null;
+    let violations = [];
+    try {
+      decision = validateDecision(attempt.decision);
+      violations = sovereignDecisionViolations(decision, attemptInput);
+    } catch (error) {
+      violations = [sovereignValidationError(error)];
+    }
+
+    if (!violations.length) {
+      return {
+        ...attempt,
+        decision,
+        rawDecision: firstRawDecision,
+        finalRawDecision,
+        validationFeedbackRounds: round,
+        validationFeedback: feedback,
+      };
+    }
+
+    feedback = violations;
+    if (round === 0) {
+      const interval = Math.max(250, Math.min(5000, providerMinIntervalMs(provider)));
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+  }
+
+  const error = new Error("V10_DECISION_INVALID:" + feedback.join("|"));
+  error.code = "decision_invalid";
+  error.provider = providerKey(provider);
+  error.responseId = lastAttempt?.responseId || null;
+  throw error;
+}
+
 async function processOne(row, availableProviders, knowledgeSnapshot) {
   const claimed = await claim(row);
   if (!claimed) return { processed: 0, retried: 0, reviewRequired: 0, providerErrors: [] };
-  const conversation = claimed.input_snapshot?.conversation || {};
-  const knowledgeAdvisors = buildKnowledgeAdvisors(knowledgeSnapshot, conversation, { maxDocuments: 8, maxCatalog: 12, maxAssetsPerCatalog: 6 });
+  const baseConversation = claimed.input_snapshot?.conversation || {};
+  const conversation = await enrichConversationWithDeliveredReplies(claimed, baseConversation);
+  const knowledgeAdvisors = buildKnowledgeAdvisors(knowledgeSnapshot, conversation, { maxDocuments: 8, maxCatalog: 20, maxAssetsPerCatalog: 5 });
+  const unresolvedNeeds = deriveUnresolvedNeeds(conversation, knowledgeAdvisors);
+  const productThreads = deriveProductThreads(unresolvedNeeds, knowledgeAdvisors);
   const modelInput = {
     architecture: ARCHITECTURE,
     authority: {
       ai_is_sole_business_decision_maker: true,
       rules_mapping_catalog_locks_are_advisory_only: true,
+      validators_may_reject_but_never_rewrite_business_output: true,
+      validation_feedback_returns_to_ai: true,
+      product_threads_preserve_independent_product_groups: true,
       hard_safety_already_applied: true,
     },
     conversation,
     customer: claimed.input_snapshot?.customer || {},
     state: claimed.input_snapshot?.state || {},
+    unresolved_needs: unresolvedNeeds,
+    product_threads: productThreads,
     knowledge_advisors: knowledgeAdvisors,
   };
   const modelInputChars = JSON.stringify(modelInput).length;
@@ -1090,28 +1840,30 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
     for (const provider of orderedProviders) {
       const callStartedAt = Date.now();
       try {
-        result = await providerCall(provider, modelInput);
-        result.decision = enforceDecisionIntegrity(result.decision, modelInput);
+        result = await sovereignProviderDecision(provider, modelInput);
         recordProviderSuccess(provider, Date.now() - callStartedAt, modelInputChars);
+        await persistProviderRuntimeState(provider, "ready");
         providerCache.lastProviderKey = result.provider;
         break;
       } catch (error) {
         const classification = classifyProviderError(provider, error);
         recordProviderFailure(provider, classification, error, modelInputChars);
+        await persistProviderRuntimeState(provider, "cooldown", classification, error);
         classifications.push(classification);
-        providerErrors.push(`${providerKey(provider)}:${classification}:${String(error?.message || error).slice(0, 260)}`);
+        providerErrors.push(providerKey(provider) + ":" + classification + ":" + String(error?.message || error).slice(0, 260));
       }
     }
     if (!result) throw new Error(providerErrors.join(" | ") || "V10_ALL_AVAILABLE_PROVIDERS_FAILED");
-    const decision = enforceDecisionIntegrity(validateDecision(result.decision), modelInput);
-    await core(`v9_decisions?id=eq.${claimed.id}&status=eq.shadow_ai_processing`, {
+
+    const decision = result.decision;
+    await core("v9_decisions?id=eq." + claimed.id + "&status=eq.shadow_ai_processing", {
       method: "PATCH",
       prefer: "return=minimal",
       body: {
         status: "shadow_ai_completed",
         action: decision.action,
         confidence: decision.confidence,
-        knowledge_version: `${knowledgeSnapshot.version_no}:${knowledgeSnapshot.checksum}`,
+        knowledge_version: String(knowledgeSnapshot.version_no) + ":" + String(knowledgeSnapshot.checksum),
         latency_ms: Date.now() - startedAt,
         output: {
           ...decision,
@@ -1126,6 +1878,15 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
           decision_errors: decisionErrors(claimed),
           architecture: ARCHITECTURE,
           advisors_were_non_binding: true,
+          validator_version: "v10_sovereign_feedback_v1",
+          validator_rewrites_business_output: false,
+          validator_feedback_rounds: result.validationFeedbackRounds || 0,
+          validator_feedback: result.validationFeedback || [],
+          raw_ai_decision: result.rawDecision || null,
+          final_raw_ai_decision: result.finalRawDecision || null,
+          unresolved_needs: unresolvedNeeds,
+    product_threads: productThreads,
+          legacy_smart_reply_repair_applied: false,
           knowledge_snapshot: { id: knowledgeSnapshot.id, version_no: knowledgeSnapshot.version_no, checksum: knowledgeSnapshot.checksum },
         },
         updated_at: new Date().toISOString(),
@@ -1149,6 +1910,8 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
     };
   }
 }
+
+// AIGUKA_V10_AI_SOVEREIGN_VALIDATOR_V1
 
 function providerHealthSnapshot() {
   return [...providerHealth.entries()].map(([key, health]) => ({
@@ -1180,12 +1943,15 @@ async function heartbeat(status, error = null, details = {}) {
         ai_decision_authority: "sole",
         advisor_authority: "non_binding",
         batch_size: BATCH_SIZE,
-        load_balancing: "smooth_weighted_round_robin",
+        load_balancing: "google_primary_then_weighted_fallback",
+        google_primary_pool: true,
+        google_rate_limit_scope: "per_independent_provider_project",
         circuit_breaker: true,
         retry_after_respected: true,
         lease_ms: LEASE_MS,
         gemini_min_interval_ms: GEMINI_MIN_INTERVAL_MS,
-        gemini_cooldown_until: gemini.cooldownUntil ? new Date(gemini.cooldownUntil).toISOString() : null,
+        gemini_cooldown_until: null,
+        provider_cooldown_is_per_key: true,
         provider_health: providerHealthSnapshot(),
       },
       last_error: error ? String(error).slice(0, 800) : null,
@@ -1213,6 +1979,16 @@ async function tick() {
       const retryAt = Date.parse(row?.output?.retry_not_before || "");
       return !Number.isFinite(retryAt) || retryAt <= now;
     });
+    ready.sort(function (left, right) {
+      const leftMessages = left?.input_snapshot?.conversation?.messages || [];
+      const rightMessages = right?.input_snapshot?.conversation?.messages || [];
+      const leftMedia = explicitMediaRequestFromMessages(leftMessages);
+      const rightMedia = explicitMediaRequestFromMessages(rightMessages);
+      if (leftMedia !== rightMedia) return leftMedia ? -1 : 1;
+      const leftTime = Date.parse(left?.created_at || "") || 0;
+      const rightTime = Date.parse(right?.created_at || "") || 0;
+      return leftMedia ? rightTime - leftTime : leftTime - rightTime;
+    }); // explicit_media_backlog_first
 
     if (ready.length) {
       const providerRows = await providers();
@@ -1278,3 +2054,13 @@ if (!CORE_BASE || !CORE_KEY || !KNOWLEDGE_BASE || !KNOWLEDGE_KEY) {
 // AIGUKA_V10_DECISION_INTEGRITY_V9
 
 // AIGUKA_V10_DECISION_INTEGRITY_V10
+
+// AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1
+
+// AIGUKA_PROVIDER_RESILIENCE_V1
+
+// AIGUKA_V10_GENERAL_PRODUCT_SALES_FINALIZED_V2_SMART_REPAIR
+
+// AIGUKA_V10_PRODUCT_THREAD_AI_V1
+
+// AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1

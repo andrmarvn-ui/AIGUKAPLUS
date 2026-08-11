@@ -1,3 +1,4 @@
+// AIGUKA_CATALOG_KEY_RENAME_V2
 function mappingFolderIds(mapping) {
   const preferred = Array.isArray(mapping?.resolved_folder_ids) && mapping.resolved_folder_ids.length
     ? mapping.resolved_folder_ids
@@ -463,12 +464,13 @@ function openCatalog(catalog = {}, requestedParent = '') {
   fillSelect($('c_parent'), parentRows, 'catalog_key', row => `${'— '.repeat(row._depth)}${row.catalog_name} — ${row.catalog_key}`, 'Không có — catalog cấp cao nhất');
   $('catalogTitle').textContent = isNew ? 'Thêm Catalog' : 'Sửa Catalog';
   $('c_is_new').value = isNew ? '1' : '0';
+  if ($('c_original_key')) $('c_original_key').value = key;
   $('c_key').value = key;
-  $('c_key').readOnly = !isNew;
-  $('c_key').classList.toggle('locked-input', !isNew);
+  $('c_key').readOnly = false;
+  $('c_key').classList.remove('locked-input');
   $('c_key_help').textContent = isNew
     ? 'Tự tạo từ tên; chỉ dùng chữ thường, số và dấu gạch dưới.'
-    : 'Mã catalog đã khóa để bảo vệ các Mapping đang tham chiếu.';
+    : 'Có thể sửa mã trực tiếp. Khi lưu, hệ thống tự chuyển Mapping và giữ mã cũ làm alias.';
   $('c_name').value = catalog.catalog_name || '';
   $('c_parent').value = requestedParent || catalog.parent_key || '';
   $('c_sendable').checked = catalog.is_sendable !== false;
@@ -477,17 +479,32 @@ function openCatalog(catalog = {}, requestedParent = '') {
   $('c_drive_button').hidden = isNew;
   previewCatalogHierarchy();
   openModal('catalogModal');
-  if (isNew) $('c_name').focus();
+  (isNew ? $('c_name') : $('c_key')).focus();
 }
 
 async function saveCatalog(event) {
   event.preventDefault();
   const isNew = $('c_is_new').value === '1';
   const catalogKey = $('c_key').value.trim().toLowerCase();
+  const originalCatalogKey = String($('c_original_key')?.value || catalogKey).trim().toLowerCase();
+  const keyChanged = !isNew && originalCatalogKey !== catalogKey;
   const active = $('c_active').checked;
+  if (!/^[a-z0-9][a-z0-9_]{0,79}$/.test(catalogKey)) {
+    status('Mã catalog chỉ gồm chữ thường không dấu, số và dấu gạch dưới.', true);
+    return;
+  }
   if (!isNew && !active && !confirm('Tắt Catalog này? Hệ thống sẽ chặn nếu còn catalog con hoặc Mapping đang sử dụng.')) return;
   busy(true);
   try {
+    if (keyChanged) {
+      await api('/api/v8-mapping-center/catalog/rename', {
+        method: 'POST',
+        body: JSON.stringify({
+          old_catalog_key: originalCatalogKey,
+          new_catalog_key: catalogKey
+        })
+      });
+    }
     await api('/api/v8-mapping-center/catalog', {
       method: 'POST',
       body: JSON.stringify({
@@ -499,9 +516,12 @@ async function saveCatalog(event) {
         is_active: active
       })
     });
+    if ($('c_original_key')) $('c_original_key').value = catalogKey;
     closeModal('catalogModal');
     await loadAll(false);
-    status(isNew ? 'Đã tạo Catalog mới.' : 'Đã cập nhật Catalog.');
+    status(isNew
+      ? 'Đã tạo Catalog mới.'
+      : (keyChanged ? `Đã đổi mã catalog từ ${originalCatalogKey} thành ${catalogKey}.` : 'Đã cập nhật Catalog.'));
   } catch (error) {
     const blockers = error.data?.blockers;
     const detail = blockers ? [

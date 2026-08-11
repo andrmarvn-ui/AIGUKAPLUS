@@ -4,14 +4,19 @@ const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const PANCAKE_TOKEN = String(process.env.PANCAKE_PAGE_ACCESS_TOKEN || "").trim();
 const NAME = "aiguka-v10-pancake-contact-guard";
-const VERSION = "v10_pancake_contact_guard_v2";
+const VERSION = "v10_pancake_contact_guard_v4_rate_safe";
 const INTERVAL_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V10_PANCAKE_TAG_SYNC_MS || 15 * 60_000));
 const LOOKBACK_HOURS = Math.max(1, Math.min(23, Number(process.env.AIGUKA_V10_PANCAKE_TAG_LOOKBACK_HOURS || 20)));
-const MAX_PAGES = Math.max(3, Math.min(30, Number(process.env.AIGUKA_V10_PANCAKE_CONVERSATION_PAGES || 15)));
+const MAX_PAGES = Math.max(1, Math.min(10, Number(process.env.AIGUKA_V10_PANCAKE_CONVERSATION_PAGES || 5)));
+const MIN_REQUEST_GAP_MS = Math.max(500, Number(process.env.AIGUKA_V10_PANCAKE_MIN_REQUEST_GAP_MS || 1000));
 let running = false;
 let timer;
+let lastPancakeRequestAt = 0;
+let pancakeCooldownUntil = 0;
+let rateLimitFailures = 0;
 
 const configured = () => Boolean(CORE_BASE && CORE_KEY && KNOWLEDGE_BASE && KNOWLEDGE_KEY && PANCAKE_TOKEN);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function request(base, key, path, options = {}) {
   const response = await fetch(`${base}/rest/v1/${path}`, {
@@ -48,8 +53,14 @@ function uniqueLabels(values = []) {
   }
   return [...map.values()];
 }
-function hasContactTag(labels = []) {
+function hasDirectContactTag(labels = []) {
   return labels.some((label) => /(^|\b)(sdt|so dien thoai|dien thoai|zalo)(\b|$)/i.test(normalize(label)));
+}
+function hasScannedPhoneTag(labels = []) {
+  return labels.some((label) => /(^|\b)(da quet)(\b|$)/i.test(normalize(label)));
+}
+function hasContactTag(labels = []) {
+  return hasDirectContactTag(labels) || hasScannedPhoneTag(labels);
 }
 function conversationId(row = {}) {
   return String(row.id || row.conversation_id || row.thread_id || "").trim();
@@ -89,11 +100,19 @@ async function fetchPageConversations(pageId, targets) {
   for (let pageNo = 0; pageNo < MAX_PAGES && found.size < targets.size; pageNo += 1) {
     let url = `https://pages.fm/api/public_api/v2/pages/${encodeURIComponent(pageId)}/conversations?page_access_token=${token}`;
     if (last) url += `&last_conversation_id=${encodeURIComponent(last)}`;
+    const gap = Date.now() - lastPancakeRequestAt;
+    if (gap < MIN_REQUEST_GAP_MS) await sleep(MIN_REQUEST_GAP_MS - gap);
     const response = await fetch(url, { signal: AbortSignal.timeout(30000), cache: "no-store" });
+    lastPancakeRequestAt = Date.now();
     const raw = await response.text();
     let data;
     try { data = raw ? JSON.parse(raw) : {}; } catch { data = { raw: raw.slice(0, 500) }; }
-    if (!response.ok) throw new Error(data?.message || data?.error || `PANCAKE_HTTP_${response.status}`);
+    if (!response.ok) {
+      const error = new Error(data?.message || data?.error || `PANCAKE_HTTP_${response.status}`);
+      error.status = response.status;
+      error.retryAfterMs = Math.max(0, Number(response.headers.get("retry-after") || 0) * 1000);
+      throw error;
+    }
     const rows = Array.isArray(data.conversations) ? data.conversations : Array.isArray(data.data) ? data.data : [];
     for (const row of rows) {
       for (const senderId of senderIds(row)) if (targets.has(senderId) && !found.has(senderId)) found.set(senderId, row);
@@ -123,7 +142,7 @@ async function syncGuard(pageId, senderId, row, labels) {
   const now = new Date().toISOString();
   await core("v10_followup_contact_guard?on_conflict=page_id,sender_id", {
     method: "POST", prefer: "resolution=merge-duplicates,return=minimal",
-    body: { page_id: String(pageId), sender_id: String(senderId), has_contact_tag: hasContactTag(labels), tag_labels: labels, source_updated_at: row?.updated_at || row?.last_customer_message_at || now, checked_at: now },
+    body: { page_id: String(pageId), sender_id: String(senderId), has_contact_tag: hasContactTag(labels), has_scanned_phone_tag: hasScannedPhoneTag(labels), tag_labels: labels, source_updated_at: row?.updated_at || row?.last_customer_message_at || now, checked_at: now },
   });
 }
 async function heartbeat(status, details = {}, error = null) {
@@ -136,10 +155,18 @@ async function heartbeat(status, details = {}, error = null) {
 
 async function runSync() {
   if (!configured() || running) return;
+  if (pancakeCooldownUntil > Date.now()) {
+    await heartbeat("idle", { cooldown_until: new Date(pancakeCooldownUntil).toISOString(), rate_limit_failures: rateLimitFailures }, "PANCAKE_RATE_LIMIT_COOLDOWN");
+    clearTimeout(timer);
+    timer = setTimeout(() => runSync().catch(() => {}), Math.max(30_000, pancakeCooldownUntil - Date.now()));
+    timer.unref?.();
+    return;
+  }
   running = true;
   let candidates = 0;
   let matched = 0;
   let tagged = 0;
+  let scanned = 0;
   let pages = 0;
   try {
     const since = new Date(Date.now() - LOOKBACK_HOURS * 60 * 60_000).toISOString();
@@ -158,16 +185,28 @@ async function runSync() {
         const labels = tagsFor(row);
         matched += 1;
         if (hasContactTag(labels)) tagged += 1;
+        if (hasScannedPhoneTag(labels)) scanned += 1;
         await Promise.all([syncIdentity(pageId, senderId, row, labels), syncGuard(pageId, senderId, row, labels)]);
       }
     }
-    await heartbeat("healthy", { candidates, matched, tagged, pages });
+    rateLimitFailures = 0;
+    pancakeCooldownUntil = 0;
+    await heartbeat("healthy", { candidates, matched, tagged, scanned, pages, max_conversation_pages: MAX_PAGES, min_request_gap_ms: MIN_REQUEST_GAP_MS });
   } catch (error) {
-    await heartbeat("degraded", { candidates, matched, tagged, pages }, error?.message || error);
+    if (Number(error?.status || 0) === 429 || /too many|rate.?limit/i.test(String(error?.message || error))) {
+      rateLimitFailures += 1;
+      const cooldownMs = Math.max(
+        Number(error?.retryAfterMs || 0),
+        Math.min(2 * 60 * 60_000, 15 * 60_000 * (2 ** Math.max(0, rateLimitFailures - 1))),
+      );
+      pancakeCooldownUntil = Date.now() + cooldownMs;
+    }
+    await heartbeat("degraded", { candidates, matched, tagged, scanned, pages, cooldown_until: pancakeCooldownUntil ? new Date(pancakeCooldownUntil).toISOString() : null, rate_limit_failures: rateLimitFailures }, error?.message || error);
   } finally {
     running = false;
     clearTimeout(timer);
-    timer = setTimeout(() => runSync().catch(() => {}), INTERVAL_MS);
+    const delay = pancakeCooldownUntil > Date.now() ? pancakeCooldownUntil - Date.now() : INTERVAL_MS;
+    timer = setTimeout(() => runSync().catch(() => {}), Math.max(30_000, delay));
     timer.unref?.();
   }
 }
@@ -179,3 +218,5 @@ if (!configured()) {
   console.log(`[AIGUKA V10 Pancake guard] ${VERSION} started`);
   runSync().catch(() => {});
 }
+
+// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V1

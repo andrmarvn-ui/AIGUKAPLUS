@@ -211,7 +211,8 @@ test('Mapping Center đồng bộ folder cũ và trả danh sách tài khoản Q
   assert.match(html, /data-tab="catalogs"/);
   assert.match(html, /Quản lý Catalog cha — con/);
   assert.match(html, /id="catalogModal"/);
-  assert.match(html, /Mã catalog là khóa kỹ thuật/);
+  assert.match(html, /Có thể sửa mã catalog/);
+  assert.match(html, /mã cũ được giữ làm alias/);
   assert.match(html, /Tải cây Drive/);
   assert.doesNotMatch(html, /id="currentSearch"|id="m_target"|id="m_recognition"/);
 
@@ -295,7 +296,7 @@ test('Mapping Center đồng bộ folder cũ và trả danh sách tài khoản Q
   assert.match(renderSource, /Mapping ngay/);
   assert.match(renderSource, /function saveCatalog/);
   assert.match(renderSource, /function reorderCatalog/);
-  assert.match(renderSource, /Mã catalog đã khóa/);
+  assert.match(renderSource, /\/api\/v8-mapping-center\/catalog\/rename/);
   assert.match(renderSource, /\/api\/slide-manager\/drive\/sync-all/);
   assert.doesNotMatch(renderSource, /syncSlideMapping|Đồng bộ ngay/);
 

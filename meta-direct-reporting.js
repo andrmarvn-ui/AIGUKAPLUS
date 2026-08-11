@@ -18,6 +18,14 @@ function actionValue(actions, names) {
   }, 0));
 }
 
+function preferredActionValue(actions, names) {
+  for (const name of names) {
+    const value = actionValue(actions, [name]);
+    if (value > 0) return value;
+  }
+  return 0;
+}
+
 function paymentLast4(details) {
   const display = clean(details?.display_string || details?.displayString || details?.name);
   const matches = display.match(/(\d{4})(?!.*\d)/);
@@ -151,7 +159,7 @@ function normalizeInsight(item, meta, lookup) {
     reach: integer(item.reach),
     clicks: integer(item.clicks),
     link_clicks: actionValue(actions, ["link_click"]),
-    meta_conversations: actionValue(actions, [
+    meta_conversations: preferredActionValue(actions, [
       "onsite_conversion.messaging_conversation_started_7d",
       "messaging_conversation_started_7d",
       "onsite_conversion.messaging_first_reply",
@@ -196,6 +204,7 @@ function mergeCustomerMetrics(directRows, fallbackRows) {
       effective_status: row.effective_status || fallback.effective_status || fallback.ad_status || null,
       conversations,
       contacts,
+      scanned_contacts: integer(fallback.scanned_contacts),
       hot_leads: integer(fallback.hot_leads),
       message_count: integer(fallback.message_count),
       contact_rate: conversations ? Math.round((contacts / conversations) * 10_000) / 100 : 0,
@@ -240,6 +249,7 @@ function aggregateDaily(rows, fallbackDaily = []) {
       ...row,
       conversations,
       contacts,
+      scanned_contacts: integer(fallback.scanned_contacts),
       hot_leads: integer(fallback.hot_leads),
       message_count: integer(fallback.message_count),
       contact_rate: conversations ? Math.round((contacts / conversations) * 10_000) / 100 : 0,
@@ -332,3 +342,5 @@ export function createMetaDirectReporting(options = {}) {
 export const __private__ = {
   actionValue, paymentLast4, normalizeInsight, mergeCustomerMetrics, aggregateAds, aggregateDaily, matches,
 };
+
+// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V1

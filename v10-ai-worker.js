@@ -1,7 +1,5 @@
-// Stable V10 AI entrypoint. Provider configuration, readiness and priority are owned by
-// /ai-providers. Compatibility adapters install transport behavior. Legacy repair layers
-// load first for source compatibility; the sovereign validator is the final authority and
-// bypasses business-output rewriting before the final worker starts.
+// Stable V10 AI entrypoint. Provider adapters affect transport only; all business,
+// contact, product-thread and media behavior is committed in v10-ai-worker-final.js.
 async function reportStartupFailure(error) {
   try {
     const base = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
@@ -23,7 +21,7 @@ async function reportStartupFailure(error) {
         mode: "ACTIVE",
         details: {
           final_worker_artifact: true,
-          runtime_source_patching: true,
+          runtime_source_patching: false,
           ai_decision_authority: "sole",
           validator_authority: "reject_and_feedback_only",
           validator_rewrites_business_output: false,
@@ -56,17 +54,6 @@ await import("./v10-beeknoee-runtime-adapter.js");
 await import("./v10-tokenrouter-runtime-adapter.js");
 await import("./v10-together-runtime-adapter.js");
 await import("./v10-sambanova-runtime-adapter.js");
-await import("./patch-v10-gemini-provider-type.js");
-await import("./patch-v10-provider-resilience.js");
-await import("./patch-v10-google-primary-pool.js");
-await import("./patch-v10-specific-price-contact.js");
-await import("./patch-v10-general-product-sales-handoff.js");
-await import("./patch-v10-general-product-sales-finalize.js");
-await import("./v10-conversation-continuity-runtime.js");
-await import("./patch-v10-ai-sovereign-validator.js");
-await import("./patch-v10-product-thread-ai.js");
-await import("./patch-v10-active-intent-focus.js");
-await import("./patch-v10-followup-support-mode.js");
 
 try {
   await import("./v10-ai-worker-final.js");

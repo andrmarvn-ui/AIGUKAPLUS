@@ -2,52 +2,37 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_SUPPORT_NO_DROP_V14";
+const RELEASE = "AIGUKA_V10_SINGLE_AUTHORITY_CORE_V20";
 
-process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "5000";
+process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
 process.env.AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS ||= "300000";
 process.env.AIGUKA_OPENAI_CREDIT_COOLDOWN_MS ||= "21600000";
 
-const FILES = [
-  "v10/core/advisory-engine.js",
+const ACTIVE_FILES = [
+  "start.js",
+  "v10-ai-worker.js",
+  "v10-ai-worker-final.js",
+  "v10-direct-core-worker.js",
+  "v10-outbound-worker.js",
+  "v10-followup-worker.js",
+  "v10-support-operational-fallback-worker.js",
+  "v10-decision-queue-janitor.js",
+  "v10-pancake-contact-guard-worker.js",
+  "v10/core/constitution.js",
+  "v10/core/message-gateway.js",
   "v10/core/conversation-assembler.js",
   "v10/core/decision-contract.js",
   "v10/core/knowledge-advisor.js",
   "v10/core/media-obligation.js",
-  "v10/core/unresolved-needs.js",
   "v10/core/product-threads.js",
   "v10/core/outbound-priority.js",
   "v10/core/pancake-conversation-snapshot.js",
   "v10/core/carousel-media.js",
   "v10/core/media-dedupe.js",
   "v10/core/support-operational-fallback.js",
-  "v9/core/bridge-priority.js",
+  "v9/core/actor-resolver.js",
   "v9-core-fetch-router.js",
-  "v10-decision-queue-janitor.js",
-  "v10-direct-core-worker.js",
-  "v10-ai-worker.js",
-  "v10-ai-worker-final.js",
-  "v10-outbound-worker.js",
-  "v10-followup-worker.js",
-  "v10-pancake-contact-guard-worker.js",
-  "v10-support-operational-fallback-worker.js",
-  "patch-v10-specific-price-contact.js",
-  "patch-v10-general-product-sales-handoff.js",
-  "patch-v10-general-product-sales-finalize.js",
-  "patch-v10-ai-sovereign-validator.js",
-  "patch-v10-product-thread-ai.js",
-  "patch-v10-outbound-sovereign-integrity.js",
-  "patch-v10-live-page-reply-guard.js",
-  "patch-v10-media-obligation-integrity.js",
-  "patch-v10-active-intent-focus.js",
-  "patch-v10-grouped-media-bundles.js",
-  "patch-v10-direct-core-structured-input.js",
-  "patch-v10-media-delivery-proxy.js",
-  "patch-v10-media-scope-dedupe.js",
-  "v10-conversation-continuity-runtime.js",
-  "followup-admin-v8.js",
-  "followup-admin-v8-client.js",
 ];
 
 function sourceOf(file) {
@@ -56,133 +41,50 @@ function sourceOf(file) {
 }
 
 function requireToken(file, token) {
-  const source = sourceOf(file);
-  if (!source.includes(token)) throw new Error(`V10_RELEASE_TOKEN_MISSING:${file}:${token}`);
+  if (!sourceOf(file).includes(token)) throw new Error(`V10_RELEASE_TOKEN_MISSING:${file}:${token}`);
 }
 
-function forbidToken(file, token) {
-  const source = sourceOf(file);
-  if (source.includes(token)) throw new Error(`V10_RELEASE_RETIRED_TOKEN_PRESENT:${file}:${token}`);
-}
-
-for (const file of FILES) {
+for (const file of ACTIVE_FILES) {
   const result = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`V10_RELEASE_SYNTAX:${file}:${result.stderr || result.stdout}`);
 }
 
-const expectedChecksum = sourceOf("v10-ai-worker-final.sha256").trim();
-const actualChecksum = crypto.createHash("sha256").update(fs.readFileSync("v10-ai-worker-final.js")).digest("hex");
-if (!/^[a-f0-9]{64}$/.test(expectedChecksum) || expectedChecksum !== actualChecksum) {
-  throw new Error(`V10_FINAL_AI_WORKER_CHECKSUM_MISMATCH:${expectedChecksum}:${actualChecksum}`);
+const aiBytes = fs.readFileSync("v10-ai-worker-final.js");
+const expectedAiChecksum = sourceOf("v10-ai-worker-final.sha256").trim();
+const actualAiChecksum = crypto.createHash("sha256").update(aiBytes).digest("hex");
+if (!/^[a-f0-9]{64}$/.test(expectedAiChecksum) || expectedAiChecksum !== actualAiChecksum) {
+  throw new Error(`V10_FINAL_AI_WORKER_CHECKSUM_MISMATCH:${expectedAiChecksum}:${actualAiChecksum}`);
 }
 
-requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygiene_v2";');
-requireToken("v10-decision-queue-janitor.js", "V10_REHYDRATE_LEGACY_PENDING");
-requireToken("v10-direct-core-worker.js", 'const VERSION = "v10_direct_ai_sovereign_v2_frontier_guard";');
-requireToken("v10-direct-core-worker.js", "customer_frontier_guard: true");
-requireToken("v10-direct-core-worker.js", "superseded_before_decision_save");
-requireToken("v9-core-fetch-router.js", 'responsibility: "routing_only"');
-requireToken("v9-core-fetch-router.js", "retired_runtime_business_patches: true");
-forbidToken("v9-core-fetch-router.js", 'await import("./patch-v10-conversation-quality-v1.js")');
-forbidToken("v9-core-fetch-router.js", 'await import("./patch-v10-hierarchical-knowledge-v1.js")');
-forbidToken("v9-core-fetch-router.js", 'await import("./patch-v10-hierarchical-catalog-resolver-v1.js")');
+for (const entrypoint of ["start.js", "v10-ai-worker.js", "v10-server-release.js"]) {
+  const source = sourceOf(entrypoint);
+  if (/import\([^\n]*patch-v10-|safeImport\([^\n]*patch-v10-/u.test(source)) {
+    throw new Error(`V10_RUNTIME_SOURCE_PATCH_IMPORT:${entrypoint}`);
+  }
+}
 
-requireToken("v10-ai-worker.js", 'await import("./v10-ai-worker-final.js")');
-requireToken("v10-ai-worker.js", 'await import("./patch-v10-ai-sovereign-validator.js")');
-requireToken("v10-ai-worker.js", 'await import("./patch-v10-product-thread-ai.js")');
-requireToken("v10-ai-worker.js", "validator_authority: \"reject_and_feedback_only\"");
-requireToken("v10-ai-worker.js", "validator_rewrites_business_output: false");
-requireToken("v10-ai-worker.js", "unresolved_needs_enabled: true");
-requireToken("v10-ai-worker.js", "product_threads_enabled: true");
-requireToken("v10-ai-worker.js", "separate_media_bundle_per_product_group: true");
-requireToken("v10-ai-worker.js", "recursive_catalog_advisory: true");
-forbidToken("v10-ai-worker.js", "patch-v10-provider-load-balancer");
-forbidToken("v10-ai-worker.js", "patch-v10-decision-integrity");
+for (const worker of ["v10-outbound-worker.js", "v10-followup-worker.js"]) {
+  const source = sourceOf(worker);
+  if (/graph\.facebook\.com|["'`]me\/messages/u.test(source)) {
+    throw new Error(`V10_DIRECT_META_TRANSPORT_OUTSIDE_GATEWAY:${worker}`);
+  }
+}
 
-requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_quality_guard_v13";');
-requireToken("v10-ai-worker-final.js", "providerSettings(provider).max_input_chars");
-requireToken("v10-ai-worker-final.js", "AIGUKA_V10_DECISION_INTEGRITY_V10");
+requireToken("v10/core/constitution.js", "v10_constitution_v1_single_authority");
+requireToken("v10/core/constitution.js", "AICAKE_PRIMARY_AIGUKA_ASSIST");
+requireToken("v10/core/message-gateway.js", "v10_claim_message_dispatch");
+requireToken("v10/core/message-gateway.js", "v10_release_message_dispatch");
+requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v14";');
+requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gateway_v5";');
+requireToken("v10-followup-worker.js", "recoverStaleProcessing");
+requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_product_threads_v19";');
 requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
-requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_safety_only_v2_sla_priority";');
-requireToken("v10-outbound-worker.js", "AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1");
-requireToken("v10-outbound-worker.js", "AIGUKA_V10_MAX_MEDIA_ASSETS || 20");
-requireToken("v10-outbound-worker.js", "prioritizeOutboundDecisions");
-requireToken("v10-outbound-worker.js", "fresh_sla_first_then_recent_recovery");
-requireToken("v9-legacy-inbox-bridge.js", "fresh_received_first_then_bounded_recovery");
-requireToken("patch-v10-live-page-reply-guard.js", "createPancakeConversationSnapshotCache");
-requireToken("patch-v10-live-page-reply-guard.js", "pancake_live_shared_page_snapshot");
-requireToken("patch-v10-live-page-reply-guard.js", "SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK");
-requireToken("patch-v10-live-page-reply-guard.js", "SUPPORT_FALLBACK_PANCAKE_CHECK_RETRY");
-requireToken("v10/core/support-operational-fallback.js", 'supportOperationalFallbackVersion = "v10_support_operational_fallback_v1"');
-requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v3_close_recovery_race";');
-requireToken("v10-support-operational-fallback-worker.js", "support_operational_fallback_enabled");
-requireToken("v10-support-operational-fallback-worker.js", "provider_independent: true");
-requireToken("v10-support-operational-fallback-worker.js", "support_fallback_recovery_clone");
-requireToken("v10-support-operational-fallback-worker.js", 'live_suppression_reason !== "SUPPORT_MEDIA_ONLY"');
-requireToken("v10-support-operational-fallback-worker.js", "clone = existing?.[0] || null");
-
-requireToken("patch-v10-specific-price-contact.js", "AIGUKA_V10_SPECIFIC_PRICE_CONTACT_V1");
-requireToken("patch-v10-general-product-sales-handoff.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_HANDOFF_V2_SMART_REPAIR");
-requireToken("patch-v10-general-product-sales-finalize.js", "AIGUKA_V10_GENERAL_PRODUCT_SALES_FINALIZED_V2_SMART_REPAIR");
-requireToken("patch-v10-ai-sovereign-validator.js", "AIGUKA_V10_AI_SOVEREIGN_VALIDATOR_V1");
-requireToken("patch-v10-ai-sovereign-validator.js", "validators_may_reject_but_never_rewrite_business_output");
-requireToken("patch-v10-ai-sovereign-validator.js", "raw_ai_decision");
-requireToken("patch-v10-product-thread-ai.js", "AIGUKA_V10_PRODUCT_THREAD_AI_V1");
-requireToken("patch-v10-product-thread-ai.js", "product_threads: productThreads");
-requireToken("patch-v10-outbound-sovereign-integrity.js", "AIGUKA_V10_OUTBOUND_SOVEREIGN_INTEGRITY_V1");
-requireToken("patch-v10-outbound-sovereign-integrity.js", "EXACT_DUPLICATE_RECENT_REPLY");
-requireToken("patch-v10-outbound-sovereign-integrity.js", "can them mau");
-requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-grouped-media-bundles.js")');
-requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-media-delivery-proxy.js")');
-requireToken("patch-v10-outbound-sovereign-integrity.js", 'await import("./patch-v10-media-scope-dedupe.js")');
-requireToken("patch-v10-grouped-media-bundles.js", "AIGUKA_V10_GROUPED_MEDIA_BUNDLES_V1");
-requireToken("patch-v10-grouped-media-bundles.js", "one_product_group_per_bundle");
-requireToken("patch-v10-direct-core-structured-input.js", "AIGUKA_V10_DIRECT_CORE_STRUCTURED_INPUT_V1");
-requireToken("patch-v10-direct-core-structured-input.js", "postback_payload_preserved: true");
-requireToken("patch-v10-media-delivery-proxy.js", "AIGUKA_V10_MEDIA_DELIVERY_PROXY_V1");
-requireToken("patch-v10-media-delivery-proxy.js", "groupLabel = null");
-requireToken("patch-v10-media-delivery-proxy.js", "prepareCarouselAssets");
-requireToken("patch-v10-media-delivery-proxy.js", "storage_url,storage_status,delivery_url,delivery_status");
-requireToken("patch-slide-generic-carousel.js", 'media_source: "supabase_storage_static"');
-requireToken("patch-slide-generic-carousel.js", "url: imageUrl,");
-requireToken("v10-outbound-worker.js", "url: asset.source_url,");
-requireToken("v10/core/carousel-media.js", 'carouselMediaVersion = "v10_storage_carousel_v1"');
-requireToken("v10/core/carousel-media.js", "CAROUSEL_PREFLIGHT_FAILED");
-requireToken("v10/core/media-dedupe.js", 'mediaDedupeVersion = "v10_media_scope_dedupe_v1"');
-requireToken("patch-v10-media-scope-dedupe.js", "AIGUKA_V10_MEDIA_SCOPE_DEDUPE_V1");
-requireToken("patch-v10-media-scope-dedupe.js", "DUPLICATE_MEDIA_SCOPE_24H");
-requireToken("patch-v10-media-scope-dedupe.js", "resolution=ignore-duplicates,return=representation");
-requireToken("patch-v10-media-obligation-integrity.js", "AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1");
-requireToken("patch-v10-media-obligation-integrity.js", "fallback_catalog_keys");
-requireToken("patch-v10-media-obligation-integrity.js", "explicit_media_backlog_first");
-requireToken("patch-v10-active-intent-focus.js", "AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1");
-requireToken("v10-conversation-continuity-runtime.js", "media_catalog_keys_resolved");
-
-requireToken("v10/core/advisory-engine.js", "advisory_only: true");
-requireToken("v10/core/conversation-assembler.js", "latest_message_is_not_authoritative");
+requireToken("v10-direct-core-worker.js", "superseded_before_decision_save");
+requireToken("v9-core-fetch-router.js", 'responsibility: "routing_only"');
 requireToken("v10/core/conversation-assembler.js", "structured_choice_same_menu_latest_replaces_previous");
-requireToken("v10/core/conversation-assembler.js", "title_is_authoritative_when_payload_conflicts: true");
-requireToken("v10/core/conversation-assembler.js", "ai_is_sole_business_decision_maker");
-requireToken("v10/core/decision-contract.js", "validation_feedback");
-requireToken("v10/core/decision-contract.js", "V10_DECISION_SLIDE_FLAG_MISMATCH");
-requireToken("v10/core/decision-contract.js", "V10_DECISION_CONTACT_STATE_MISMATCH");
-forbidToken("v10/core/decision-contract.js", "contactRequestSentence");
-requireToken("v10/core/knowledge-advisor.js", "recursive_assets: true");
-requireToken("v10/core/knowledge-advisor.js", "slide_catalog");
-requireToken("v10/core/knowledge-advisor.js", "fallback.length ? fallback");
-requireToken("v10/core/knowledge-advisor.js", "curated_mapping_fallback");
-requireToken("v10/core/knowledge-advisor.js", "AIGUKA_V10_AD_POST_CONTINUITY_V1");
-requireToken("v10/core/unresolved-needs.js", 'export const unresolvedNeedsVersion = "v10_unresolved_needs_v2_semantic_active_only";');
-requireToken("v10/core/media-obligation.js", 'export const mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback";');
-requireToken("v10/core/product-threads.js", 'export const productThreadsVersion = "v10_product_threads_v1_grouped_media";');
-
-requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_v8_event_v3";');
-requireToken("v10-followup-worker.js", "preserveMessageLayout");
-requireToken("v10-followup-worker.js", "PANCAKE_CONTACT_TAG_FOUND");
-requireToken("v10-pancake-contact-guard-worker.js", "pages.fm/api/public_api/v2/pages");
-requireToken("followup-admin-v8.js", "installFollowupAdminV8");
-requireToken("followup-admin-v8-client.js", "Lưu Event này");
+requireToken("v10/core/media-obligation.js", 'mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback"');
+requireToken("v10/core/decision-contract.js", "V10_CONTACT_ONLY_REPLY_INVALID");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: AI owns business decisions; grouped media resolves to verified static URLs; continuation postbacks inherit product scope; mapped ads provide deterministic media fallback; and explicit resend requests bypass the 24-hour scope lock`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: committed core, one authority matrix, one Message Gateway and no runtime business source patching`);

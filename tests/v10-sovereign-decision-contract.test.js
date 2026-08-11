@@ -20,20 +20,24 @@ function base(overrides = {}) {
   };
 }
 
-test("validator does not auto-insert contact request or change business decision", () => {
+test("contact cadence is normalized without changing product or action", () => {
   const input = base();
   const output = validateDecision(input);
-  assert.equal(output.should_request_contact, false);
-  assert.equal(output.final_reply, input.final_reply);
+  assert.equal(output.should_request_contact, true);
+  assert.match(output.final_reply, /^Dạ, em đã ghi nhận nhu cầu/);
+  assert.match(output.final_reply, /SĐT hoặc Zalo.*$/);
   assert.equal(output.action, "reply_text");
+  assert.deepEqual(output.selected_products, input.selected_products);
 });
 
-test("contact mismatch is rejected instead of silently repaired", () => {
-  assert.throws(() => validateDecision(base({
+test("known contact is sanitized instead of requested again", () => {
+  const output = validateDecision(base({
     contact_state: "known",
     should_request_contact: true,
-    final_reply: "Anh/chị cho em xin SĐT nhé.",
-  })), /V10_DECISION_CONTACT_STATE_MISMATCH|V10_DECISION_CONTACT_REQUEST_NOT_ALLOWED/);
+    final_reply: "Dạ em đã ghi nhận mẫu bồn cầu. Anh/chị cho em xin SĐT nhé.",
+  }));
+  assert.equal(output.should_request_contact, false);
+  assert.doesNotMatch(output.final_reply, /xin SĐT|xin.*Zalo/i);
 });
 
 test("slide action mismatch is rejected instead of rewritten", () => {

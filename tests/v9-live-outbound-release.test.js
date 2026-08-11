@@ -9,6 +9,8 @@ const direct = fs.readFileSync(new URL("../v10-direct-core-worker.js", import.me
 const aiEntry = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
 const ai = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
 const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
+const constitution = fs.readFileSync(new URL("../v10/core/constitution.js", import.meta.url), "utf8");
+const gateway = fs.readFileSync(new URL("../v10/core/message-gateway.js", import.meta.url), "utf8");
 
 test("live transport starts only after the isolated Core router and queue cleanup", () => {
   assert.match(start, /v9-core-fetch-router\.js/);
@@ -26,25 +28,18 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway verifies a checksummed final AI worker instead of patching source", () => {
-  assert.match(release, /AIGUKA_V10_SUPPORT_NO_DROP_V14/);
-  assert.match(release, /fallback_catalog_keys/);
-  assert.match(release, /media_catalog_keys_resolved/);
-  assert.match(release, /v10_queue_hygiene_v2/);
-  assert.match(release, /V10_REHYDRATE_LEGACY_PENDING/);
-  assert.match(release, /v10_direct_ai_sovereign_v2_frontier_guard/);
-  assert.match(release, /v10_ai_quality_guard_v13/);
-  assert.match(release, /AIGUKA_V10_DECISION_INTEGRITY_V10/);
-  assert.match(release, /AIGUKA_V10_OUTBOUND_REPLY_ORDER_V1/);
-  assert.match(release, /v10_outbound_safety_only_v2_sla_priority/);
+  assert.match(release, /AIGUKA_V10_SINGLE_AUTHORITY_CORE_V20/);
+  assert.match(release, /v10_constitution_v1_single_authority/);
+  assert.match(release, /v10_claim_message_dispatch/);
+  assert.match(release, /v10_outbound_single_gateway_v14/);
+  assert.match(release, /v10_followup_single_gateway_v5/);
+  assert.match(release, /v10_ai_product_threads_v19/);
   assert.match(release, /createHash\("sha256"\)/);
   assert.match(release, /V10_FINAL_AI_WORKER_CHECKSUM_MISMATCH/);
-  assert.match(release, /SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK/);
-  assert.match(release, /v10_support_failover_v3_close_recovery_race/);
   assert.doesNotMatch(start, /v9-live-release-patch\.js/);
   assert.doesNotMatch(release, /replaceOnce|replaceBetween|applyStage/);
   assert.match(aiEntry, /v10-ai-worker-final\.js/);
-  assert.match(aiEntry, /patch-v10-ai-sovereign-validator\.js/);
-  assert.match(aiEntry, /patch-v10-product-thread-ai\.js/);
+  assert.doesNotMatch(aiEntry, /patch-v10-/);
   assert.match(ai, /recoverStaleProcessing/);
   assert.match(ai, /providerAvailability/);
   assert.match(ai, /ai_decision_authority: "sole"/);
@@ -56,8 +51,8 @@ test("Railway verifies a checksummed final AI worker instead of patching source"
 });
 
 test("live outbound requires AIGUKA primary and an explicit activation cutover", () => {
-  assert.match(worker, /AICAKE_DISABLED/);
-  assert.match(worker, /AIGUKA_PRIMARY/);
+  assert.match(constitution, /AICAKE_DISABLED/);
+  assert.match(constitution, /AIGUKA_PRIMARY/);
   assert.match(worker, /active_cutover_at/);
   assert.match(worker, /PRE_CUTOVER_DECISION/);
   assert.match(worker, /DECISION_TOO_OLD/);
@@ -80,9 +75,9 @@ test("delivery is idempotent and recorded in Core", () => {
 });
 
 test("worker sends only Meta RESPONSE messages and has no broadcast path", () => {
-  assert.match(worker, /messaging_type: "RESPONSE"/);
-  assert.doesNotMatch(worker, /messaging_type:\s*["'](?:MESSAGE_TAG|UPDATE|NON_PROMOTIONAL_SUBSCRIPTION)["']/i);
-  assert.doesNotMatch(worker, /tag:\s*["'](?:POST_PURCHASE_UPDATE|CONFIRMED_EVENT_UPDATE|ACCOUNT_UPDATE)["']/i);
-  assert.doesNotMatch(worker, /marketing_notifications|notification_messages_token/i);
+  assert.match(gateway, /messaging_type: "RESPONSE"/);
+  assert.doesNotMatch(gateway, /messaging_type:\s*["'](?:MESSAGE_TAG|UPDATE|NON_PROMOTIONAL_SUBSCRIPTION)["']/i);
+  assert.doesNotMatch(gateway, /tag:\s*["'](?:POST_PURCHASE_UPDATE|CONFIRMED_EVENT_UPDATE|ACCOUNT_UPDATE)["']/i);
+  assert.doesNotMatch(gateway, /marketing_notifications|notification_messages_token/i);
   assert.doesNotMatch(worker, /v8_claim_outbound_batch|v8_authorize_outbound_send/);
 });

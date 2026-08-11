@@ -78,12 +78,13 @@ if (!SUPABASE_ORIGIN) {
 
   function recordSuccess(priority) {
     if (priority !== "critical") return;
+    const wasOpen = pressureUntil > 0;
     successStreak += 1;
     if (successStreak >= 5) {
       pressureUntil = 0;
       backoffMs = 15_000;
       successStreak = 0;
-      console.log("[AIGUKA load shed] Supabase recovered; circuit closed");
+      if (wasOpen) console.log("[AIGUKA load shed] Supabase recovered; circuit closed");
     }
   }
 
@@ -115,7 +116,11 @@ if (!SUPABASE_ORIGIN) {
     } catch {
       return ORIGINAL_FETCH(input, init);
     }
-    if (url.origin !== ORIGIN) return ORIGINAL_FETCH(input, init);
+    // Edge Functions, Storage and Auth are independent services with different
+    // latency/error profiles. Only Data API traffic may affect the DB circuit.
+    if (url.origin !== ORIGIN || !url.pathname.startsWith("/rest/v1/")) {
+      return ORIGINAL_FETCH(input, init);
+    }
 
     const priority = classify(url.pathname);
     const now = Date.now();

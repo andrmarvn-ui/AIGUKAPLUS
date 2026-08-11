@@ -36,7 +36,7 @@ function customerMediaWindow(messages = []) {
       break;
     }
   }
-  const active = list.slice(lastDeliveredMedia + 1).filter(activeCustomerMessage);
+  let active = list.slice(lastDeliveredMedia + 1).filter(activeCustomerMessage);
   let lastReplace = -1;
   for (let index = active.length - 1; index >= 0; index -= 1) {
     if (relationOf(active[index]) === "REPLACE") {
@@ -44,9 +44,14 @@ function customerMediaWindow(messages = []) {
       break;
     }
   }
-  return lastReplace >= 0 ? active.slice(lastReplace) : active;
+  if (lastReplace >= 0) active = active.slice(lastReplace);
+  // Ordinary follow-up text is additive. Only an explicit semantic REPLACE (handled
+  // above) may discard unresolved product groups; contact/location continuations must
+  // never silently erase older media obligations.
+  return active;
 }
 
+// AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1
 function positiveMediaWindow(messages = []) {
   return customerMediaWindow(messages).filter((message) => relationOf(message) !== "CANCEL");
 }
@@ -56,7 +61,7 @@ function customerSemanticText(message = {}) {
   return [
     message?.text,
     postback.effective_payload,
-    postback.payload,
+    postback.payload_title_mismatch ? null : postback.payload,
   ].filter(Boolean).join(" ");
 }
 
