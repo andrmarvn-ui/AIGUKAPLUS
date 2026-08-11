@@ -1,6 +1,7 @@
 import { normalizeVietnamese } from "./v10/core/advisory-engine.js";
 import { MEDIA_DEDUPE_WINDOW_MS, mediaClaimDisposition, mediaRequestedAfterDelivery, mediaScopeIdempotencyKey, mediaScopeMatchesAssetRefs } from "./v10/core/media-dedupe.js";
 import { createPancakeConversationSnapshotCache } from "./v10/core/pancake-conversation-snapshot.js";
+import { buildObservedPageReplyEvent, customerSlaSourceIds, observedPageReplyDisposition, observedPageReplyStatePatch } from "./v10/core/page-reply-evidence.js";
 import { prepareCarouselAssets } from "./v10/core/carousel-media.js";
 import { prioritizeOutboundDecisions } from "./v10/core/outbound-priority.js";
 import { humanTakeoverActive, resolveChannelAuthority } from "./v10/core/constitution.js";
@@ -11,7 +12,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-outbound";
-const VERSION = "v10_outbound_single_gateway_v15_customer_media_reask";
+const VERSION = "v10_outbound_single_gateway_v16_page_reply_evidence";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_OUTBOUND_POLL_MS || 3000));
 const MAX_DECISION_AGE_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_LIVE_MAX_AGE_MS || 2 * 60 * 60_000));
 const MAX_MEDIA_ASSETS = Math.max(10, Math.min(20, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 20)));
@@ -61,8 +62,46 @@ async function pageRow(pageId) {
 }
 
 async function stateRow(pageId, senderId) {
-  const rows = await core(`v9_conversation_state?select=state,contact_status,phone,zalo,human_takeover,human_takeover_until,last_customer_event_at,last_page_event_at,last_source_event_id&page_id=eq.${encodeURIComponent(pageId)}&sender_id=eq.${encodeURIComponent(senderId)}&limit=1`, { timeout: 10000 });
+  const rows = await core(`v9_conversation_state?select=state,contact_status,phone,zalo,human_takeover,human_takeover_until,last_customer_event_at,last_page_event_at,response_deadline_at,last_source_event_id&page_id=eq.${encodeURIComponent(pageId)}&sender_id=eq.${encodeURIComponent(senderId)}&limit=1`, { timeout: 10000 });
   return rows?.[0] || {};
+}
+
+async function resolveDecisionSla(decision, resolution, resolvedAt) {
+  const now = new Date().toISOString();
+  for (const sourceEventId of customerSlaSourceIds(decision)) {
+    await core(
+      `v9_sla_events?source_event_id=eq.${encodeURIComponent(sourceEventId)}&status=in.(open,breached)`,
+      {
+        method: "PATCH",
+        prefer: "return=minimal",
+        body: {
+          status: "resolved",
+          resolution,
+          resolved_at: resolvedAt,
+          updated_at: now,
+        },
+      },
+    ).catch(() => {});
+  }
+}
+
+async function persistObservedPageReply(decision, reply) {
+  if (!reply?.sent_at) return;
+  const nowMs = Date.now();
+  const event = buildObservedPageReplyEvent(decision, reply, nowMs);
+  await core("v9_events?on_conflict=source_system,source_event_id", {
+    method: "POST",
+    prefer: "resolution=ignore-duplicates,return=minimal",
+    body: event,
+  });
+  const current = await stateRow(decision.page_id, decision.sender_id);
+  await core(`v9_conversation_state?page_id=eq.${encodeURIComponent(decision.page_id)}&sender_id=eq.${encodeURIComponent(decision.sender_id)}`, {
+    method: "PATCH",
+    prefer: "return=minimal",
+    body: observedPageReplyStatePatch(current, reply, nowMs),
+  });
+  const disposition = observedPageReplyDisposition(reply);
+  await resolveDecisionSla(decision, disposition.resolution, event.occurred_at);
 }
 
 async function publishedKnowledge() {
@@ -991,6 +1030,7 @@ async function processDecision(decision, config) {
     return { sent: 0, suppressed: 0, failed: 0, retryable: 1 };
   }
   if (!gate.allowed) {
+    if (gate.live_page_reply) await persistObservedPageReply(decision, gate.live_page_reply).catch(() => {});
     const claimed = await claim(decision);
     if (claimed) await patchDecision(claimed, "live_suppressed", { should_send: false, transport_locked: true, live_suppression_reason: gate.reason, merge_job_ensured: Boolean(gate.merge?.ensured), merge_source_event_id: gate.merge?.source_event_id || null, merge_job_id: gate.merge?.job_id || null, live_page_reply_source: gate.live_page_reply?.source_system || null, live_page_reply_at: gate.live_page_reply?.sent_at || null, live_page_reply_actor_name: gate.live_page_reply?.actor_name || null, live_page_reply_actor_app_id: gate.live_page_reply?.actor_app_id || null, live_page_reply_text: gate.live_page_reply?.message_text || null, live_page_reply_evidence: gate.live_page_reply?.evidence || null });
     return { sent: 0, suppressed: 1, failed: 0 };
@@ -1171,11 +1211,13 @@ async function processDecision(decision, config) {
       support_customer_name: gate.supportCustomerName || null,
       support_caption_policy: "universal_neutral_contact_cta_v2",
     });
+    const deliveredAt = new Date().toISOString();
     await core(`v9_conversation_state?page_id=eq.${encodeURIComponent(claimed.page_id)}&sender_id=eq.${encodeURIComponent(claimed.sender_id)}`, {
       method: "PATCH",
       prefer: "return=minimal",
-      body: { state: "BOT_REPLIED", last_page_event_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      body: { state: "BOT_REPLIED", last_page_event_at: deliveredAt, response_deadline_at: null, updated_at: deliveredAt },
     }).catch(() => {});
+    await resolveDecisionSla(claimed, "aiguka_replied", deliveredAt);
     dispatchResult = partial ? "live_delivered_partial" : "live_delivered";
     return { sent: 1, suppressed: 0, failed: 0 };
   } catch (error) {
@@ -1262,6 +1304,8 @@ async function tick() {
       balanced_media_max: MAX_MEDIA_ASSETS,
       media_assets_max_per_group: MAX_MEDIA_ASSETS,
       media_bundle_policy: "one_product_group_per_bundle",
+      observed_page_reply_persistence: true,
+      sla_resolution_on_reply: true,
     }, failed ? `${failed} live delivery(s) failed` : null);
   } catch (error) {
     await heartbeat("degraded", mode, { outbound_enabled: mode === "ACTIVE", sent, suppressed, failed }, error?.message || error).catch(() => {});

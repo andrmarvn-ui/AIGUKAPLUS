@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_SINGLE_AUTHORITY_CORE_V21";
+const RELEASE = "AIGUKA_V10_SINGLE_AUTHORITY_CORE_V22";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -28,6 +28,7 @@ const ACTIVE_FILES = [
   "v10/core/product-threads.js",
   "v10/core/outbound-priority.js",
   "v10/core/pancake-conversation-snapshot.js",
+  "v10/core/page-reply-evidence.js",
   "v10/core/carousel-media.js",
   "v10/core/media-dedupe.js",
   "v10/core/support-operational-fallback.js",
@@ -76,7 +77,8 @@ requireToken("v10/core/constitution.js", "v10_constitution_v1_single_authority")
 requireToken("v10/core/constitution.js", "AICAKE_PRIMARY_AIGUKA_ASSIST");
 requireToken("v10/core/message-gateway.js", "v10_claim_message_dispatch");
 requireToken("v10/core/message-gateway.js", "v10_release_message_dispatch");
-requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v15_customer_media_reask";');
+requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v16_page_reply_evidence";');
+requireToken("v10/core/page-reply-evidence.js", "v10_page_reply_evidence_v1_persist_and_resolve_sla");
 requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v4_recover_customer_media_reask";');
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gateway_v5";');
 requireToken("v10-followup-worker.js", "recoverStaleProcessing");
