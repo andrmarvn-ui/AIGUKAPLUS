@@ -5,7 +5,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-support-failover";
-const VERSION = "v10_support_failover_v3_close_recovery_race";
+const VERSION = "v10_support_failover_v4_recover_customer_media_reask";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_POLL_MS || 3000));
 const MIN_ASSETS = Math.max(1, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_MIN_CATALOG_ASSETS || 5));
 const SCAN_LIMIT = Math.max(20, Math.min(200, Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_SCAN_LIMIT || 100)));
@@ -157,6 +157,71 @@ async function completeWithFallback(row, plan, customerAt, waitMs) {
   return claimed?.[0] || null;
 }
 
+async function recoverDuplicateMediaSuppression(row, plan, customerAt, waitMs) {
+  if (plan.kind !== "media") return null;
+  const now = new Date().toISOString();
+  const recoverySource = `${row.source_event_id || row.id}:support_media_dedupe_recovery_v1`;
+  const inserted = await core("v9_decisions?on_conflict=source_event_id", {
+    method: "POST",
+    prefer: "resolution=ignore-duplicates,return=representation",
+    body: {
+      source_event_id: recoverySource,
+      page_id: row.page_id,
+      sender_id: row.sender_id,
+      mode: row.mode || "ACTIVE",
+      status: "shadow_ai_completed",
+      goal: row.goal || "ai_sovereign_customer_assistance",
+      action: plan.action,
+      confidence: 0.99,
+      input_snapshot: row.input_snapshot,
+      output: {
+        ...(row.output || {}),
+        action: plan.action,
+        confidence: 0.99,
+        final_reply: plan.final_reply,
+        should_send: true,
+        needs_slides: true,
+        support_mode: true,
+        selected_products: plan.selected_products,
+        selected_catalog_keys: plan.selected_catalog_keys,
+        should_request_contact: plan.should_request_contact,
+        transport_locked: false,
+        operational_support_fallback: true,
+        operational_support_fallback_enabled: true,
+        live_suppression_reason: null,
+        support_fallback_reason: plan.reason,
+        support_fallback_customer_at: new Date(customerAt).toISOString(),
+        support_fallback_due_at: new Date(customerAt + waitMs).toISOString(),
+        support_fallback_created_at: now,
+        support_media_dedupe_recovery: true,
+        support_media_dedupe_recovery_of_decision_id: row.id,
+      },
+      created_at: now,
+      updated_at: now,
+    },
+  });
+  let clone = inserted?.[0] || null;
+  if (!clone) {
+    const existing = await core(`v9_decisions?select=id,status,action,output,created_at,updated_at&source_event_id=eq.${encodeURIComponent(recoverySource)}&limit=1`);
+    clone = existing?.[0] || null;
+  }
+  if (!clone) return null;
+  await core(`v9_decisions?id=eq.${encodeURIComponent(row.id)}&status=eq.live_suppressed`, {
+    method: "PATCH",
+    prefer: "return=minimal",
+    body: {
+      output: {
+        ...(row.output || {}),
+        support_media_dedupe_recovery_attempted: true,
+        support_media_dedupe_recovery_clone_id: clone.id,
+        support_media_dedupe_recovery_at: now,
+      },
+      updated_at: now,
+    },
+  });
+  return clone;
+}
+
 async function heartbeat(status, details = {}, error = null) {
   await core("v9_worker_heartbeats?on_conflict=worker_name", {
     method: "POST",
@@ -210,12 +275,13 @@ async function tick() {
 
     const decisionFields = "id,source_event_id,page_id,sender_id,mode,status,goal,action,confidence,input_snapshot,output,created_at,updated_at";
     const recoverySince = encodeURIComponent(new Date(Date.now() - RESPONSE_WINDOW_MS).toISOString());
-    const [pendingRows, mediaOnlyRows, slideKeys] = await Promise.all([
+    const [pendingRows, mediaOnlyRows, duplicateMediaRows, slideKeys] = await Promise.all([
       core(`v9_decisions?select=${decisionFields}&status=in.(shadow_context_ready,shadow_ai_error)&created_at=gte.${recoverySince}&order=created_at.asc&limit=${SCAN_LIMIT}`),
       core(`v9_decisions?select=${decisionFields}&status=eq.live_suppressed&output->>live_suppression_reason=eq.SUPPORT_MEDIA_ONLY&created_at=gte.${recoverySince}&order=created_at.asc&limit=${SCAN_LIMIT}`),
+      core(`v9_decisions?select=${decisionFields}&status=eq.live_suppressed&output->>live_suppression_reason=eq.DUPLICATE_MEDIA_SCOPE_24H&created_at=gte.${recoverySince}&order=created_at.asc&limit=${SCAN_LIMIT}`),
       availableSlideKeys(),
     ]);
-    const rows = [...(pendingRows || []), ...(mediaOnlyRows || [])]
+    const rows = [...(pendingRows || []), ...(mediaOnlyRows || []), ...(duplicateMediaRows || [])]
       .sort((a, b) => Date.parse(a.created_at || "") - Date.parse(b.created_at || ""));
     scanned = rows?.length || 0;
     const waitMs = fallbackWaitMs(config);
@@ -224,8 +290,13 @@ async function tick() {
       if (!enabledPages.has(String(row.page_id))) return false;
       if (row?.input_snapshot?.architecture !== "v10_ai_sovereign_advisory") return false;
       if (row.status === "live_suppressed") {
-        if (row?.output?.live_suppression_reason !== "SUPPORT_MEDIA_ONLY") return false;
-        if (row?.output?.operational_support_fallback === true) return false;
+        const reason = row?.output?.live_suppression_reason;
+        if (!["SUPPORT_MEDIA_ONLY", "DUPLICATE_MEDIA_SCOPE_24H"].includes(reason)) return false;
+        if (reason === "SUPPORT_MEDIA_ONLY" && row?.output?.operational_support_fallback === true) return false;
+        if (reason === "DUPLICATE_MEDIA_SCOPE_24H" && (
+          row?.output?.support_media_dedupe_recovery_attempted === true
+          || row?.output?.support_media_dedupe_recovery === true
+        )) return false;
       }
       const customerAt = supportFallbackCustomerAt(row.input_snapshot);
       return customerAt > 0 && nowMs - customerAt >= waitMs;
@@ -235,7 +306,9 @@ async function tick() {
     for (const row of candidates) {
       const customerAt = supportFallbackCustomerAt(row.input_snapshot);
       const plan = buildSupportOperationalFallback(row.input_snapshot, slideKeys);
-      const result = await completeWithFallback(row, plan, customerAt, waitMs);
+      const result = row?.output?.live_suppression_reason === "DUPLICATE_MEDIA_SCOPE_24H"
+        ? await recoverDuplicateMediaSuppression(row, plan, customerAt, waitMs)
+        : await completeWithFallback(row, plan, customerAt, waitMs);
       if (!result) continue;
       if (plan.kind === "suppress") suppressed += 1;
       else completed += 1;

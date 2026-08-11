@@ -87,19 +87,48 @@ test("referral is durable but never decision eligible by itself", () => {
   assert.equal(event.decision_eligible, false);
 });
 
-test("feed change is preserved without creating an AI job", () => {
+test("customer comment is preserved without creating a Messenger AI job", () => {
   const event = normalizeLegacyWebhookInboxRow({
     ...base,
     payload: {
       kind: "feed_change",
       page_id: "page-1",
-      change: { value: { from: { id: "customer-2" }, message: "Comment", created_time: 1785310000 } },
+      change: { value: { from: { id: "customer-2" }, item: "comment", verb: "add", message: "Comment", created_time: 1785310000 } },
     },
   });
   assert.equal(event.actor_type, "customer");
   assert.equal(event.event_type, "customer_comment");
   assert.equal(event.customer_id, "customer-2");
   assert.equal(event.decision_eligible, false);
+});
+
+test("page-authored comments are never classified as customers", () => {
+  const event = normalizeLegacyWebhookInboxRow({
+    ...base,
+    payload: {
+      kind: "feed_change",
+      page_id: "page-1",
+      change: { value: { from: { id: "page-1" }, item: "comment", verb: "add", message: "Vui lòng kiểm tra tin nhắn", created_time: 1785310000 } },
+    },
+  });
+  assert.equal(event.actor_type, "page_unknown");
+  assert.equal(event.event_type, "page_comment");
+  assert.equal(event.customer_id, null);
+});
+
+test("page hide and reaction events cannot create fake customer state", () => {
+  for (const value of [
+    { from: { id: "page-1" }, item: "comment", verb: "hide", message: "Customer text" },
+    { from: { id: "page-1" }, item: "reaction", verb: "add" },
+  ]) {
+    const event = normalizeLegacyWebhookInboxRow({
+      ...base,
+      payload: { kind: "feed_change", page_id: "page-1", change: { value } },
+    });
+    assert.notEqual(event.actor_type, "customer");
+    assert.equal(event.event_type, "feed_activity");
+    assert.equal(event.customer_id, null);
+  }
 });
 
 test("unknown inbox payload is ignored safely", () => {

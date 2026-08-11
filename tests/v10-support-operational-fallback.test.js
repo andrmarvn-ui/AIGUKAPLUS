@@ -97,6 +97,26 @@ test("trivial acknowledgements without unresolved media do not trigger bot chatt
   assert.equal(plan.reason, "trivial_acknowledgement_without_media_obligation");
 });
 
+test("a short acknowledgement cannot erase an unanswered address request", () => {
+  const plan = buildSupportOperationalFallback(snapshot([
+    { text: "Cho em xin địa chỉ cửa hàng" },
+    { text: "ok" },
+  ]), new Set());
+  assert.equal(plan.kind, "text");
+  assert.equal(plan.reason, "verified_showroom_address_fallback");
+  assert.match(plan.final_reply, /254 Phố Keo/);
+});
+
+test("an explicit cancellation still closes older needs", () => {
+  const plan = buildSupportOperationalFallback(snapshot([
+    { text: "Cho em xin địa chỉ cửa hàng" },
+    { text: "Không cần đâu", semantic_relation: "CANCEL" },
+    { text: "ok" },
+  ]), new Set());
+  assert.equal(plan.kind, "suppress");
+  assert.equal(plan.reason, "trivial_acknowledgement_without_media_obligation");
+});
+
 test("unknown price or specification questions use a safe handoff and never invent facts", () => {
   const input = snapshot([{ text: "Quạt này cánh dài bao nhiêu?" }], {
     products: [{ key: "quat_10_canh", label: "quạt trần 10 cánh" }],
@@ -120,7 +140,7 @@ test("support failover worker is conditional, audited and has no direct Meta tra
   assert.match(worker, /support_operational_fallback_enabled/);
   assert.match(worker, /status=in\.\(shadow_context_ready,shadow_ai_error\)/);
   assert.match(worker, /status=eq\.live_suppressed&output->>live_suppression_reason=eq\.SUPPORT_MEDIA_ONLY/);
-  assert.match(worker, /live_suppression_reason !== "SUPPORT_MEDIA_ONLY"/);
+  assert.match(worker, /\["SUPPORT_MEDIA_ONLY", "DUPLICATE_MEDIA_SCOPE_24H"\]\.includes\(reason\)/);
   assert.match(worker, /operational_support_fallback === true/);
   assert.match(worker, /&status=eq\.\$\{encodeURIComponent\(row\.status\)\}/);
   assert.match(worker, /provider_independent: true/);
@@ -128,6 +148,9 @@ test("support failover worker is conditional, audited and has no direct Meta tra
   assert.match(worker, /on_conflict=source_event_id/);
   assert.match(worker, /source_event_id=eq\.\$\{encodeURIComponent\(recoverySource\)\}/);
   assert.match(worker, /clone = existing\?\.\[0\] \|\| null/);
+  assert.match(worker, /DUPLICATE_MEDIA_SCOPE_24H/);
+  assert.match(worker, /support_media_dedupe_recovery_v1/);
+  assert.match(worker, /support_media_dedupe_recovery_attempted/);
   assert.doesNotMatch(worker, /graph\.facebook\.com|me\/messages|messaging_type/);
 
   const outbound = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");

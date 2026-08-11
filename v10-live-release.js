@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_SINGLE_AUTHORITY_CORE_V20";
+const RELEASE = "AIGUKA_V10_SINGLE_AUTHORITY_CORE_V21";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -31,6 +31,8 @@ const ACTIVE_FILES = [
   "v10/core/carousel-media.js",
   "v10/core/media-dedupe.js",
   "v10/core/support-operational-fallback.js",
+  "v9-legacy-inbox-bridge.js",
+  "v9/core/legacy-inbox-normalizer.js",
   "v9/core/actor-resolver.js",
   "v9-core-fetch-router.js",
 ];
@@ -74,7 +76,8 @@ requireToken("v10/core/constitution.js", "v10_constitution_v1_single_authority")
 requireToken("v10/core/constitution.js", "AICAKE_PRIMARY_AIGUKA_ASSIST");
 requireToken("v10/core/message-gateway.js", "v10_claim_message_dispatch");
 requireToken("v10/core/message-gateway.js", "v10_release_message_dispatch");
-requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v14";');
+requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v15_customer_media_reask";');
+requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v4_recover_customer_media_reask";');
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gateway_v5";');
 requireToken("v10-followup-worker.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_product_threads_v19";');
@@ -84,6 +87,8 @@ requireToken("v10-direct-core-worker.js", "superseded_before_decision_save");
 requireToken("v9-core-fetch-router.js", 'responsibility: "routing_only"');
 requireToken("v10/core/conversation-assembler.js", "structured_choice_same_menu_latest_replaces_previous");
 requireToken("v10/core/media-obligation.js", 'mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback"');
+requireToken("v10/core/media-dedupe.js", "v10_media_scope_dedupe_v2_customer_reask");
+requireToken("v9/core/legacy-inbox-normalizer.js", "v9_legacy_inbox_normalizer_v2_feed_actor_direction");
 requireToken("v10/core/decision-contract.js", "V10_CONTACT_ONLY_REPLY_INVALID");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;

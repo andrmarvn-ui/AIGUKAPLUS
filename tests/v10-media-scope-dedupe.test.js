@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   MEDIA_DEDUPE_WINDOW_MS,
   mediaClaimDisposition,
+  mediaRequestedAfterDelivery,
   mediaScopeIdempotencyKey,
   mediaScopeMatchesAssetRefs,
 } from "../v10/core/media-dedupe.js";
@@ -76,12 +77,37 @@ test("explicit resend requests get a decision-scoped key while automatic sends s
   assert.match(repeat, /decision-b$/);
 });
 
+test("a sample request after the previous delivery is a customer re-ask, not an automatic duplicate", () => {
+  const messages = [
+    { role: "customer", event_type: "customer_message", text: "Gửi mẫu anh chọn", occurred_at: "2026-08-11T08:41:46Z" },
+    { role: "customer", event_type: "customer_message", text: "Gửi riêng từng cái để xem kích thước", occurred_at: "2026-08-11T08:49:36Z" },
+  ];
+  assert.equal(mediaRequestedAfterDelivery(messages, "2026-08-11T08:43:00Z", { decisionAction: "reply_with_slides" }), true);
+});
+
+test("a new product-consult postback after delivery explicitly reopens media", () => {
+  const messages = [{
+    role: "customer",
+    event_type: "customer_postback",
+    text: "Tư vấn nội thất nhà mới",
+    occurred_at: "2026-08-11T10:12:44Z",
+  }];
+  assert.equal(mediaRequestedAfterDelivery(messages, "2026-08-11T09:00:00Z", { decisionAction: "reply_with_slides" }), true);
+});
+
+test("a price-only follow-up does not reopen already delivered media", () => {
+  const messages = [{ role: "customer", event_type: "customer_message", text: "Xin giá", occurred_at: "2026-08-11T10:12:44Z" }];
+  assert.equal(mediaRequestedAfterDelivery(messages, "2026-08-11T09:00:00Z", { decisionAction: "reply_with_slides" }), false);
+});
+
 test("committed outbound claims each grouped media scope before transport", () => {
   const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
   assert.match(worker, /resolution=ignore-duplicates,return=representation/);
   assert.match(worker, /DUPLICATE_MEDIA_SCOPE_24H/);
   assert.match(worker, /media_dedupe_fail_closed/);
   assert.match(worker, /sovereignOutboundRepeatRequested/);
+  assert.match(worker, /mediaRequestedAfterDelivery/);
+  assert.match(worker, /CUSTOMER_MEDIA_REASK_AFTER_DELIVERY/);
   assert.match(worker, /meta_messenger_carousel/);
   assert.match(worker, /mediaDedupe\.by_bundle_key/);
 });
@@ -90,7 +116,7 @@ test("Railway starts the committed deduping worker without a runtime patch chain
   const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
   const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
   const aiWorker = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
-  assert.match(worker, /v10_outbound_single_gateway_v14/);
+  assert.match(worker, /v10_outbound_single_gateway_v15_customer_media_reask/);
   assert.match(worker, /DUPLICATE_MEDIA_SCOPE_24H/);
   assert.match(worker, /mediaDedupe\.by_bundle_key/);
   assert.match(worker, /SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK/);
