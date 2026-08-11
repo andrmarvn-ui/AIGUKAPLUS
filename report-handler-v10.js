@@ -234,6 +234,7 @@ export function installReportRoutes(app, { supabaseUrl, publishableKey }) {
             meta_conversations: 0,
             conversations: 0,
             contacts: 0,
+            scanned_contacts: 0,
             hot_leads: 0,
             message_count: 0,
             contact_rate: 0,
@@ -428,7 +429,7 @@ export function installReportRoutes(app, { supabaseUrl, publishableKey }) {
       "Chi tiêu chưa VAT": +row.spend || 0, "VAT": +row.tax_amount || 0, "Chi tiêu có VAT": +row.spend_with_tax || 0,
       "Hiển thị": +row.impressions || 0, "Tiếp cận": +row.reach || 0, "Click": +row.clicks || 0,
       "Click liên kết": +row.link_clicks || 0, "Hội thoại Meta": +row.meta_conversations || 0,
-      "Khách đối chiếu": +row.conversations || 0, "Có SĐT/Zalo": +row.contacts || 0,
+      "Khách đối chiếu": +row.conversations || 0, "Có SĐT/Zalo": +row.contacts || 0, "SĐT quét": +row.scanned_contacts || 0,
       "Tỷ lệ lấy số (%)": +row.contact_rate || 0, "Khách nóng": +row.hot_leads || 0,
       "Cost/Hội thoại": +row.cost_per_conversation || 0, "Cost/SĐT": +row.cost_per_contact || 0,
     }));
@@ -477,9 +478,9 @@ export function installReportRoutes(app, { supabaseUrl, publishableKey }) {
         const report = await liveAds(req.query);
         const rows = report.data || [];
         const summary = rows.reduce((sum, row) => {
-          for (const key of ["spend", "tax_amount", "spend_with_tax", "impressions", "reach", "clicks", "meta_conversations", "conversations", "contacts", "hot_leads", "message_count"]) sum[key] += num(row[key]);
+          for (const key of ["spend", "tax_amount", "spend_with_tax", "impressions", "reach", "clicks", "meta_conversations", "conversations", "contacts", "scanned_contacts", "hot_leads", "message_count"]) sum[key] += num(row[key]);
           return sum;
-        }, { spend: 0, tax_amount: 0, spend_with_tax: 0, impressions: 0, reach: 0, clicks: 0, meta_conversations: 0, conversations: 0, contacts: 0, hot_leads: 0, message_count: 0 });
+        }, { spend: 0, tax_amount: 0, spend_with_tax: 0, impressions: 0, reach: 0, clicks: 0, meta_conversations: 0, conversations: 0, contacts: 0, scanned_contacts: 0, hot_leads: 0, message_count: 0 });
         summary.contact_rate = summary.conversations ? Math.round((summary.contacts / summary.conversations) * 10_000) / 100 : 0;
         return res.json({ ...report, data: summary, count: rows.length });
       }
@@ -508,3 +509,5 @@ export function installReportRoutes(app, { supabaseUrl, publishableKey }) {
 
   return { legacyRpc, filters, liveAds, liveDaily, enrichLeadsFromCore };
 }
+
+// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V1

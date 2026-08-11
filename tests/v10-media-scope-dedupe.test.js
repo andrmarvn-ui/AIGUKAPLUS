@@ -1,18 +1,12 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import {
   MEDIA_DEDUPE_WINDOW_MS,
   mediaClaimDisposition,
   mediaScopeIdempotencyKey,
   mediaScopeMatchesAssetRefs,
 } from "../v10/core/media-dedupe.js";
-
-const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const fanGroup = {
   bundle_key: "media:quat_tran",
@@ -82,73 +76,35 @@ test("explicit resend requests get a decision-scoped key while automatic sends s
   assert.match(repeat, /decision-b$/);
 });
 
-test("release loads the transport-level media claim after grouped media is installed", () => {
-  const sovereign = fs.readFileSync(new URL("../patch-v10-outbound-sovereign-integrity.js", import.meta.url), "utf8");
-  const patch = fs.readFileSync(new URL("../patch-v10-media-scope-dedupe.js", import.meta.url), "utf8");
-  assert.ok(sovereign.indexOf("patch-v10-grouped-media-bundles.js") < sovereign.indexOf("patch-v10-media-scope-dedupe.js"));
-  assert.match(patch, /resolution=ignore-duplicates,return=representation/);
-  assert.match(patch, /DUPLICATE_MEDIA_SCOPE_24H/);
-  assert.match(patch, /media_dedupe_fail_closed/);
-  assert.match(patch, /sovereignOutboundRepeatRequested/);
-  assert.match(patch, /meta_messenger_carousel/);
+test("committed outbound claims each grouped media scope before transport", () => {
+  const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
+  assert.match(worker, /resolution=ignore-duplicates,return=representation/);
+  assert.match(worker, /DUPLICATE_MEDIA_SCOPE_24H/);
+  assert.match(worker, /media_dedupe_fail_closed/);
+  assert.match(worker, /sovereignOutboundRepeatRequested/);
+  assert.match(worker, /meta_messenger_carousel/);
+  assert.match(worker, /mediaDedupe\.by_bundle_key/);
 });
 
-test("the complete Railway patch chain produces a syntactically valid deduping worker", () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "aiguka-v10-media-dedupe-"));
-  const files = [
-    "v10-outbound-worker.js",
-    "v10-ai-worker-final.js",
-    "v10-decision-queue-janitor.js",
-    "v10-direct-core-worker.js",
-    "v10-followup-worker.js",
-    "patch-v10-general-product-sales-handoff.js",
-    "patch-v10-specific-price-contact.js",
-    "patch-v10-media-obligation-integrity.js",
-    "patch-v10-active-intent-focus.js",
-    "patch-v10-turn-merge-authority.js",
-    "patch-v10-outbound-sovereign-integrity.js",
-    "patch-v10-live-page-reply-guard.js",
-    "patch-v10-support-salutation.js",
-    "patch-v10-grouped-media-bundles.js",
-    "patch-v10-direct-core-structured-input.js",
-    "patch-v10-media-delivery-proxy.js",
-    "patch-v10-media-scope-dedupe.js",
-    "v10/core/media-dedupe.js",
-    "v10/core/media-obligation.js",
-    "v10/core/decision-contract.js",
-  ];
-  for (const relative of files) {
-    const target = path.join(temp, relative);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(path.join(repo, relative), target);
-  }
-
-  const patchRun = spawnSync(process.execPath, [
-    "--input-type=module",
-    "--eval",
-    'await import("./patch-v10-general-product-sales-handoff.js"); await import("./patch-v10-media-obligation-integrity.js"); await import("./patch-v10-active-intent-focus.js"); await import("./patch-v10-turn-merge-authority.js"); await import("./patch-v10-outbound-sovereign-integrity.js");',
-  ], { cwd: temp, encoding: "utf8", timeout: 30_000 });
-  assert.equal(patchRun.status, 0, `${patchRun.stdout}\n${patchRun.stderr}`);
-
-  const generated = path.join(temp, "v10-outbound-worker.js");
-  const syntax = spawnSync(process.execPath, ["--check", generated], { encoding: "utf8" });
-  assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout);
-  const worker = fs.readFileSync(generated, "utf8");
-  assert.match(worker, /v10_outbound_media_scope_dedupe_v13/);
+test("Railway starts the committed deduping worker without a runtime patch chain", () => {
+  const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
+  const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
+  const aiWorker = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
+  assert.match(worker, /v10_outbound_single_gateway_v14/);
   assert.match(worker, /DUPLICATE_MEDIA_SCOPE_24H/);
   assert.match(worker, /mediaDedupe\.by_bundle_key/);
   assert.match(worker, /SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK/);
   assert.match(worker, /SUPPORT_FALLBACK_PANCAKE_CHECK_RETRY/);
   assert.match(worker, /supportTextFallbackEligible/);
   assert.match(worker, /support_operational_fallback_delivered/);
-  const aiWorker = fs.readFileSync(path.join(temp, "v10-ai-worker-final.js"), "utf8");
   assert.match(aiWorker, /AIGUKA_V10_MEDIA_OBLIGATION_INTEGRITY_V1/);
   assert.match(aiWorker, /AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1/);
   assert.match(aiWorker, /explicit_media_backlog_first/);
+  assert.doesNotMatch(start, /safeImport\("\.\/patch-v10-/);
 });
 
 test("all natural more-sample phrases bypass the 24h scope lock", () => {
-  const sovereign = fs.readFileSync(new URL("../patch-v10-outbound-sovereign-integrity.js", import.meta.url), "utf8");
+  const sovereign = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
   for (const phrase of ["xem them", "xem tiep", "xem nua", "gui tiep", "mau khac", "anh khac", "them mau", "can them mau", "mau nua", "con loai"]) {
     assert.match(sovereign, new RegExp(phrase));
   }

@@ -1,12 +1,12 @@
-import { loadActiveMetaConnection } from "./meta-token-store.js";
+import { humanTakeoverActive, resolveChannelAuthority } from "./v10/core/constitution.js";
+import { createMessageGateway, DISPATCH_OWNERS } from "./v10/core/message-gateway.js";
 
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
-const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v23.0";
 const NAME = "aiguka-v10-followup";
-const VERSION = "v10_followup_v8_event_v3";
+const VERSION = "v10_followup_single_gateway_v5";
 const POLL_MS = Math.max(5000, Number(process.env.AIGUKA_V10_FOLLOWUP_POLL_MS || 10000));
 const MAX_RETRIES = Math.max(1, Math.min(5, Number(process.env.AIGUKA_V10_FOLLOWUP_MAX_RETRIES || 3)));
 const PANCAKE_GUARD_REFRESH_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V10_PANCAKE_GUARD_REFRESH_MS || 15 * 60_000));
@@ -15,7 +15,6 @@ let running = false;
 let timer;
 let lastHeartbeat = 0;
 let lastGuardRefresh = 0;
-let tokenCache = { expiresAt: 0, values: new Map() };
 
 function configured() {
   return Boolean(CORE_BASE && CORE_KEY);
@@ -44,28 +43,7 @@ async function request(base, key, path, options = {}) {
 
 const core = (path, options = {}) => request(CORE_BASE, CORE_KEY, path, options);
 const knowledge = (path, options = {}) => request(KNOWLEDGE_BASE, KNOWLEDGE_KEY, path, options);
-
-async function graph(path, token, options = {}) {
-  const url = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${String(path).replace(/^\//, "")}`);
-  url.searchParams.set("access_token", token);
-  const response = await fetch(url, {
-    method: options.method || "GET",
-    headers: options.body ? { "content-type": "application/json" } : {},
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    signal: AbortSignal.timeout(options.timeout || 30000),
-    cache: "no-store",
-  });
-  const raw = await response.text();
-  let data;
-  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { raw: raw.slice(0, 500) }; }
-  if (!response.ok || data?.error) {
-    const error = new Error(data?.error?.message || `META_HTTP_${response.status}`);
-    error.code = data?.error?.code || null;
-    error.subcode = data?.error?.error_subcode || null;
-    throw error;
-  }
-  return data;
-}
+const gateway = createMessageGateway({ coreRequest: core });
 
 async function configRow() {
   const rows = await core("v10_followup_config?select=*&id=eq.1&limit=1", { timeout: 10000 });
@@ -98,29 +76,6 @@ async function previousFollowupLog(anchorDecisionId, followupNo) {
   return rows?.[0] || null;
 }
 
-async function pageTokens(force = false) {
-  if (!force && tokenCache.expiresAt > Date.now()) return tokenCache.values;
-  const connection = await loadActiveMetaConnection();
-  if (!connection?.accessToken) throw new Error("META_OAUTH_CONNECTION_NOT_READY");
-  const values = new Map();
-  let next = "me/accounts?fields=id,name,access_token,tasks&limit=200";
-  let pages = 0;
-  while (next && pages++ < 10) {
-    const data = await graph(next, connection.accessToken);
-    for (const page of data.data || []) {
-      if (page.id && page.access_token) values.set(String(page.id), page.access_token);
-    }
-    next = data?.paging?.next ? data.paging.next.replace(`https://graph.facebook.com/${GRAPH_VERSION}/`, "") : "";
-  }
-  tokenCache = { expiresAt: Date.now() + 5 * 60_000, values };
-  return values;
-}
-
-async function pageToken(pageId) {
-  const values = await pageTokens();
-  return values.get(String(pageId)) || "";
-}
-
 function parseTime(value) {
   const parsed = Date.parse(String(value || ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -147,7 +102,7 @@ function tagLabels(value) {
 }
 
 function hasContactTag(labels) {
-  return labels.some((label) => /(^|\b)(sdt|so dien thoai|dien thoai|zalo)(\b|$)/i.test(normalized(label)));
+  return labels.some((label) => /(^|\b)(sdt|so dien thoai|dien thoai|zalo|da quet)(\b|$)/i.test(normalized(label)));
 }
 
 function contactKnown(state = {}) {
@@ -159,10 +114,9 @@ function contactKnown(state = {}) {
 }
 
 function isRuntimeActive(runtime = {}) {
-  return String(runtime.mode || "").toUpperCase() === "ACTIVE"
-    && String(runtime.ingest_mode || "").toUpperCase() === "DIRECT_CORE"
-    && String(runtime.external_bot_mode || "").toUpperCase() === "AICAKE_DISABLED"
-    && String(runtime.external_bot_policy || "").toUpperCase() === "AIGUKA_PRIMARY";
+  const mode = String(runtime.mode || "").toUpperCase();
+  const ingest = String(runtime.ingest_mode || "").toUpperCase();
+  return mode === "ACTIVE" && ingest === "DIRECT_CORE";
 }
 
 function localMinutes(timezone = "Asia/Bangkok", date = new Date()) {
@@ -252,6 +206,26 @@ async function claim(decision) {
   return rows?.[0] || null;
 }
 
+async function recoverStaleProcessing() {
+  const staleBefore = new Date(Date.now() - 10 * 60_000).toISOString();
+  const rows = await core(
+    `v9_decisions?goal=eq.follow_up_reengagement&status=eq.followup_delivery_processing&updated_at=lt.${encodeURIComponent(staleBefore)}`,
+    {
+      method: "PATCH",
+      prefer: "return=representation",
+      body: { status: "followup_delivery_retry", updated_at: new Date().toISOString() },
+    },
+  );
+  for (const row of rows || []) {
+    await core(`v10_followup_log?decision_id=eq.${encodeURIComponent(row.id)}&status=eq.delivery_processing`, {
+      method: "PATCH",
+      prefer: "return=minimal",
+      body: { status: "retry", next_retry_at: new Date().toISOString(), last_error: "STALE_DELIVERY_LEASE_RECOVERED", updated_at: new Date().toISOString() },
+    }).catch(() => {});
+  }
+  return rows?.length || 0;
+}
+
 async function patchDecision(decision, status, output = {}) {
   await core(`v9_decisions?id=eq.${decision.id}`, {
     method: "PATCH",
@@ -275,12 +249,6 @@ async function suppress(decision, log, reason) {
   return { sent: 0, suppressed: 1, failed: 0, partial: 0 };
 }
 
-async function sendText(pageId, senderId, text) {
-  const token = await pageToken(pageId);
-  if (!token) throw new Error(`PAGE_ACCESS_TOKEN_NOT_FOUND:${pageId}`);
-  return graph(`${pageId}/messages`, token, { method: "POST", body: { recipient: { id: String(senderId) }, messaging_type: "RESPONSE", message: { text } } });
-}
-
 function validImageUrls(value) {
   const rows = Array.isArray(value) ? value : [];
   const unique = [];
@@ -296,13 +264,30 @@ function validImageUrls(value) {
   return unique.slice(0, 10);
 }
 
-async function sendImage(pageId, senderId, imageUrl) {
-  const token = await pageToken(pageId);
-  if (!token) throw new Error(`PAGE_ACCESS_TOKEN_NOT_FOUND:${pageId}`);
-  return graph(`${pageId}/messages`, token, {
-    method: "POST",
-    body: { recipient: { id: String(senderId) }, messaging_type: "RESPONSE", message: { attachment: { type: "image", payload: { url: imageUrl, is_reusable: true } } } },
-  });
+
+function v10DriveFileId(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    const queryId = String(url.searchParams.get("id") || "").trim();
+    if (queryId) return queryId;
+    const match = url.pathname.match(/\/file\/d\/([A-Za-z0-9_-]{10,200})/);
+    return match?.[1] || "";
+  } catch {
+    const match = text.match(/(?:[?&]id=|\/file\/d\/)([A-Za-z0-9_-]{10,200})/);
+    return match?.[1] || "";
+  }
+}
+
+function v10MessengerImageUrl(value) {
+  const sourceUrl = String(value || "").trim();
+  const fileId = v10DriveFileId(sourceUrl);
+  if (!fileId) return sourceUrl;
+  const configured = String(process.env.AIGUKA_DRIVE_IMAGE_PROXY_BASE || "").trim().replace(/\/$/, "");
+  const supabase = String(process.env.SUPABASE_URL || "").trim().replace(/\/$/, "");
+  const endpoint = configured || (supabase ? supabase + "/functions/v1/aiguka-drive-image-proxy" : "");
+  return endpoint ? endpoint + "?file_id=" + encodeURIComponent(fileId) : sourceUrl;
 }
 
 async function processDecision(decision, config, runtime) {
@@ -320,12 +305,13 @@ async function processDecision(decision, config, runtime) {
   if (!isRuntimeActive(runtime)) return suppress(claimed, log, "RUNTIME_NOT_ACTIVE");
 
   const page = await pageRow(claimed.page_id);
-  if (!page?.is_active || String(page.operating_mode || "").toUpperCase() !== "ACTIVE") return suppress(claimed, log, "PAGE_NOT_ACTIVE");
-  if (String(page.coexistence_mode || "").toUpperCase() !== "AICAKE_DISABLED") return suppress(claimed, log, "PAGE_EXTERNAL_BOT_ACTIVE");
+  const authority = resolveChannelAuthority({ runtime, page, channel: "followup" });
+  if (!authority.allowed || authority.followup_owner !== "aiguka") {
+    return suppress(claimed, log, authority.reason || "PAGE_FOLLOWUP_MODE_DISABLED");
+  }
 
   const state = await stateRow(claimed.page_id, claimed.sender_id);
-  const takeoverUntil = parseTime(state.human_takeover_until);
-  if (state.human_takeover && (!takeoverUntil || takeoverUntil > Date.now())) return suppress(claimed, log, "HUMAN_TAKEOVER");
+  if (humanTakeoverActive(state)) return suppress(claimed, log, "HUMAN_TAKEOVER");
   if (contactKnown(state)) return suppress(claimed, log, "CONTACT_ALREADY_KNOWN");
 
   if (config.use_pancake_contact_tags) {
@@ -359,10 +345,32 @@ async function processDecision(decision, config, runtime) {
   const deliveredAt = new Date().toISOString();
   let textResult = null;
   let imageError = null;
+  const dispatchKey = `followup:${claimed.id}`;
+  const dispatchLease = await gateway.claimDispatch({
+    pageId: claimed.page_id,
+    senderId: claimed.sender_id,
+    owner: DISPATCH_OWNERS.FOLLOWUP,
+    dedupeKey: dispatchKey,
+    priority: 20,
+    leaseSeconds: 120,
+  });
+  if (!dispatchLease?.granted) {
+    const retryAtIso = new Date(Date.now() + 30_000).toISOString();
+    await patchDecision(claimed, "followup_delivery_retry", {
+      should_send: true,
+      transport_locked: false,
+      retry_not_before: retryAtIso,
+      dispatch_lease_owner: dispatchLease?.current_owner || null,
+      followup_delivery_error: "DISPATCH_LEASE_BUSY",
+    });
+    await patchLog(log?.id, { status: "retry", next_retry_at: retryAtIso, last_error: "DISPATCH_LEASE_BUSY" });
+    return { sent: 0, suppressed: 0, failed: 0, partial: 0 };
+  }
+  let dispatchResult = "failed";
 
   try {
     if (!textAlreadySent) {
-      textResult = await sendText(claimed.page_id, claimed.sender_id, text);
+      textResult = await gateway.sendText(claimed.page_id, claimed.sender_id, text);
       await patchLog(log?.id, { status: pendingImages.length ? "delivery_processing" : "sent", attempts: Number(log?.attempts || 0) + 1,
         final_reply: text, provider_message_id: textResult?.message_id || null, sent_at: deliveredAt, last_error: null, next_retry_at: null });
       claimed.output = { ...(claimed.output || {}), provider_message_id: textResult?.message_id || null };
@@ -370,7 +378,7 @@ async function processDecision(decision, config, runtime) {
 
     for (const imageUrl of pendingImages) {
       try {
-        await sendImage(claimed.page_id, claimed.sender_id, imageUrl);
+        await gateway.sendImage(claimed.page_id, claimed.sender_id, v10MessengerImageUrl(imageUrl));
         deliveredImages.add(imageUrl);
         await patchDecision(claimed, "followup_delivery_processing", { delivered_image_urls: [...deliveredImages], provider_message_id: textResult?.message_id || output.provider_message_id || log?.provider_message_id || null });
       } catch (error) {
@@ -397,6 +405,7 @@ async function processDecision(decision, config, runtime) {
       });
       await patchLog(log?.id, { status: retry ? "retry" : "sent_partial", attempts, sent_at: deliveredAt,
         last_error: String(imageError?.message || imageError).slice(0, 800), next_retry_at: retry ? retryAtIso : null });
+      dispatchResult = retry ? "followup_media_retry" : "followup_sent_partial";
       return { sent: retry ? 0 : 1, suppressed: 0, failed: retry ? 1 : 0, partial: 1 };
     }
 
@@ -419,6 +428,7 @@ async function processDecision(decision, config, runtime) {
       method: "PATCH", prefer: "return=minimal", body: { state: "BOT_REPLIED", last_page_event_at: deliveredAt, updated_at: deliveredAt },
     }).catch(() => {});
     await core("v10_followup_config?id=eq.1", { method: "PATCH", prefer: "return=minimal", body: { last_delivery_at: deliveredAt, updated_at: deliveredAt } }).catch(() => {});
+    dispatchResult = "followup_sent";
     return { sent: 1, suppressed: 0, failed: 0, partial: 0 };
   } catch (error) {
     const attempts = Number(log?.attempts || 0) + 1;
@@ -430,7 +440,16 @@ async function processDecision(decision, config, runtime) {
     }).catch(() => {});
     await patchLog(log?.id, { status: retry ? "retry" : "failed", attempts,
       last_error: String(error?.message || error).slice(0, 800), next_retry_at: retry ? retryAtIso : null }).catch(() => {});
+    dispatchResult = retry ? "followup_retry" : "followup_failed";
     return { sent: 0, suppressed: 0, failed: 1, partial: 0 };
+  } finally {
+    await gateway.releaseDispatch({
+      pageId: claimed.page_id,
+      senderId: claimed.sender_id,
+      owner: DISPATCH_OWNERS.FOLLOWUP,
+      dedupeKey: dispatchKey,
+      result: dispatchResult,
+    }).catch(() => {});
   }
 }
 
@@ -475,10 +494,12 @@ async function tick() {
   let suppressed = 0;
   let failed = 0;
   let partial = 0;
+  let recovered = 0;
   try {
     config = await configRow();
     if (!config) throw new Error("FOLLOWUP_CONFIG_MISSING");
     const runtime = await runtimeRow();
+    recovered = await recoverStaleProcessing();
 
     if (config.enabled && insideWindow(config) && scanDue(config)) {
       guards = await refreshPancakeGuards(config);
@@ -486,7 +507,7 @@ async function tick() {
     }
 
     if (config.enabled && config.delivery_enabled && isRuntimeActive(runtime) && insideWindow(config)) {
-      await pageTokens();
+      await gateway.warmPageTokens();
       const rows = await core("v9_decisions?select=id,page_id,sender_id,status,goal,action,confidence,input_snapshot,output,created_at,updated_at&goal=eq.follow_up_reengagement&status=in.(followup_ai_completed,followup_delivery_retry)&order=created_at.asc&limit=20");
       for (const decision of rows || []) {
         const result = await processDecision(decision, config, runtime);
@@ -495,7 +516,7 @@ async function tick() {
         failed += result.failed;
         partial += result.partial;
       }
-      await heartbeat(failed ? "degraded" : "healthy", config, { scan, guards, candidates: rows?.length || 0, sent, suppressed, failed, partial }, failed ? `${failed} follow-up delivery failure(s)` : null);
+      await heartbeat(failed ? "degraded" : "healthy", config, { scan, guards, recovered, candidates: rows?.length || 0, sent, suppressed, failed, partial }, failed ? `${failed} follow-up delivery failure(s)` : null);
     } else {
       await heartbeat("idle", config, { scan, guards, reason: !insideWindow(config) ? "OUTSIDE_FOLLOWUP_WINDOW" : "FOLLOWUP_OR_RUNTIME_DISABLED" });
     }
@@ -515,3 +536,7 @@ if (!configured()) {
   console.log(`[AIGUKA V10 follow-up] ${VERSION} started: V8 default + Event mode, rich Unicode formatting, preserved line breaks, 2 touches/20h`);
   tick().catch(() => {});
 }
+
+// AIGUKA_V10_MEDIA_DELIVERY_PROXY_V1
+
+// AIGUKA_V10_FOLLOWUP_SUPPORT_MODE_V1

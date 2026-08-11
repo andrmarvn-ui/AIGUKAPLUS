@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AIGUKA — Mapping Center V8</title>
-<link rel="stylesheet" href="/admin/drive-slides-v8.css">
+<link rel="stylesheet" href="/admin/drive-slides-v8.css?v=20260721-catalog-rename-v2">
 
 </head>
 <body>
@@ -85,7 +85,7 @@
   <section id="p-catalogs" class="panel">
     <div class="panel-head"><div><h2>Quản lý Catalog cha — con</h2><div class="panel-description">Tạo catalog mới, đổi tên, chuyển catalog cha, sắp xếp trong cùng cấp hoặc tắt catalog không còn dùng.</div></div><button class="primary" onclick="openCatalog({})">+ Thêm Catalog</button></div>
     <div class="panel-body">
-      <div class="notice warning"><b>Mã catalog là khóa kỹ thuật và được khóa sau khi tạo.</b> Đổi mã có thể làm hỏng Mapping QC và nguồn ảnh đang dùng. Muốn sửa thư mục/ảnh của catalog, dùng nút <b>Sản phẩm & Drive</b> tại từng dòng.</div>
+      <div class="notice warning"><b>Có thể sửa mã catalog.</b> Khi bấm Lưu, hệ thống tự chuyển Mapping QC, nguồn ảnh Drive, catalog cha/con và quy tắc nhận diện sang mã mới; mã cũ được giữ làm alias để dữ liệu cũ tiếp tục hoạt động.</div>
       <div class="toolbar">
         <input id="catalogSearch" placeholder="Tìm tên, mã, catalog cha, đường dẫn Drive..." oninput="renderCatalogs()">
         <select id="catalogState" onchange="renderCatalogs()"><option value="all">Tất cả trạng thái</option><option value="active">Đang bật</option><option value="inactive">Đã tắt</option></select>
@@ -175,7 +175,7 @@
 </form></div></div></div>
 
 <div id="catalogModal" class="modal"><div class="modal-card catalog-modal-card"><div class="modal-head"><h2 id="catalogTitle">Catalog</h2><button class="close" onclick="closeModal('catalogModal')">×</button></div><div class="modal-body">
-<form id="catalogForm" onsubmit="saveCatalog(event)"><input type="hidden" id="c_is_new" value="1">
+<form id="catalogForm" onsubmit="saveCatalog(event)"><input type="hidden" id="c_is_new" value="1"><input type="hidden" id="c_original_key">
   <div class="grid">
     <div class="field"><label>Mã catalog *</label><input id="c_key" maxlength="80" pattern="[a-z0-9][a-z0-9_]*" required><div id="c_key_help" class="small muted">Tự tạo từ tên; chỉ dùng chữ thường, số và dấu gạch dưới.</div></div>
     <div class="field"><label>Tên catalog *</label><input id="c_name" maxlength="160" required oninput="catalogNameChanged()"></div>
@@ -190,8 +190,8 @@
 </div></div></div>
 
 <div id="statusbar" class="statusbar"></div>
-<script src="/admin/drive-slides-v8-core.js"></script>
-<script src="/admin/drive-slides-v8-render.js"></script>
+<script src="/admin/drive-slides-v8-core.js?v=20260721-catalog-rename-v2"></script>
+<script src="/admin/drive-slides-v8-render.js?v=20260721-catalog-rename-v2"></script>
 
-</body>
+<!-- AIGUKA_CATALOG_KEY_RENAME_V2 --></body>
 </html>

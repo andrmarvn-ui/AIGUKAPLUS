@@ -63,3 +63,14 @@ test("contact-only sales reply is rejected", () => {
     should_request_contact: true,
   })), /V10_CONTACT_ONLY_REPLY_INVALID/);
 });
+
+test("contact-only request is removed when contact is already known", () => {
+  const result = validateDecision(decision({
+    contact_state: "known",
+    should_request_contact: true,
+    final_reply: "Anh/chị cho em xin SĐT hoặc Zalo để bên em tư vấn nhé.",
+  }));
+  assert.equal(result.should_request_contact, false);
+  assert.doesNotMatch(result.final_reply, /SĐT|Zalo/i);
+  assert.match(result.final_reply, /tiếp tục hỗ trợ/i);
+});

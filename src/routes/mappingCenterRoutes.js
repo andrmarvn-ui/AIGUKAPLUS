@@ -128,9 +128,9 @@ export function installMappingCenter(app, options = {}) {
     }
 
     for (const fileName of ['drive-slides-v8.css', 'drive-slides-v8-core.js', 'drive-slides-v8-render.js']) {
-        app.get(`/admin/${fileName}`, (_req, res) => res.sendFile(path.join(publicDirectory, fileName)));
+        app.get(`/admin/${fileName}`, (_req, res) => { res.set('Cache-Control', 'no-store, max-age=0'); res.sendFile(path.join(publicDirectory, fileName)); });
     }
-    app.get('/drive-slides', (_req, res) => res.sendFile(path.join(publicDirectory, 'drive-slides-v8.html')));
+    app.get('/drive-slides', (_req, res) => { res.set('Cache-Control', 'no-store, max-age=0'); res.sendFile(path.join(publicDirectory, 'drive-slides-v8.html')); });
 
     function mappingFolderValues(mapping) {
         const preferred = Array.isArray(mapping?.resolved_folder_ids) && mapping.resolved_folder_ids.length
@@ -453,6 +453,8 @@ export function installMappingCenter(app, options = {}) {
                     business_id: String(row.business_id || row.business?.id || current.business_id || '').trim(),
                     business_name: row.business_name || row.business?.name || current.business_name || '',
                     account_status: row.account_status || current.account_status || '',
+                    timezone_name: row.timezone_name || current.timezone_name || '',
+                    timezone_offset_hours_utc: row.timezone_offset_hours_utc ?? current.timezone_offset_hours_utc ?? null,
                     source: row.source || current.source || 'supabase'
                 });
             }
@@ -506,6 +508,24 @@ export function installMappingCenter(app, options = {}) {
     function metaMetricNumber(value) {
         const parsed = Number(String(value ?? '').replace(/,/g, '').trim());
         return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function metaAccountLocalHour(account = {}) {
+        const timezoneName = String(account.timezone_name || '').trim();
+        if (timezoneName) {
+            try {
+                const formatted = new Intl.DateTimeFormat('en-GB', {
+                    timeZone: timezoneName,
+                    hour: '2-digit',
+                    hourCycle: 'h23'
+                }).format(new Date());
+                const hour = Number(formatted);
+                if (Number.isFinite(hour)) return hour;
+            } catch (_) { /* Fall back to the numeric Meta offset. */ }
+        }
+        const offset = Number(account.timezone_offset_hours_utc);
+        if (Number.isFinite(offset)) return new Date(Date.now() + offset * 3600000).getUTCHours();
+        return new Date().getUTCHours();
     }
 
     function metaRootToken() {
@@ -568,7 +588,7 @@ export function installMappingCenter(app, options = {}) {
         let visibleAccounts = [];
         let visibleBusinesses = [];
         try {
-            const fields = 'id,account_id,name,account_status,business{id,name}';
+            const fields = 'id,account_id,name,account_status,timezone_name,timezone_offset_hours_utc,business{id,name}';
             const accountUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/me/adaccounts?fields=${encodeURIComponent(fields)}&limit=200&access_token=${encodeURIComponent(token)}`;
             visibleAccounts = await metaPages(accountUrl, 5);
         } catch (error) {
@@ -597,28 +617,47 @@ export function installMappingCenter(app, options = {}) {
             const fields = 'id,name,status,effective_status,configured_status,account_id,campaign{id,name,status,effective_status},adset{id,name,status,effective_status,promoted_object}';
             const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${encodeURIComponent(accountId)}/ads?fields=${encodeURIComponent(fields)}&limit=500&access_token=${encodeURIComponent(token)}`;
             const insightFields = 'spend,impressions,reach,date_start,date_stop';
-            const insightUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${encodeURIComponent(accountId)}/insights?fields=${encodeURIComponent(insightFields)}&date_preset=today&level=account&limit=1&access_token=${encodeURIComponent(token)}`;
+            const todayInsightUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${encodeURIComponent(accountId)}/insights?fields=${encodeURIComponent(insightFields)}&date_preset=today&level=account&limit=1&access_token=${encodeURIComponent(token)}`;
+            const yesterdayInsightUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${encodeURIComponent(accountId)}/insights?fields=${encodeURIComponent(insightFields)}&date_preset=yesterday&level=account&limit=1&access_token=${encodeURIComponent(token)}`;
+            const account = accountById.get(accountId) || {};
+            const localHour = metaAccountLocalHour(account);
+            const midnightGraceHours = Math.min(Math.max(Number(process.env.META_MIDNIGHT_GRACE_HOURS || 4), 0), 8);
+            const shouldCheckYesterday = localHour < midnightGraceHours;
+            const readInsight = async (insightUrl, label) => metaPages(insightUrl, 2)
+                .then(rows => ({ rows, verified: true }))
+                .catch(error => {
+                    console.warn(`[MAPPING_CENTER] Meta account ${label} insights ${accountId}:`, error.message);
+                    return { rows: [], verified: false };
+                });
             try {
-                const [ads, insightResult] = await Promise.all([
+                const [ads, todayResult, yesterdayResult] = await Promise.all([
                     metaPages(url, 10),
-                    metaPages(insightUrl, 2).then(rows => ({ rows, verified: true })).catch(error => {
-                        console.warn(`[MAPPING_CENTER] Meta account insights ${accountId}:`, error.message);
-                        return { rows: [], verified: false };
-                    })
+                    readInsight(todayInsightUrl, 'today'),
+                    shouldCheckYesterday ? readInsight(yesterdayInsightUrl, 'yesterday') : Promise.resolve({ rows: [], verified: false })
                 ]);
-                const insight = insightResult.rows[0] || {};
-                const account = accountById.get(accountId) || {};
-                const todaySpend = metaMetricNumber(insight.spend);
-                const todayImpressions = metaMetricNumber(insight.impressions);
-                const accountHasDeliveryToday = insightResult.verified && todaySpend > 0 && todayImpressions > 0;
+                const todayInsight = todayResult.rows[0] || {};
+                const yesterdayInsight = yesterdayResult.rows[0] || {};
+                const todaySpend = metaMetricNumber(todayInsight.spend);
+                const todayImpressions = metaMetricNumber(todayInsight.impressions);
+                const yesterdaySpend = metaMetricNumber(yesterdayInsight.spend);
+                const yesterdayImpressions = metaMetricNumber(yesterdayInsight.impressions);
+                const accountHasDeliveryToday = todayResult.verified && (todaySpend > 0 || todayImpressions > 0);
+                const accountHasDeliveryYesterday = shouldCheckYesterday && yesterdayResult.verified && (yesterdaySpend > 0 || yesterdayImpressions > 0);
+                const accountHasRecentDelivery = accountHasDeliveryToday || accountHasDeliveryYesterday;
+                const deliveryVerified = todayResult.verified || (shouldCheckYesterday && yesterdayResult.verified);
                 Object.assign(account, {
-                    account_delivery_verified: insightResult.verified,
+                    account_delivery_verified: deliveryVerified,
                     account_has_delivery_today: accountHasDeliveryToday,
+                    account_has_recent_delivery: accountHasRecentDelivery,
+                    delivery_basis: accountHasDeliveryToday ? 'today' : (accountHasDeliveryYesterday ? 'previous_day_midnight_grace' : 'none'),
+                    account_local_hour: localHour,
                     today_spend: todaySpend,
                     today_impressions: todayImpressions,
-                    today_reach: metaMetricNumber(insight.reach),
-                    insights_date_start: insight.date_start || '',
-                    insights_date_stop: insight.date_stop || ''
+                    today_reach: metaMetricNumber(todayInsight.reach),
+                    previous_day_spend: yesterdaySpend,
+                    previous_day_impressions: yesterdayImpressions,
+                    insights_date_start: todayInsight.date_start || yesterdayInsight.date_start || '',
+                    insights_date_stop: todayInsight.date_stop || yesterdayInsight.date_stop || ''
                 });
                 return ads.map(ad => {
                     const resolvedAccountId = String(ad.account_id || accountId).replace(/^act_/, '');
@@ -626,7 +665,7 @@ export function installMappingCenter(app, options = {}) {
                     const hierarchyStatus = hierarchyDeliveryStatus(ad, resolvedAccount);
                     const deliveryStatus = hierarchyStatus === 'ACTIVE'
                         ? (resolvedAccount.account_delivery_verified
-                            ? (resolvedAccount.account_has_delivery_today ? 'ACTIVE' : 'ACCOUNT_NO_DELIVERY')
+                            ? (resolvedAccount.account_has_recent_delivery ? 'ACTIVE' : 'ACCOUNT_NO_DELIVERY')
                             : 'DELIVERY_UNVERIFIED')
                         : hierarchyStatus;
                     return {
@@ -637,7 +676,12 @@ export function installMappingCenter(app, options = {}) {
                         account_status: resolvedAccount.account_status ?? '',
                         account_delivery_verified: Boolean(resolvedAccount.account_delivery_verified),
                         account_has_delivery_today: Boolean(resolvedAccount.account_has_delivery_today),
+                        account_has_recent_delivery: Boolean(resolvedAccount.account_has_recent_delivery),
+                        delivery_basis: resolvedAccount.delivery_basis || 'none',
+                        account_local_hour: resolvedAccount.account_local_hour ?? null,
+                        timezone_name: resolvedAccount.timezone_name || '',
                         today_spend: resolvedAccount.today_spend || 0,
+                        previous_day_spend: resolvedAccount.previous_day_spend || 0,
                         today_impressions: resolvedAccount.today_impressions || 0,
                         insights_date_start: resolvedAccount.insights_date_start || '',
                         insights_date_stop: resolvedAccount.insights_date_stop || '',
@@ -861,6 +905,41 @@ export function installMappingCenter(app, options = {}) {
             })
         });
     }
+
+    // AIGUKA_CATALOG_KEY_RENAME_V2
+    app.post('/api/v8-mapping-center/catalog/rename', jsonBody, requireMappingWrite, async (req, res) => {
+        try {
+            const oldCatalogKey = String(req.body?.old_catalog_key || '').trim().toLowerCase();
+            const newCatalogKey = String(req.body?.new_catalog_key || '').trim().toLowerCase();
+            const validKey = value => /^[a-z0-9][a-z0-9_]{0,79}$/.test(value);
+            if (!validKey(oldCatalogKey) || !validKey(newCatalogKey)) {
+                return res.status(400).json({ ok: false, error: 'Mã catalog chỉ gồm chữ thường không dấu, số và dấu gạch dưới.' });
+            }
+            if (oldCatalogKey === newCatalogKey) return res.json({ ok: true, unchanged: true });
+
+            const rows = await loadCatalogAdminRows();
+            const existing = rows.find(row => String(row.catalog_key) === oldCatalogKey) || null;
+            if (!existing) return res.status(404).json({ ok: false, error: `Không tìm thấy catalog ${oldCatalogKey}.` });
+            if (rows.some(row => String(row.catalog_key) === newCatalogKey)) {
+                return res.status(409).json({ ok: false, error: `Mã catalog ${newCatalogKey} đã tồn tại.` });
+            }
+
+            const result = await supabaseRest('rpc/v8_admin_rename_catalog_key', {
+                method: 'POST',
+                headers: { Prefer: 'return=representation' },
+                body: JSON.stringify({
+                    p_old_catalog_key: oldCatalogKey,
+                    p_new_catalog_key: newCatalogKey
+                })
+            });
+            const afterRows = await loadCatalogAdminRows();
+            const saved = afterRows.find(row => String(row.catalog_key) === newCatalogKey) || null;
+            await logCatalogChange('rename_catalog_mapping', newCatalogKey, existing, saved || { catalog_key: newCatalogKey, rename_result: result });
+            return res.json({ ok: true, result, saved });
+        } catch (error) {
+            res.status(error.status || 500).json({ ok: false, error: error.message, details: error.details || null });
+        }
+    });
 
     app.post('/api/v8-mapping-center/catalog', jsonBody, requireMappingWrite, async (req, res) => {
         try {

@@ -42,7 +42,7 @@ test("final V10 worker contains current-turn media and verified-address guards",
   assert.match(source, /enforceCurrentTurnMediaScope/);
   assert.match(source, /verifiedAddressSentence/);
   assert.doesNotMatch(source, /cosi\|ldo\|showoom\|ben em\|pho keo/);
-  assert.match(source, /v10_ai_quality_guard_v13/);
+  assert.match(source, /v10_ai_product_threads_v19/);
 });
 
 test("outbound worker uses ordered reply evidence instead of timestamp-only suppression", () => {

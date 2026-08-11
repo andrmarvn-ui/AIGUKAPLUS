@@ -95,7 +95,7 @@ test("final AI worker contains lease recovery and provider-aware scheduling befo
   const source = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
   assert.match(entry, /v10-ai-worker-final\.js/);
   assert.doesNotMatch(entry, /patch-v10-/);
-  assert.match(source, /const VERSION = "v10_ai_quality_guard_v13"/);
+  assert.match(source, /const VERSION = "v10_ai_product_threads_v19"/);
   assert.match(source, /recoverStaleProcessing/);
   const availability = source.indexOf("const availability = providerAvailability(providerRows, Date.now())");
   const wait = source.indexOf("scheduleWithoutClaim(row, availability.nextAvailableAt", availability);
@@ -121,11 +121,12 @@ test("outbound has safety gates but no contact conversation lock", () => {
   assert.match(source, /HUMAN_TAKEOVER/);
 });
 
-test("queue janitor rehydrates latest legacy pending decisions and supersedes older decisions", () => {
+test("queue janitor rehydrates legacy work and dedupes exact customer frontiers", () => {
   const source = fs.readFileSync(new URL("../v10-decision-queue-janitor.js", import.meta.url), "utf8");
   assert.match(source, /V10_REHYDRATE_LEGACY_PENDING/);
   assert.match(source, /legacy_rehydrating/);
   assert.match(source, /created_at: now/);
-  assert.match(source, /A newer pending customer event exists/);
+  assert.match(source, /duplicate_customer_cluster/);
+  assert.match(source, /conversation_merge_authority: "core_ingest_debounce"/);
   assert.match(source, /business_decision_authority: "none"/);
 });

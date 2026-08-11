@@ -51,13 +51,16 @@ export function decisionSchema() {
 export function buildDecisionInstructions() {
   return [
     "Bạn là AI duy nhất ra quyết định kinh doanh cho hội thoại AIGUKA/GUKA. Code, rules, mapping và knowledge chỉ cung cấp dữ liệu hoặc kiểm tra tính hợp lệ; chúng không được quyết định thay bạn.",
-    "Mục tiêu: hiểu đúng toàn bộ nhu cầu khách, trả lời ngắn gọn có ích, gửi đúng mẫu khi cần và xin SĐT/Zalo đúng nhịp để Sale tư vấn, báo giá và chốt đơn.",
+    "Nhiệm vụ số 1 là tạo lead có SĐT hoặc Zalo để Sale tư vấn, báo giá và chốt đơn; đây không phải chatbot tư vấn sâu kéo dài.",
+    "Trả lời trực tiếp trước, tối đa 2-3 câu ngắn. Chỉ khi đúng nhịp mới xin SĐT/Zalo; không xin số dồn dập và câu xin SĐT/Zalo luôn là câu cuối.",
     "Đọc toàn bộ conversation theo thời gian và đặc biệt đọc unresolved_needs. Tin mới nhất không được xóa nhu cầu cũ chưa hoàn thành.",
+    "Tin mới không tự động xóa ý cũ, nhưng khi khách thu hẹp hoặc chuyển rõ sang một sản phẩm cụ thể thì coi các nhóm cũ không tương thích là đã bị thay thế cho lượt media hiện tại. Ví dụ đang nói nhà tắm/nhà bếp rồi chuyển liên tục sang bệt/bồn cầu thì chỉ xử lý bệt/bồn cầu, không kéo bếp theo.",
+    "Tên sản phẩm, số cánh, màu, loại và biến thể khách nói rõ luôn ưu tiên hơn referral/quảng cáo và fallback catalog. Nếu không có đúng catalog thì không được tự thay bằng sản phẩm gần giống; trả lời không kèm slide hoặc hỏi ngắn để làm rõ.",
     "Nếu khách hỏi nhiều nhóm sản phẩm, giữ đủ từng nhóm trong selected_products, selected_catalog_keys và follow_up_plan. Không tự bỏ một nhóm chỉ vì nó được nhắc sớm hơn.",
     "Nếu unresolved_needs có status=pending_media, phải chọn đủ catalog tương ứng có ảnh và action=reply_with_slides, needs_slides=true. Chỉ coi media hoàn thành khi hội thoại có bằng chứng ảnh/carousel đã được gửi.",
     "Catalog trong knowledge_advisors là bằng chứng khả dụng. Chỉ chọn catalog_key thực sự có trong dữ liệu; catalog cha có thể đại diện toàn bộ thư mục con của nó.",
-    "Trả lời trực tiếp câu khách hỏi trước. Không gửi một tin chỉ để xin SĐT/Zalo. Khi xin liên hệ, nêu lợi ích cụ thể và đặt câu xin ở cuối.",
-    "Nếu đã có SĐT/Zalo thì contact_state=known, should_request_contact=false và tuyệt đối không xin lại. Nếu vừa xin số mà khách chưa có ít nhất 2 tin mới thì contact_state=missing_recently_requested và không xin lại.",
+    "Không gửi một tin chỉ để xin SĐT/Zalo. Khi xin liên hệ, nêu lợi ích cụ thể và đặt câu xin ở cuối.",
+    "Nếu đã có SĐT/Zalo thì contact_state=known, should_request_contact=false và tuyệt đối không xin lại. Nếu vừa xin số mà khách có dưới 2 tin nhắn mới thì contact_state=missing_recently_requested và không xin lại.",
     "Nếu khách từ chối cho số hoặc muốn tiếp tục trên Messenger, contact_state=refused_messenger_only và tôn trọng lựa chọn đó.",
     "Không bịa giá, tồn kho, thông số, thương hiệu, ưu đãi, khoảng cách, vận chuyển hay cam kết. Nếu dữ liệu chưa đủ, nói rõ cần kiểm tra hoặc chuyển chuyên viên; không tự tạo con số.",
     "Không nói đã gửi mẫu nếu needs_slides=false. Không hứa sẽ gửi sau nếu lượt hiện tại có thể gửi bằng reply_with_slides.",
@@ -75,7 +78,48 @@ function strings(values, limit = 12) {
 function compactReply(value, maxLength = 650) {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
-  throw new Error("V10_DECISION_REPLY_TOO_LONG");
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function isContactRequestSentence(value) {
+  const sentence = String(value || "");
+  if (!/(?:sđt|sdt|số điện thoại|zalo)/iu.test(sentence)) return false;
+  return /(?:cho\s+(?:em|bên em)|xin|gửi|để lại|cung cấp|nhắn|để\s+(?:em|bên em)\s+liên hệ)/iu.test(sentence);
+}
+
+function splitSentences(value) {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .split(/(?<=[.!?])\s+|\n+/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function withoutContactRequests(value) {
+  return splitSentences(value).filter((sentence) => !isContactRequestSentence(sentence)).join(" ").trim();
+}
+
+function contactRequestSentence(benefit) {
+  const usefulBenefit = String(benefit || "Sale tư vấn và báo giá chính xác")
+    .replace(/[.!?]+$/u, "")
+    .trim();
+  const lowered = usefulBenefit ? usefulBenefit[0].toLocaleLowerCase("vi-VN") + usefulBenefit.slice(1) : "Sale tư vấn và báo giá chính xác";
+  return `Anh/chị cho em xin SĐT hoặc Zalo để bên em ${lowered} nhé.`;
+}
+
+function hasSalesNeed(decision) {
+  if (["suppress", "acknowledge_contact"].includes(decision.action)) return false;
+  return decision.selected_products.length > 0
+    || decision.selected_catalog_keys.length > 0
+    || decision.intents.some((intent) => !["greeting", "thanks", "opt_out"].includes(String(intent).toLowerCase()))
+    || decision.follow_up_plan.some((item) => item.status !== "completed");
+}
+
+function appendWithinLimit(answer, request, maxLength = 650) {
+  const separator = answer ? " " : "";
+  const available = Math.max(0, maxLength - request.length - separator.length);
+  const compactAnswer = compactReply(answer, available);
+  return `${compactAnswer}${compactAnswer ? separator : ""}${request}`.trim();
 }
 
 function normalizedContactState(value) {
@@ -114,15 +158,28 @@ export function validateDecision(input = {}) {
   if (decision.action === "reply_with_slides" && !decision.needs_slides) throw new Error("V10_DECISION_SLIDE_FLAG_MISMATCH");
   if (decision.needs_slides && decision.action !== "reply_with_slides") throw new Error("V10_DECISION_SLIDE_ACTION_MISMATCH");
   if (decision.needs_slides && !decision.selected_catalog_keys.length) throw new Error("V10_DECISION_SLIDE_CATALOG_REQUIRED");
-  if (decision.should_request_contact && decision.contact_state !== "missing") throw new Error("V10_DECISION_CONTACT_STATE_MISMATCH");
-  if (["known", "missing_recently_requested", "refused_messenger_only"].includes(decision.contact_state) && decision.should_request_contact) {
-    throw new Error("V10_DECISION_CONTACT_REQUEST_NOT_ALLOWED");
-  }
-
   if (decision.action === "suppress") {
     if (decision.final_reply) throw new Error("V10_DECISION_SUPPRESS_REPLY_NOT_EMPTY");
   } else if (!decision.final_reply) {
     throw new Error("V10_FINAL_REPLY_REQUIRED");
+  }
+
+  if (decision.action !== "suppress") {
+    const usefulAnswer = withoutContactRequests(decision.final_reply);
+    const contactBlocked = ["known", "missing_recently_requested", "refused_messenger_only"].includes(decision.contact_state);
+    const contactAllowed = decision.contact_state === "missing" && hasSalesNeed(decision);
+
+    if (contactBlocked) {
+      decision.should_request_contact = false;
+      decision.final_reply = compactReply(usefulAnswer || "Dạ em đã nhận nội dung và tiếp tục hỗ trợ anh/chị tại Messenger ạ.");
+    } else if (contactAllowed) {
+      if (!usefulAnswer) throw new Error("V10_CONTACT_ONLY_REPLY_INVALID");
+      decision.should_request_contact = true;
+      decision.final_reply = appendWithinLimit(usefulAnswer, contactRequestSentence(decision.contact_benefit));
+    } else {
+      decision.should_request_contact = false;
+      decision.final_reply = compactReply(usefulAnswer || decision.final_reply);
+    }
   }
 
   return decision;
@@ -146,3 +203,5 @@ export function neutralUnavailableDecision({ contactKnown = false } = {}) {
     follow_up_plan: [{ topic: "customer_request", status: "keep_pending" }],
   };
 }
+
+// AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1

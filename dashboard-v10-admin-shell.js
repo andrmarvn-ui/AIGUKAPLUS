@@ -13,9 +13,9 @@ const ADMIN_LINKS = Object.freeze([
     description: "Bật, tắt, hỗ trợ, lịch làm việc và quyền gửi tin/slide.",
   },
   {
-    href: "/bot-control#follow-up",
+    href: "/follow-up-admin",
     label: "Follow-up khách hàng",
-    description: "Bật và theo dõi chăm sóc lại khách đã được trả lời nhưng im lặng ban ngày hoặc buổi tối.",
+    description: "Mặc định V8 hoặc Event; lịch 3 giờ, tối đa 2 lượt/20 giờ, hỗ trợ ảnh và tag Pancake.",
   },
   {
     href: "/learning-reviewed",

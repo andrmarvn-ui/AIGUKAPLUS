@@ -85,6 +85,7 @@ function attachDimensions(rows, filters = {}, query = {}) {
       ad_name: clean(mapping.ad_name) || null,
       conversations: Math.max(0, Math.round(number(row.conversations))),
       contacts: Math.max(0, Math.round(number(row.contacts))),
+      scanned_contacts: Math.max(0, Math.round(number(row.scanned_contacts))),
       hot_leads: Math.max(0, Math.round(number(row.hot_leads))),
       message_count: Math.max(0, Math.round(number(row.message_count))),
       customer_metric_source: "v10_core_live",
@@ -100,10 +101,11 @@ function aggregateByAd(rows) {
       ...row,
       conversations: 0,
       contacts: 0,
+      scanned_contacts: 0,
       hot_leads: 0,
       message_count: 0,
     };
-    for (const key of ["conversations", "contacts", "hot_leads", "message_count"]) current[key] += number(row[key]);
+    for (const key of ["conversations", "contacts", "scanned_contacts", "hot_leads", "message_count"]) current[key] += number(row[key]);
     groups.set(row.ad_id, current);
   }
   return [...groups.values()];
@@ -117,10 +119,11 @@ function aggregateDaily(rows) {
       ...row,
       conversations: 0,
       contacts: 0,
+      scanned_contacts: 0,
       hot_leads: 0,
       message_count: 0,
     };
-    for (const field of ["conversations", "contacts", "hot_leads", "message_count"]) current[field] += number(row[field]);
+    for (const field of ["conversations", "contacts", "scanned_contacts", "hot_leads", "message_count"]) current[field] += number(row[field]);
     groups.set(key, current);
   }
   return [...groups.values()];
@@ -174,3 +177,5 @@ export function createV10ReportSources(options = {}) {
 }
 
 export const __private__ = { attachDimensions, aggregateByAd, aggregateDaily, matchesMetric };
+
+// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V1

@@ -27,10 +27,11 @@ test("checksummed Railway HTTP server binds before V10 AI verification", () => {
 });
 
 test("server source patches are outside production startup", () => {
-  const patchLoopEnd = position("]) await safeImport(patch);");
   const server = position('await safeImport("./v10-server-release.js", true)');
-  assert.ok(server > patchLoopEnd);
+  assert.ok(server >= 0);
   assert.match(source, /final V10 HTTP server initialized; verifying V10 AI release contract/);
+  assert.doesNotMatch(source, /safeImport\("\.\/patch-v10-/);
+  assert.doesNotMatch(source, /for \(const patch of \[/);
   assert.doesNotMatch(source, /safeImport\("\.\/patch-server\.js"/);
   assert.doesNotMatch(source, /safeImport\("\.\/patch-direct-meta-dashboard\.js"/);
   assert.doesNotMatch(source, /safeImport\("\.\/server-fixed\.js"/);

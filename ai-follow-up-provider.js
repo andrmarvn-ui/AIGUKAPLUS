@@ -129,7 +129,7 @@ async function callOpenAi(provider, apiKey, prepared) {
 
 async function callGemini(provider, apiKey, prepared) {
   const base = String(provider.base_url || "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
-  const model = String(provider.model_name || "gemini-2.5-flash").replace(/^models\//, "");
+  const model = "gemini-2.0-flash"; // AIGUKA_GEMINI_FOLLOW_UP_JSON_STABILITY_V1
   const response = await fetch(`${base}/models/${encodeURIComponent(model)}:generateContent`, {
     method: "POST",
     headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
@@ -138,7 +138,7 @@ async function callGemini(provider, apiKey, prepared) {
       contents: [{ role: "user", parts: [{ text: JSON.stringify(context(prepared)) }] }],
       generationConfig: {
         temperature: 0.2,
-        maxOutputTokens: 500,
+        maxOutputTokens: 1200,
         responseMimeType: "application/json",
         responseSchema: GEMINI_SCHEMA,
       },
