@@ -93,6 +93,34 @@ function slideKeySet(slideKeys) {
   return new Set((Array.isArray(slideKeys) ? slideKeys : []).map(String));
 }
 
+function activeCustomerMessageIds(messages = []) {
+  return new Set(positiveMediaWindow(messages)
+    .map((message) => String(message?.id || message?.message_id || "").trim())
+    .filter(Boolean));
+}
+
+function activeProductHintText(messages = [], productCandidates = []) {
+  if (!Array.isArray(productCandidates) || !productCandidates.length) return "";
+  const activeIds = activeCustomerMessageIds(messages);
+  const activeText = customerClusterText(messages);
+
+  return productCandidates
+    .filter((candidate) => Number(candidate?.confidence || 0) >= 0.8)
+    .filter((candidate) => {
+      const evidence = Array.isArray(candidate?.evidence) ? candidate.evidence : [];
+      return evidence.some((item) => {
+        const messageId = String(item?.message_id || "").trim();
+        if (messageId && activeIds.has(messageId)) return true;
+        const evidenceText = normalizeVietnamese(item?.text || "");
+        return evidenceText.length >= 4 && activeText.includes(evidenceText);
+      });
+    })
+    .flatMap((candidate) => [candidate?.key, candidate?.label])
+    .map((value) => normalizeVietnamese(value))
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function effectiveCustomerMediaWindow(messages = []) {
   return customerMediaWindow(messages);
 }
@@ -142,9 +170,11 @@ function applyExplicitCancellations(output, messages) {
   return output;
 }
 
-export function deriveMediaScope(messages = [], slideKeys = new Set()) {
+export function deriveMediaScope(messages = [], slideKeys = new Set(), options = {}) {
   const available = slideKeySet(slideKeys);
-  const text = customerClusterText(messages);
+  const customerText = customerClusterText(messages);
+  const productHintText = activeProductHintText(messages, options?.productCandidates);
+  const text = [customerText, productHintText].filter(Boolean).join(" ");
   const output = [];
 
   function add(value) {
