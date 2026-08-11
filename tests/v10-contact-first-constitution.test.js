@@ -27,6 +27,9 @@ test("V10 constitution makes contact capture the primary business goal", () => {
   assert.match(instructions, /tối đa 2-3 câu ngắn/i);
   assert.match(instructions, /khi đúng nhịp mới xin SĐT\/Zalo/i);
   assert.match(instructions, /trả lời trực tiếp trước/i);
+  assert.match(instructions, /AICake chỉ trả lời văn bản và không có chức năng gửi ảnh\/slide/i);
+  assert.match(instructions, /SĐT\/Zalo đã có chỉ khóa việc xin lại liên hệ, không khóa nghĩa vụ gửi mẫu/i);
+  assert.match(instructions, /ảnh riêng từng mẫu kèm kích thước\/thông số/i);
   const schema = decisionSchema();
   assert.equal(schema.properties.final_reply.maxLength, 650);
   assert.ok(schema.required.includes("contact_state"));
@@ -47,6 +50,26 @@ test("known contact is never requested again", () => {
     final_reply: "Dạ em gửi thêm mẫu cho anh/chị. Anh/chị cho em xin SĐT hoặc Zalo nhé.",
   }));
   assert.equal(decision.should_request_contact, false);
+  assert.doesNotMatch(decision.final_reply, /xin SĐT|xin.*Zalo/i);
+});
+
+test("known contact does not cancel an explicit media decision", () => {
+  const decision = validateDecision(baseDecision({
+    action: "reply_with_slides",
+    final_reply: "Dạ em gửi thêm các mẫu quạt 10 cánh màu vàng để anh xem ạ. Anh cho em xin SĐT hoặc Zalo nhé.",
+    selected_products: ["quạt trần 10 cánh"],
+    selected_catalog_keys: ["quat_10_canh_gold"],
+    intents: ["samples", "specs"],
+    needs_slides: true,
+    contact_state: "known",
+    should_request_contact: true,
+    follow_up_plan: [{ topic: "quạt trần 10 cánh màu vàng", status: "send_media" }],
+  }));
+  assert.equal(decision.action, "reply_with_slides");
+  assert.equal(decision.needs_slides, true);
+  assert.deepEqual(decision.selected_catalog_keys, ["quat_10_canh_gold"]);
+  assert.equal(decision.should_request_contact, false);
+  assert.doesNotMatch(decision.final_reply, /xin SĐT|xin.*Zalo/i);
 });
 
 test("Messenger-only refusal is respected", () => {
