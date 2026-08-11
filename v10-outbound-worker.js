@@ -632,7 +632,12 @@ async function finalGate(decision, config) {
     Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_SECONDS || 90) * 1000,
     (Number(config.response_sla_seconds || 45) + 30) * 1000,
   );
-  const supportTextFallbackEligible = supportFallbackRequested
+  // A text response from AICake/Page can satisfy a text fallback, but it cannot
+  // satisfy an unresolved carousel obligation. Keep the text-fallback reply guard
+  // out of the media path so SUPPORT still delivers the requested catalog.
+  const supportTextFallbackEligible = !supportSlideEligible
+    && !supportImageEligible
+    && supportFallbackRequested
     && page?.settings?.support_operational_fallback_enabled === true
     && Date.now() - latestCustomerAt(decision) >= supportFallbackWaitMs;
   if (supportMode && !supportSlideEligible && !supportImageEligible && !supportTextFallbackEligible) {
