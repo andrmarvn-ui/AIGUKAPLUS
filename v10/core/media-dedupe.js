@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
+import { normalizeVietnamese } from "./advisory-engine.js";
+import { explicitMediaRequestFromMessages } from "./media-obligation.js";
 
-export const mediaDedupeVersion = "v10_media_scope_dedupe_v1";
+export const mediaDedupeVersion = "v10_media_scope_dedupe_v2_customer_reask";
 export const MEDIA_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const MEDIA_CLAIM_STALE_MS = 5 * 60 * 1000;
 
@@ -54,6 +56,22 @@ export function mediaScopeMatchesAssetRefs(group = {}, assetRefs = []) {
   const requestedAssets = mediaAssetKeys(group.assets);
   const deliveredAssets = new Set(mediaAssetKeys(assetRefs));
   return requestedAssets.length > 0 && requestedAssets.every((key) => deliveredAssets.has(key));
+}
+
+export function mediaRequestedAfterDelivery(messages = [], deliveredAt, options = {}) {
+  const cutoff = Date.parse(String(deliveredAt || ""));
+  if (!Number.isFinite(cutoff)) return false;
+  const newerCustomerMessages = (Array.isArray(messages) ? messages : []).filter((message) => {
+    if (message?.role !== "customer") return false;
+    const occurredAt = Date.parse(String(message?.occurred_at || ""));
+    return Number.isFinite(occurredAt) && occurredAt > cutoff;
+  });
+  if (!newerCustomerMessages.length) return false;
+  if (explicitMediaRequestFromMessages(newerCustomerMessages)) return true;
+  if (String(options.decisionAction || "") !== "reply_with_slides") return false;
+  if (newerCustomerMessages.some((message) => message?.event_type === "customer_postback")) return true;
+  const newerText = normalizeVietnamese(newerCustomerMessages.map((message) => message?.text || "").join(" "));
+  return /\b(gui rieng|gui het|tung cai|tung mau|kich thuoc|thong so)\b/.test(newerText);
 }
 
 export function mediaClaimDisposition(existing, {
