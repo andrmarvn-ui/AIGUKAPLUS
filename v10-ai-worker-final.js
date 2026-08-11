@@ -1126,7 +1126,9 @@ function currentTurnSlideKeys(modelInput, slideKeys) {
   const messages = modelInput && modelInput.conversation && Array.isArray(modelInput.conversation.messages)
     ? modelInput.conversation.messages
     : [];
-  const explicitScope = deriveMediaScope(messages, slideKeys);
+  const explicitScope = deriveMediaScope(messages, slideKeys, {
+    productCandidates: modelInput?.knowledge_advisors?.product_candidates || [],
+  });
   if (explicitScope.length || !explicitMediaRequestFromMessages(messages)) return explicitScope;
 
   const mappings = modelInput && modelInput.knowledge_advisors && Array.isArray(modelInput.knowledge_advisors.ad_mappings)
