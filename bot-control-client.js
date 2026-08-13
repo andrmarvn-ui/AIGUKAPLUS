@@ -286,9 +286,15 @@ async function savePageMode(pageId) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ page_id: pageId, mode }),
     });
-    if (result.data?.changed === false) throw new Error("Không chuyển được chế độ: " + JSON.stringify(result.data.blockers || result.data));
+    if (result.data?.saved !== true) throw new Error("Máy chủ chưa xác nhận lưu chế độ Trang");
     await loadState();
-    setStatus("Đã cập nhật chế độ Trang");
+    const warnings = Array.isArray(result.data?.warnings) ? result.data.warnings : [];
+    const actual = result.data?.actual_runtime_mode
+      ? pageModeLabel(result.data.actual_runtime_mode)
+      : pageModeLabel(result.data?.new_page_mode || mode);
+    setStatus(warnings.length
+      ? "Đã lưu chế độ Trang: " + actual + ". Có " + warnings.length + " cảnh báo cũ; V10 vẫn kiểm soát an toàn khi gửi."
+      : "Đã lưu chế độ Trang: " + actual);
   } catch (error) {
     setStatus(error.message, false);
   }
