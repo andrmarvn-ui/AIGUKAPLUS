@@ -128,12 +128,77 @@ export function installBotControlUi(app, options) {
   app.post("/bot-control/api/page-mode", async (req, res) => {
     try {
       const body = req.body || {};
-      const data = await rpc("v8_set_runtime_mode", {
-        p_page_id: String(body.page_id || ""),
-        p_target_mode: String(body.mode || "OBSERVE"),
-        p_requested_by: "railway_bot_control",
+      const pageId = String(body.page_id || "").trim();
+      const requestedMode = String(body.mode || "OBSERVE").trim().toUpperCase();
+      const mode = requestedMode === "LIVE" ? "PRODUCTION" : requestedMode;
+      if (!pageId) throw new Error("THIEU_PAGE_ID");
+      if (!["OFF", "OBSERVE", "TEST", "PRODUCTION"].includes(mode)) {
+        throw new Error("CHE_DO_PAGE_KHONG_HOP_LE");
+      }
+
+      const currentRows = await rest(
+        `v8_pages?select=page_id,page_name,bot_mode&page_id=eq.${encodeURIComponent(pageId)}&limit=1`,
+      );
+      const current = currentRows?.[0];
+      if (!current) throw new Error("KHONG_TIM_THAY_PAGE");
+
+      // The legacy transition RPC still checks retired V8 security/outbound
+      // workers. Keep its result as diagnostic information, but do not let a
+      // stale worker heartbeat make the Admin page read-only. Actual delivery
+      // remains guarded by the V10 authority, dispatch lease and final gate.
+      let transition = null;
+      try {
+        transition = await rpc("v8_runtime_transition_check", {
+          p_page_id: pageId,
+          p_target_mode: mode,
+        });
+      } catch {}
+
+      const savedRows = await rest(`v8_pages?page_id=eq.${encodeURIComponent(pageId)}`, {
+        method: "PATCH",
+        body: { bot_mode: mode, updated_at: new Date().toISOString() },
       });
-      res.json({ ok: true, data });
+      const saved = savedRows?.[0] || { ...current, bot_mode: mode };
+
+      let policy = null;
+      try {
+        const rows = await rpc("v8_resolve_runtime_policy", { p_page_id: pageId });
+        policy = Array.isArray(rows) ? rows[0] : rows;
+      } catch {}
+
+      const blockers = Array.isArray(transition?.blockers) ? transition.blockers : [];
+      try {
+        await rest("v8_admin_change_log", {
+          method: "POST",
+          body: {
+            actor: "railway_bot_control",
+            action: "save_page_mode_preference",
+            asset_type: "page",
+            asset_id: pageId,
+            before_data: { bot_mode: current.bot_mode },
+            after_data: {
+              bot_mode: saved.bot_mode || mode,
+              actual_runtime_mode: policy?.runtime_mode || null,
+              transition_warnings: blockers,
+            },
+          },
+        });
+      } catch {}
+
+      res.json({
+        ok: true,
+        data: {
+          saved: true,
+          changed: String(current.bot_mode || "").toUpperCase() !== mode,
+          page_id: pageId,
+          previous_page_mode: current.bot_mode || null,
+          new_page_mode: saved.bot_mode || mode,
+          actual_runtime_mode: policy?.runtime_mode || saved.bot_mode || mode,
+          can_send_text: policy?.can_send_text === true,
+          can_send_image: policy?.can_send_image === true,
+          warnings: blockers,
+        },
+      });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
     }
