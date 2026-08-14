@@ -6,13 +6,14 @@ import { prepareCarouselAssets } from "./v10/core/carousel-media.js";
 import { prioritizeOutboundDecisions } from "./v10/core/outbound-priority.js";
 import { humanTakeoverActive, resolveChannelAuthority } from "./v10/core/constitution.js";
 import { createMessageGateway, DISPATCH_OWNERS } from "./v10/core/message-gateway.js";
+import { commentPrivateReplyContextFromMessages } from "./v9/core/comment-private-reply.js";
 
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-outbound";
-const VERSION = "v10_outbound_single_gateway_v16_page_reply_evidence";
+const VERSION = "v10_outbound_single_gateway_v17_comment_private_reply";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_OUTBOUND_POLL_MS || 3000));
 const MAX_DECISION_AGE_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_LIVE_MAX_AGE_MS || 2 * 60 * 60_000));
 const MAX_MEDIA_ASSETS = Math.max(10, Math.min(20, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 20)));
@@ -658,14 +659,16 @@ async function finalGate(decision, config) {
 
   const conversation = decision?.input_snapshot?.conversation || {};
   if (conversation?.safety?.opt_out) return { allowed: false, reason: "OPT_OUT" };
+  const commentContext = commentPrivateReplyContextFromMessages(conversation?.messages || []);
   const snapshotPageReplyAfterLatestCustomer = pageReplyAfterLatestCustomerInOrder(conversation?.messages || []);
   const output = decision.output || {};
-  const supportSlideEligible = supportMode && (output.needs_slides === true || decision.action === "reply_with_slides");
+  const supportSlideEligible = !commentContext && supportMode && (output.needs_slides === true || decision.action === "reply_with_slides");
   const supportImageEligible = supportMode
+    && !commentContext
     && !supportSlideEligible
     && page?.settings?.support_image_reply_enabled === true
     && supportLatestCustomerHasAttachment(decision);
-  const supportFallbackRequested = supportMode && output.operational_support_fallback === true;
+  const supportFallbackRequested = !commentContext && supportMode && output.operational_support_fallback === true;
   const supportFallbackWaitMs = Math.max(
     60000,
     Number(process.env.AIGUKA_V10_SUPPORT_FALLBACK_SECONDS || 90) * 1000,
@@ -677,7 +680,7 @@ async function finalGate(decision, config) {
     && supportFallbackRequested
     && page?.settings?.support_operational_fallback_enabled === true
     && Date.now() - latestCustomerAt(decision) >= supportFallbackWaitMs;
-  if (supportMode && !supportSlideEligible && !supportImageEligible && !supportTextFallbackEligible) {
+  if (supportMode && !commentContext && !supportSlideEligible && !supportImageEligible && !supportTextFallbackEligible) {
     return { allowed: false, reason: "SUPPORT_MEDIA_ONLY" };
   }
 
@@ -686,8 +689,8 @@ async function finalGate(decision, config) {
   if (Number(decision.confidence || output.confidence || 0) < 0.45) return { allowed: false, reason: "CONFIDENCE_TOO_LOW" };
 
   const state = await stateRow(decision.page_id, decision.sender_id);
-  const supportCustomer = supportMode ? await supportCustomerIdentity(decision.page_id, decision.sender_id) : {};
-  const supportSalutationInfo = supportMode ? supportResolveSalutation(supportCustomer, decision) : { value: null, source: null };
+  const supportCustomer = supportMode && !commentContext ? await supportCustomerIdentity(decision.page_id, decision.sender_id) : {};
+  const supportSalutationInfo = supportMode && !commentContext ? supportResolveSalutation(supportCustomer, decision) : { value: null, source: null };
   if (humanTakeoverActive(state)) return { allowed: false, reason: "HUMAN_TAKEOVER" };
 
   const customerAt = latestCustomerAt(decision);
@@ -700,12 +703,14 @@ async function finalGate(decision, config) {
   const pageAt = Date.parse(state.last_page_event_at || "");
   const pageClearlyAfterCustomer = customerAt > 0 && Number.isFinite(pageAt) && pageAt > customerAt + 1000;
   const pageOrderedAfterCustomer = customerAt > 0 && Number.isFinite(pageAt) && pageAt >= customerAt && snapshotPageReplyAfterLatestCustomer;
-  const pageAlreadyReplied = pageClearlyAfterCustomer || pageOrderedAfterCustomer;
-  const livePageReplyProbe = await livePageReplyEvidence(decision, customerAt).catch((error) => ({
-    check_unavailable: true,
-    evidence: "pancake_live_snapshot_error",
-    error: String(error?.message || error).slice(0, 300),
-  }));
+  const pageAlreadyReplied = !commentContext && (pageClearlyAfterCustomer || pageOrderedAfterCustomer);
+  const livePageReplyProbe = commentContext
+    ? { no_reply_observed: true, evidence: "comment_private_reply_deduped_by_comment_id" }
+    : await livePageReplyEvidence(decision, customerAt).catch((error) => ({
+        check_unavailable: true,
+        evidence: "pancake_live_snapshot_error",
+        error: String(error?.message || error).slice(0, 300),
+      }));
   const livePageReply = livePageReplyProbe?.no_reply_observed || livePageReplyProbe?.check_unavailable
     ? null
     : livePageReplyProbe;
@@ -743,7 +748,7 @@ async function finalGate(decision, config) {
     text = stripRepeatedContactRequest(text) || "Dạ em đã nhận nội dung và tiếp tục hỗ trợ tại Messenger ạ.";
   }
 
-  if (!supportMode) {
+  if (!supportMode && !commentContext) {
     const duplicate = await sovereignRecentDuplicate(decision, text);
     if (duplicate) return { allowed: false, reason: "EXACT_DUPLICATE_RECENT_REPLY", duplicate_decision_id: duplicate.id };
   }
@@ -757,6 +762,8 @@ async function finalGate(decision, config) {
     supportSlideEligible,
     supportImageEligible,
     supportTextFallbackEligible,
+    commentContext,
+    commentPrivateReply: Boolean(commentContext),
     supportFallbackGuardDegraded: Boolean(supportTextFallbackEligible && livePageReplyProbe?.check_unavailable),
     livePageReply,
     supportSalutation: supportSalutationInfo.value,
@@ -1042,8 +1049,10 @@ async function processDecision(decision, config) {
   let media = { assets: [], catalog_keys: [] };
   let mediaWarning = null;
   try {
-    media = await resolveAssets(claimed);
-    if ((claimed.output?.needs_slides || claimed.action === "reply_with_slides") && !media.assets.length) mediaWarning = "NO_PUBLISHED_ASSET_MATCH";
+    media = gate.commentPrivateReply
+      ? { assets: [], catalog_keys: [], requested_catalog_keys: [], missing_catalog_keys: [], media_bundles: [] }
+      : await resolveAssets(claimed);
+    if (!gate.commentPrivateReply && (claimed.output?.needs_slides || claimed.action === "reply_with_slides") && !media.assets.length) mediaWarning = "NO_PUBLISHED_ASSET_MATCH";
     if (Array.isArray(media.missing_catalog_keys) && media.missing_catalog_keys.length) {
       mediaWarning = "MEDIA_SCOPE_INCOMPLETE:" + media.missing_catalog_keys.join(",");
     }
@@ -1051,7 +1060,7 @@ async function processDecision(decision, config) {
     mediaWarning = String(error?.message || error).slice(0, 500);
   }
 
-  if (gate.supportMode && gate.supportSlideEligible && !media.assets.length) {
+  if (!gate.commentPrivateReply && gate.supportMode && gate.supportSlideEligible && !media.assets.length) {
     await patchDecision(claimed, "live_suppressed", {
       should_send: false,
       transport_locked: true,
@@ -1062,7 +1071,9 @@ async function processDecision(decision, config) {
     return { sent: 0, suppressed: 1, failed: 0 };
   }
 
-  const deliveryText = gate.supportMode
+  const deliveryText = gate.commentPrivateReply
+    ? gate.text
+    : gate.supportMode
     ? (gate.supportSlideEligible ? supportSlideCaption(gate, claimed) : (gate.supportTextFallbackEligible ? gate.text : supportCompactImageReply(gate)))
     : gate.text;
   if (!deliveryText) {
@@ -1088,7 +1099,7 @@ async function processDecision(decision, config) {
     return { sent: 0, suppressed: 0, failed: 1 };
   }
 
-  if (gate.supportMode && gate.supportSlideEligible && mediaDedupe.groups.length && mediaDedupe.allowed_count === 0) {
+  if (!gate.commentPrivateReply && gate.supportMode && gate.supportSlideEligible && mediaDedupe.groups.length && mediaDedupe.allowed_count === 0) {
     await patchDecision(claimed, "live_suppressed", {
       should_send: false,
       transport_locked: true,
@@ -1109,7 +1120,8 @@ async function processDecision(decision, config) {
   const bundle = await bundleFor(claimed, deliveryText, media.assets);
   const existing = await attempts(bundle.id);
   let nextAttempt = Math.max(0, ...(existing || []).map((item) => Number(item.attempt_no || 0))) + 1;
-  const textAlreadySent = (existing || []).some((item) => item.transport === "meta_messenger_text" && item.status === "sent");
+  const textTransport = gate.commentPrivateReply ? "meta_comment_private_reply" : "meta_messenger_text";
+  const textAlreadySent = (existing || []).some((item) => item.transport === textTransport && item.status === "sent");
   const dispatchKey = `live:${claimed.id}`;
   const dispatchLease = await gateway.claimDispatch({
     pageId: claimed.page_id,
@@ -1134,11 +1146,15 @@ async function processDecision(decision, config) {
   try {
     let textResult = null;
     if (!textAlreadySent) {
-      textResult = await gateway.sendText(claimed.page_id, claimed.sender_id, deliveryText);
-      await recordAttempt(bundle.id, nextAttempt++, "meta_messenger_text", "sent", textResult);
+      textResult = gate.commentPrivateReply
+        ? await gateway.sendPrivateCommentReply(claimed.page_id, gate.commentContext.commentId, deliveryText)
+        : await gateway.sendText(claimed.page_id, claimed.sender_id, deliveryText);
+      await recordAttempt(bundle.id, nextAttempt++, textTransport, "sent", textResult);
     }
 
-    const mediaBundles = Array.isArray(media.media_bundles) && media.media_bundles.length
+    const mediaBundles = gate.commentPrivateReply
+      ? []
+      : Array.isArray(media.media_bundles) && media.media_bundles.length
       ? media.media_bundles
       : (media.assets.length ? [{
           bundle_key: "media:mixed_compat",
@@ -1186,7 +1202,7 @@ async function processDecision(decision, config) {
       should_send: true,
       transport_locked: false,
       delivery_bundle_id: bundle.id,
-      provider_message_id: textResult?.message_id || null,
+      provider_message_id: textResult?.message_id || textResult?.id || null,
       delivered_at: new Date().toISOString(),
       media_warning: mediaWarning,
       media_catalog_keys_resolved: media.catalog_keys,
@@ -1202,7 +1218,7 @@ async function processDecision(decision, config) {
       media_bundles_resolved: (media.media_bundles || []).map((item) => ({ bundle_key: item.bundle_key, group_key: item.group_key, label: item.label, catalog_keys: item.catalog_keys, asset_count: item.asset_count })),
       contact_request_sanitized: Boolean(gate.contactKnown && claimed.output?.should_request_contact),
       support_mode: Boolean(gate.supportMode),
-      support_primary_bot: gate.supportMode ? "AICAKE" : null,
+      support_primary_bot: gate.commentPrivateReply ? "AIGUKA_COMMENT_PRIVATE_REPLY" : (gate.supportMode ? "AICAKE" : null),
       support_operational_fallback_delivered: Boolean(gate.supportTextFallbackEligible),
       support_fallback_guard_degraded: Boolean(gate.supportFallbackGuardDegraded),
       support_live_reply_source: gate.livePageReply?.source_system || null,
@@ -1210,6 +1226,10 @@ async function processDecision(decision, config) {
       support_salutation_source: gate.supportSalutationSource || null,
       support_customer_name: gate.supportCustomerName || null,
       support_caption_policy: "universal_neutral_contact_cta_v2",
+      delivery_mode: gate.commentPrivateReply ? "comment_private_reply" : "messenger",
+      comment_id: gate.commentContext?.commentId || null,
+      comment_source_event_id: gate.commentContext?.sourceEventId || null,
+      public_comment_reply_forbidden: Boolean(gate.commentPrivateReply),
     });
     const deliveredAt = new Date().toISOString();
     await core(`v9_conversation_state?page_id=eq.${encodeURIComponent(claimed.page_id)}&sender_id=eq.${encodeURIComponent(claimed.sender_id)}`, {
@@ -1221,7 +1241,7 @@ async function processDecision(decision, config) {
     dispatchResult = partial ? "live_delivered_partial" : "live_delivered";
     return { sent: 1, suppressed: 0, failed: 0 };
   } catch (error) {
-    await recordAttempt(bundle.id, nextAttempt, "meta_messenger_text", "failed", {}, error).catch(() => {});
+    await recordAttempt(bundle.id, nextAttempt, textTransport, "failed", {}, error).catch(() => {});
     await core(`v9_delivery_bundles?id=eq.${bundle.id}`, { method: "PATCH", prefer: "return=minimal", body: { status: "failed", updated_at: new Date().toISOString() } }).catch(() => {});
     await patchDecision(claimed, "live_delivery_failed", {
       should_send: true,

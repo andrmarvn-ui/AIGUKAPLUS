@@ -3,7 +3,7 @@ import { buildConversationContext } from "./v10/core/conversation-assembler.js";
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-direct-core";
-const VERSION = "v10_direct_ai_sovereign_v3_structured_input";
+const VERSION = "v10_direct_hard_commerce_v4_comment_input";
 const POLL_MS = Math.max(3000, Number(process.env.AIGUKA_V10_CORE_POLL_MS || 5000));
 const BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.AIGUKA_V10_CORE_BATCH || 5)));
 let running = false;
@@ -135,11 +135,11 @@ async function saveDecision(job, turnRow, context, customer, state, config) {
       sender_id: job.sender_id,
       mode: String(config.mode || "ACTIVE").toUpperCase(),
       status: requiresAi ? "shadow_context_ready" : "shadow_suppressed",
-      goal: "ai_sovereign_customer_assistance",
+      goal: "ai_assistance_with_hard_commerce_integrity",
       action: requiresAi ? "needs_ai_decision" : String(context.hard_stop_reason || "suppress").toLowerCase(),
       confidence: requiresAi ? 0.5 : 1,
       input_snapshot: {
-        architecture: "v10_ai_sovereign_advisory",
+        architecture: "v10_ai_hard_commerce_integrity",
         page_id: job.page_id,
         conversation: context,
         customer,
@@ -154,7 +154,7 @@ async function saveDecision(job, turnRow, context, customer, state, config) {
         advisory_only: true,
         processing_attempts: 0,
         reason: requiresAi
-          ? "Complete conversation and non-binding advisors are ready for AI decision."
+          ? "Complete conversation and non-binding advisors are ready for an AI proposal protected by mandatory commerce rules."
           : `Hard safety stop: ${context.hard_stop_reason || "UNKNOWN"}`,
       },
       updated_at: new Date().toISOString(),
@@ -266,7 +266,7 @@ async function heartbeat(status, mode, details = {}, error = null) {
       worker_version: VERSION,
       status,
       mode,
-      details: { ...details, rules_authority: "advisory_only", ai_decision_authority: "sole", customer_frontier_guard: true, structured_input_semantics: true, postback_payload_preserved: true },
+      details: { ...details, rules_authority: "hard_commerce_integrity", ai_decision_authority: "proposal", customer_frontier_guard: true, structured_input_semantics: true, postback_payload_preserved: true, customer_comment_input_enabled: true },
       last_error: error ? String(error).slice(0, 800) : null,
       last_seen_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_SINGLE_AUTHORITY_CORE_V22";
+const RELEASE = "AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V23";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -14,6 +14,7 @@ const ACTIVE_FILES = [
   "v10-ai-worker.js",
   "v10-ai-worker-final.js",
   "v10-direct-core-worker.js",
+  "v10-comment-private-reply-recovery-worker.js",
   "v10-outbound-worker.js",
   "v10-followup-worker.js",
   "v10-support-operational-fallback-worker.js",
@@ -23,6 +24,7 @@ const ACTIVE_FILES = [
   "v10/core/message-gateway.js",
   "v10/core/conversation-assembler.js",
   "v10/core/decision-contract.js",
+  "v10/core/commerce-integrity.js",
   "v10/core/knowledge-advisor.js",
   "v10/core/media-obligation.js",
   "v10/core/product-threads.js",
@@ -34,6 +36,7 @@ const ACTIVE_FILES = [
   "v10/core/support-operational-fallback.js",
   "v9-legacy-inbox-bridge.js",
   "v9/core/legacy-inbox-normalizer.js",
+  "v9/core/comment-private-reply.js",
   "v9/core/actor-resolver.js",
   "v9-core-fetch-router.js",
 ];
@@ -77,21 +80,31 @@ requireToken("v10/core/constitution.js", "v10_constitution_v1_single_authority")
 requireToken("v10/core/constitution.js", "AICAKE_PRIMARY_AIGUKA_ASSIST");
 requireToken("v10/core/message-gateway.js", "v10_claim_message_dispatch");
 requireToken("v10/core/message-gateway.js", "v10_release_message_dispatch");
-requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v16_page_reply_evidence";');
+requireToken("v10/core/message-gateway.js", "recipient: { comment_id: normalizedCommentId }");
+requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v17_comment_private_reply";');
+requireToken("v10-outbound-worker.js", '"meta_comment_private_reply"');
+requireToken("v10-outbound-worker.js", "public_comment_reply_forbidden");
 requireToken("v10/core/page-reply-evidence.js", "v10_page_reply_evidence_v1_persist_and_resolve_sla");
 requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v4_recover_customer_media_reask";');
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gateway_v5";');
 requireToken("v10-followup-worker.js", "recoverStaleProcessing");
-requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_product_threads_v19";');
+requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_commerce_integrity_v20";');
 requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
+requireToken("v10-ai-worker-final.js", "mandatory_deterministic_enforcement");
+requireToken("v10/core/commerce-integrity.js", "SPECIFIC_PRODUCT_INFORMATION_REQUIRES_CONTACT_HANDOFF");
+requireToken("v10/core/commerce-integrity.js", "deterministic_group_price_range");
+requireToken("v10/core/commerce-integrity.js", "KNOWN_PROVIDER_LANGUAGE_CORRUPTION");
 requireToken("v10-direct-core-worker.js", "superseded_before_decision_save");
+requireToken("v10-direct-core-worker.js", 'architecture: "v10_ai_hard_commerce_integrity"');
 requireToken("v9-core-fetch-router.js", 'responsibility: "routing_only"');
 requireToken("v10/core/conversation-assembler.js", "structured_choice_same_menu_latest_replaces_previous");
 requireToken("v10/core/media-obligation.js", 'mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback"');
 requireToken("v10/core/media-dedupe.js", "v10_media_scope_dedupe_v2_customer_reask");
-requireToken("v9/core/legacy-inbox-normalizer.js", "v9_legacy_inbox_normalizer_v2_feed_actor_direction");
+requireToken("v9/core/legacy-inbox-normalizer.js", "v9_legacy_inbox_normalizer_v3_comment_private_reply");
+requireToken("v9/core/comment-private-reply.js", "v10_comment_private_reply_v1_actionable_only");
+requireToken("v10-comment-private-reply-recovery-worker.js", "v10_comment_private_reply_recovery_v1_frontier_safe");
 requireToken("v10/core/decision-contract.js", "V10_CONTACT_ONLY_REPLY_INVALID");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: committed core, one authority matrix, one Message Gateway and no runtime business source patching`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: hard grounded commerce rules, comment-to-private-Messenger delivery, one Message Gateway and no runtime business source patching`);
