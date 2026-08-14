@@ -168,6 +168,11 @@ function weightedProviderOrder(pool = [], now = Date.now()) {
   return [winner.provider, ...rest];
 }
 
+function providerIsStrictLastResort(provider = {}) {
+  const role = String(providerSettings(provider).quality_role || "").trim().toLowerCase();
+  return role === "penultimate_last_resort" || role === "absolute_last_resort";
+}
+
 function providerOrder(rows = [], now = Date.now(), inputChars = 0) {
   const eligible = (rows || []).filter((provider) => {
     const learned = Number(healthFor(provider).contextLimitChars || 0);
@@ -177,15 +182,21 @@ function providerOrder(rows = [], now = Date.now(), inputChars = 0) {
     return !limit || !inputChars || inputChars < limit;
   });
   const pool = eligible.length ? eligible : (rows || []);
-  const googlePrimary = pool.filter((provider) => isGemini(provider));
-  const fallback = pool.filter((provider) => !isGemini(provider));
+  const regularPool = pool.filter((provider) => !providerIsStrictLastResort(provider));
+  const strictLastResortPool = pool
+    .filter((provider) => providerIsStrictLastResort(provider))
+    .sort((a, b) => providerPriority(a) - providerPriority(b) || providerKey(a).localeCompare(providerKey(b)));
+  const googlePrimary = regularPool.filter((provider) => isGemini(provider));
+  const fallback = regularPool.filter((provider) => !isGemini(provider));
   return [
     ...weightedProviderOrder(googlePrimary, now),
     ...weightedProviderOrder(fallback, now),
+    ...strictLastResortPool,
   ];
 }
 
 // AIGUKA_V10_GOOGLE_PRIMARY_POOL_V1
+// AIGUKA_V10_STRICT_LAST_RESORT_PROVIDER_POOL_V1
 
 function decryptProviderKey(value) {
   const [iv, tag, body] = String(value || "").split(".");
