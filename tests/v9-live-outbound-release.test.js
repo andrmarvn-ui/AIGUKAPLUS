@@ -28,12 +28,12 @@ test("Direct Core accepts ACTIVE but keeps unsupported modes fail-closed", () =>
 });
 
 test("Railway verifies a checksummed final AI worker instead of patching source", () => {
-  assert.match(release, /AIGUKA_V10_SINGLE_AUTHORITY_CORE_V22/);
+  assert.match(release, /AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V23/);
   assert.match(release, /v10_constitution_v1_single_authority/);
   assert.match(release, /v10_claim_message_dispatch/);
-  assert.match(release, /v10_outbound_single_gateway_v16_page_reply_evidence/);
+  assert.match(release, /v10_outbound_single_gateway_v17_comment_private_reply/);
   assert.match(release, /v10_followup_single_gateway_v5/);
-  assert.match(release, /v10_ai_product_threads_v19/);
+  assert.match(release, /v10_ai_commerce_integrity_v20/);
   assert.match(release, /createHash\("sha256"\)/);
   assert.match(release, /V10_FINAL_AI_WORKER_CHECKSUM_MISMATCH/);
   assert.doesNotMatch(start, /v9-live-release-patch\.js/);
@@ -42,7 +42,8 @@ test("Railway verifies a checksummed final AI worker instead of patching source"
   assert.doesNotMatch(aiEntry, /patch-v10-/);
   assert.match(ai, /recoverStaleProcessing/);
   assert.match(ai, /providerAvailability/);
-  assert.match(ai, /ai_decision_authority: "sole"/);
+  assert.match(ai, /ai_decision_authority: "proposal_with_hard_commerce_guard"/);
+  assert.match(ai, /hard_commerce_policy_authority: "mandatory_deterministic_enforcement"/);
   assert.match(ai, /operational_fallback_enabled: false/);
 
   const expected = fs.readFileSync(new URL("../v10-ai-worker-final.sha256", import.meta.url), "utf8").trim();

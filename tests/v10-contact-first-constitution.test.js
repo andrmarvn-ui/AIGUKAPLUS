@@ -40,7 +40,8 @@ test("missing contact plus a sales need forces a concrete contact request", () =
   const decision = validateDecision(baseDecision());
   assert.equal(decision.should_request_contact, true);
   assert.match(decision.final_reply, /SĐT hoặc Zalo/i);
-  assert.match(decision.final_reply, /báo giá và ưu đãi đúng mẫu/i);
+  assert.match(decision.final_reply, /chuyên viên lọc đúng mẫu, gửi hình, tư vấn và báo giá cho tiện/i);
+  assert.doesNotMatch(decision.final_reply, /ưu đãi đúng mẫu/i);
 });
 
 test("known contact is never requested again", () => {

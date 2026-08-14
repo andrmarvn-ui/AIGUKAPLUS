@@ -247,7 +247,7 @@ export function buildAdvisoryBundle({ messages = [], referral = null, customer =
 
   return {
     advisory_only: true,
-    policy: "AI is the sole business decision maker. Advisors may conflict and are non-binding.",
+    policy: "Product and intent candidates are non-binding evidence. Mandatory commerce-integrity rules validate the AI proposal.",
     product_candidates: productCandidates,
     intent_candidates: intentCandidates,
     location_references: allCandidates.filter((item) => item.type === "location_reference"),

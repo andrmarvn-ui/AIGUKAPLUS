@@ -116,7 +116,7 @@ test("Railway starts the committed deduping worker without a runtime patch chain
   const start = fs.readFileSync(new URL("../start.js", import.meta.url), "utf8");
   const worker = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
   const aiWorker = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
-  assert.match(worker, /v10_outbound_single_gateway_v16_page_reply_evidence/);
+  assert.match(worker, /v10_outbound_single_gateway_v17_comment_private_reply/);
   assert.match(worker, /DUPLICATE_MEDIA_SCOPE_24H/);
   assert.match(worker, /mediaDedupe\.by_bundle_key/);
   assert.match(worker, /SUPPORT_PRIMARY_REPLIED_BEFORE_FALLBACK/);

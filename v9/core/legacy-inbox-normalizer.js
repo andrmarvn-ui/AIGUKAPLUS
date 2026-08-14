@@ -1,4 +1,5 @@
 import { detectContact } from "./contact-detector.js";
+import { commentPrivateReplyEligibility } from "./comment-private-reply.js";
 
 function text(value) {
   const valueText = String(value ?? "").trim();
@@ -54,6 +55,12 @@ export function normalizeLegacyWebhookInboxRow(row, nowMs = Date.now()) {
     const isComment = item === "comment" && ["add", "edited"].includes(String(verb || ""));
     const isPageActor = Boolean(pageId && senderId && pageId === senderId);
     const isCustomerComment = Boolean(isComment && senderId && !isPageActor);
+    const commentEligibility = commentPrivateReplyEligibility({
+      page_id: pageId,
+      sender_id: senderId,
+      message_text: value.message,
+      payload: { change },
+    });
     return {
       source_system: "legacy_webhook_inbox",
       source_event_id: sourceEventId,
@@ -76,10 +83,28 @@ export function normalizeLegacyWebhookInboxRow(row, nowMs = Date.now()) {
       referral: null,
       occurred_at: parseTime(row.event_time || value.created_time, nowMs),
       received_at: receivedAt,
-      payload: { kind: "feed_change", change },
+      payload: {
+        kind: "feed_change",
+        change,
+        comment_private_reply: isCustomerComment ? {
+          eligible: commentEligibility.eligible,
+          reason: commentEligibility.reason,
+          comment_id: commentEligibility.commentId,
+          public_reply_forbidden: true,
+        } : null,
+      },
       actor_app_id: null,
-      decision_eligible: false,
-      contact_phone: null,
+      // A customer comment with a commercial need enters the same decision engine as
+      // Messenger, but outbound must use Meta's private-reply recipient.comment_id.
+      // Public comment replies remain forbidden.
+      decision_eligible: Boolean(isCustomerComment && commentEligibility.eligible),
+      comment_private_reply: isCustomerComment ? {
+        eligible: commentEligibility.eligible,
+        reason: commentEligibility.reason,
+        comment_id: commentEligibility.commentId,
+        public_reply_forbidden: true,
+      } : null,
+      contact_phone: isCustomerComment ? commentEligibility.phone || null : null,
     };
   }
 
@@ -134,4 +159,4 @@ export function normalizeLegacyWebhookInboxRow(row, nowMs = Date.now()) {
   };
 }
 
-export const legacyInboxNormalizerVersion = "v9_legacy_inbox_normalizer_v2_feed_actor_direction";
+export const legacyInboxNormalizerVersion = "v9_legacy_inbox_normalizer_v3_comment_private_reply";

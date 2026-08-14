@@ -1,6 +1,6 @@
 import { loadActiveMetaConnection } from "../../meta-token-store.js";
 
-export const MESSAGE_GATEWAY_VERSION = "v10_message_gateway_v1_atomic_dispatch";
+export const MESSAGE_GATEWAY_VERSION = "v10_message_gateway_v2_comment_private_reply";
 export const DISPATCH_OWNERS = Object.freeze({
   LIVE: "aiguka_live",
   FOLLOWUP: "aiguka_followup",
@@ -84,6 +84,25 @@ export function createMessageGateway({
     });
   }
 
+  async function sendPrivateCommentReply(pageId, commentId, text) {
+    const token = await pageToken(pageId);
+    if (!token) throw new Error(`META_PAGE_TOKEN_NOT_FOUND:${pageId}`);
+    const normalizedCommentId = String(commentId || "").trim();
+    if (!normalizedCommentId) throw new Error("META_COMMENT_ID_REQUIRED");
+    const normalizedText = String(text || "").trim();
+    if (!normalizedText) throw new Error("META_PRIVATE_REPLY_TEXT_REQUIRED");
+    // Meta's private-reply transport opens/continues Messenger by addressing the
+    // source comment. No public /comments endpoint exists anywhere in this gateway.
+    return graph("me/messages", token, {
+      method: "POST",
+      body: {
+        messaging_type: "RESPONSE",
+        recipient: { comment_id: normalizedCommentId },
+        message: { text: normalizedText },
+      },
+    });
+  }
+
   async function claimDispatch({ pageId, senderId, owner, dedupeKey, priority, leaseSeconds = 90 }) {
     const rows = await coreRequest("rpc/v10_claim_message_dispatch", {
       method: "POST",
@@ -120,6 +139,7 @@ export function createMessageGateway({
     warmPageTokens: pageTokens,
     claimDispatch,
     releaseDispatch,
+    sendPrivateCommentReply,
     sendText: (pageId, senderId, text) => send(pageId, senderId, { text: String(text) }),
     sendImage: (pageId, senderId, imageUrl) => send(pageId, senderId, {
       attachment: { type: "image", payload: { url: String(imageUrl), is_reusable: true } },
@@ -129,4 +149,3 @@ export function createMessageGateway({
     }),
   });
 }
-

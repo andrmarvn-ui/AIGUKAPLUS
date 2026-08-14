@@ -71,7 +71,7 @@ test("opt-out is a hard safety stop before AI", () => {
   assert.equal(context.hard_stop_reason, "OPT_OUT");
 });
 
-test("AI decision is structurally validated but not rewritten by advisors", () => {
+test("AI proposal is structurally validated before mandatory commerce enforcement", () => {
   const decision = validateDecision({
     action: "reply_with_slides",
     final_reply: "Dạ em gửi mẫu theo các nhóm anh/chị đang quan tâm ạ.",
@@ -79,7 +79,9 @@ test("AI decision is structurally validated but not rewritten by advisors", () =
     selected_catalog_keys: ["chau_voi_rua_bat", "sen_voi_cao_cap"],
     intents: ["samples"],
     needs_slides: true,
+    contact_state: "unclear",
     should_request_contact: false,
+    contact_benefit: "gửi đúng mẫu và báo giá",
     confidence: 0.92,
     decision_reason: "Read full conversation and preserved both needs.",
     follow_up_plan: [
@@ -95,7 +97,9 @@ test("final AI worker contains lease recovery and provider-aware scheduling befo
   const source = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
   assert.match(entry, /v10-ai-worker-final\.js/);
   assert.doesNotMatch(entry, /patch-v10-/);
-  assert.match(source, /const VERSION = "v10_ai_product_threads_v19"/);
+  assert.match(source, /const VERSION = "v10_ai_commerce_integrity_v20"/);
+  assert.match(source, /enforceCommerceIntegrity/);
+  assert.match(source, /mandatory_deterministic_enforcement/);
   assert.match(source, /recoverStaleProcessing/);
   const availability = source.indexOf("const availability = providerAvailability(providerRows, Date.now())");
   const wait = source.indexOf("scheduleWithoutClaim(row, availability.nextAvailableAt", availability);

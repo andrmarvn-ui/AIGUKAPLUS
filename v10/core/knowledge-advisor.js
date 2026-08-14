@@ -171,6 +171,10 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
   const curatedFallbackActive = curatedFallbackKeys.length > 0;
 
   const conversationText = (conversation.messages || []).filter((message) => message.role === "customer").map((message) => message.text).join(" ");
+  const addressRequested = (Array.isArray(conversation?.advisors?.intent_candidates)
+    ? conversation.advisors.intent_candidates
+    : []).some((candidate) => ["address", "visit"].includes(String(candidate?.key || "")))
+    || /\b(dia chi|o dau|showroom|cua hang)\b/.test(normalizeVietnamese(conversationText));
   const candidateKeys = unique([
     ...productCandidates.map((item) => item.key),
     ...matchedMappings.flatMap((mapping) => {
@@ -183,7 +187,11 @@ export function buildKnowledgeAdvisors(snapshot = {}, conversation = {}, limits 
   const tokens = words(`${conversationText} ${candidateKeys.join(" ")}`);
 
   const rankedDocuments = documents
-    .map((document) => ({ document, score: scoreText(documentText(document), tokens) }))
+    .map((document) => {
+      const text = normalizeVietnamese(documentText(document));
+      const addressScore = addressRequested && /\b(dia chi|showroom|pho keo|gia lam|thuan thanh|long bien)\b/.test(text) ? 25 : 0;
+      return { document, score: addressScore + scoreText(documentText(document), tokens) };
+    })
     .sort((a, b) => b.score - a.score)
     .filter((item, index) => item.score > 0 || index < 2)
     .slice(0, curatedFallbackActive ? 1 : maxDocuments);

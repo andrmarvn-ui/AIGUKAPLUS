@@ -105,6 +105,7 @@ if (v9CoreReady) {
   startDetached("./v9-legacy-inbox-bridge.js");
   startDetached("./v10-mode-compat-worker.js");
   await safeImport("./v10-decision-queue-janitor.js", true);
+  startDetached("./v10-comment-private-reply-recovery-worker.js");
   startDetached("./v10-direct-core-worker.js");
   startDetached("./v10-customer-profile-worker.js");
   startDetached("./v10-ai-worker.js");

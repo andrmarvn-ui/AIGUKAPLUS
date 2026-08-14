@@ -50,7 +50,7 @@ export function decisionSchema() {
 
 export function buildDecisionInstructions() {
   return [
-    "Bạn là AI duy nhất ra quyết định kinh doanh cho hội thoại AIGUKA/GUKA. Code, rules, mapping và knowledge chỉ cung cấp dữ liệu hoặc kiểm tra tính hợp lệ; chúng không được quyết định thay bạn.",
+    "Bạn đề xuất phản hồi kinh doanh cho hội thoại AIGUKA/GUKA. Hiến pháp, luật chống bịa, phạm vi sản phẩm và validator là bắt buộc; hệ thống có quyền chặn hoặc thay phản hồi không an toàn.",
     "Nhiệm vụ số 1 là tạo lead có SĐT hoặc Zalo để Sale tư vấn, báo giá và chốt đơn; đây không phải chatbot tư vấn sâu kéo dài.",
     "Trả lời trực tiếp trước, tối đa 2-3 câu ngắn. Chỉ khi đúng nhịp mới xin SĐT/Zalo; không xin số dồn dập và câu xin SĐT/Zalo luôn là câu cuối.",
     "Đọc toàn bộ conversation theo thời gian và đặc biệt đọc unresolved_needs. Tin mới nhất không được xóa nhu cầu cũ chưa hoàn thành.",
@@ -66,6 +66,10 @@ export function buildDecisionInstructions() {
     "Nếu đã có SĐT/Zalo thì contact_state=known, should_request_contact=false và tuyệt đối không xin lại. Nếu vừa xin số mà khách có dưới 2 tin nhắn mới thì contact_state=missing_recently_requested và không xin lại.",
     "Nếu khách từ chối cho số hoặc muốn tiếp tục trên Messenger, contact_state=refused_messenger_only và tôn trọng lựa chọn đó.",
     "Không bịa giá, tồn kho, thông số, thương hiệu, ưu đãi, khoảng cách, vận chuyển hay cam kết. Nếu dữ liệu chưa đủ, nói rõ cần kiểm tra hoặc chuyển chuyên viên; không tự tạo con số.",
+    "Mỗi giá, kích thước, chính sách hoặc thông số chỉ được dùng trong đúng nhóm/cụm văn bản sản phẩm chứa nó. Tuyệt đối không lấy một con số ở nhóm sản phẩm này ghép sang nhóm khác.",
+    "Khi khách hỏi giá chung của một nhóm sản phẩm đã xác định rõ, chỉ báo đúng khoảng giá cấu hình cho toàn nhóm đó. Khi khách hỏi giá/kích thước/model/mã/phiên bản/màu/cấu hình cụ thể, chậu 2 hố hoặc 3 hố, không tư vấn chi tiết trên Messenger; trả lời ngắn và xin SĐT/Zalo để chuyên viên gửi đúng mẫu và báo giá cho tiện.",
+    "Nếu sản phẩm không có bằng chứng từ chữ khách nói, vision, mapping hoặc ngữ cảnh bài viết đã xác minh thì không được tự gọi tên sản phẩm, không chọn catalog và không báo khoảng giá riêng của nhóm nào.",
+    "Nếu tin mới nhất là customer_comment, nội dung chỉ được gửi qua private reply vào Messenger bằng comment_id; tuyệt đối không trả lời công khai trên comment và không hứa gửi slide trong private reply đầu tiên.",
     "Không nói đã gửi mẫu nếu needs_slides=false. Không hứa sẽ gửi sau nếu lượt hiện tại có thể gửi bằng reply_with_slides.",
     "Mỗi phản hồi thường 1-3 câu, dưới 450 ký tự nếu có thể, tối đa 650 ký tự. Chỉ hỏi tối đa một câu.",
     "Xưng em và gọi anh/chị khi chưa có bằng chứng giới tính đáng tin cậy.",
@@ -102,12 +106,11 @@ function withoutContactRequests(value) {
   return splitSentences(value).filter((sentence) => !isContactRequestSentence(sentence)).join(" ").trim();
 }
 
-function contactRequestSentence(benefit) {
-  const usefulBenefit = String(benefit || "Sale tư vấn và báo giá chính xác")
-    .replace(/[.!?]+$/u, "")
-    .trim();
-  const lowered = usefulBenefit ? usefulBenefit[0].toLocaleLowerCase("vi-VN") + usefulBenefit.slice(1) : "Sale tư vấn và báo giá chính xác";
-  return `Anh/chị cho em xin SĐT hoặc Zalo để bên em ${lowered} nhé.`;
+function contactRequestSentence() {
+  // Never splice provider-authored contact_benefit into customer-facing text. Weak
+  // providers have returned mixed-language fragments here (for example "deSale"),
+  // which previously bypassed final_reply language checks.
+  return "Anh/chị cho em xin SĐT hoặc Zalo để chuyên viên lọc đúng mẫu, gửi hình, tư vấn và báo giá cho tiện nhé.";
 }
 
 function hasSalesNeed(decision) {

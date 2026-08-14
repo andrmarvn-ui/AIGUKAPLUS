@@ -45,7 +45,8 @@ test("allowed request is appended after a useful answer", () => {
   assert.match(result.final_reply, /^Dạ mẫu này có nhiều phiên bản/);
   assert.match(result.final_reply, /SĐT hoặc Zalo/);
   assert.ok(result.final_reply.indexOf("Dạ mẫu") < result.final_reply.indexOf("SĐT hoặc Zalo"));
-  assert.match(result.final_reply, /tư vấn cho tiện, gửi đúng mẫu và báo giá chính xác/i);
+  assert.match(result.final_reply, /chuyên viên lọc đúng mẫu, gửi hình, tư vấn và báo giá cho tiện/i);
+  assert.doesNotMatch(result.final_reply, /tư vấn cho tiện, gửi đúng mẫu và báo giá chính xác/i);
 });
 
 test("provider contact request is moved behind the answer", () => {

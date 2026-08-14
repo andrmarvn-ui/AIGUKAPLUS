@@ -84,3 +84,23 @@ test("production advisor preserves high-confidence product evidence used by medi
     occurred_at: null,
   }]);
 });
+
+test("address intent prioritizes the verified location document", () => {
+  const snapshot = {
+    content: {
+      documents: [
+        { document_key: "generic", title: "Sản phẩm", content: "Nhiều mẫu sản phẩm khác nhau." },
+        { document_key: "location", title: "Địa chỉ showroom", content: "Showroom tại 254 Phố Keo, Kim Sơn, Gia Lâm, Hà Nội." },
+      ],
+      ad_mappings: [],
+      catalog: [],
+    },
+  };
+  const conversation = {
+    messages: [{ role: "customer", text: "Cửa hàng ở đâu vậy?" }],
+    advisors: { product_candidates: [], intent_candidates: [{ key: "address" }] },
+  };
+  const result = buildKnowledgeAdvisors(snapshot, conversation, { maxDocuments: 1 });
+  assert.equal(result.documents[0].document_key, "location");
+  assert.match(result.documents[0].content, /254 Phố Keo/);
+});

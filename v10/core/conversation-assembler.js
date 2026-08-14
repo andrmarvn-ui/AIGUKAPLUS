@@ -208,7 +208,7 @@ export function buildConversationContext(events = [], options = {}) {
 
   return {
     valid: true,
-    architecture: "v10_ai_sovereign_advisory",
+    architecture: "v10_ai_hard_commerce_integrity",
     messages,
     latest_customer_message: latestCustomer,
     referral,
@@ -221,8 +221,9 @@ export function buildConversationContext(events = [], options = {}) {
       latest_message_is_not_authoritative: true,
       structured_choice_same_menu_latest_replaces_previous: true,
       page_reply_requires_message_after_latest_customer: true,
-      rules_are_advisory_only: true,
-      ai_is_sole_business_decision_maker: true,
+      product_and_intent_candidates_are_advisory: true,
+      hard_commerce_integrity_is_mandatory: true,
+      ai_proposes_customer_reply: true,
     },
   };
 }

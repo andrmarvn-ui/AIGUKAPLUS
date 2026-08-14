@@ -87,19 +87,35 @@ test("referral is durable but never decision eligible by itself", () => {
   assert.equal(event.decision_eligible, false);
 });
 
-test("customer comment is preserved without creating a Messenger AI job", () => {
+test("actionable customer comment enters AI and is locked to private Messenger", () => {
   const event = normalizeLegacyWebhookInboxRow({
     ...base,
     payload: {
       kind: "feed_change",
       page_id: "page-1",
-      change: { value: { from: { id: "customer-2" }, item: "comment", verb: "add", message: "Comment", created_time: 1785310000 } },
+      change: { value: { from: { id: "customer-2" }, item: "comment", verb: "add", comment_id: "comment-2", message: "Bồn cầu giá bao nhiêu?", created_time: 1785310000 } },
     },
   });
   assert.equal(event.actor_type, "customer");
   assert.equal(event.event_type, "customer_comment");
   assert.equal(event.customer_id, "customer-2");
+  assert.equal(event.decision_eligible, true);
+  assert.equal(event.comment_private_reply.comment_id, "comment-2");
+  assert.equal(event.comment_private_reply.public_reply_forbidden, true);
+});
+
+test("non-commercial praise comment is preserved but does not trigger unsolicited inbox", () => {
+  const event = normalizeLegacyWebhookInboxRow({
+    ...base,
+    payload: {
+      kind: "feed_change",
+      page_id: "page-1",
+      change: { value: { from: { id: "customer-2" }, item: "comment", verb: "add", comment_id: "comment-3", message: "Tuyệt vời", created_time: 1785310000 } },
+    },
+  });
+  assert.equal(event.event_type, "customer_comment");
   assert.equal(event.decision_eligible, false);
+  assert.equal(event.comment_private_reply.reason, "NON_COMMERCIAL_COMMENT");
 });
 
 test("page-authored comments are never classified as customers", () => {
