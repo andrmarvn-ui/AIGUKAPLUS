@@ -3,7 +3,7 @@ import { buildConversationContext } from "./v10/core/conversation-assembler.js";
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-direct-core";
-const VERSION = "v10_direct_hard_commerce_v4_comment_input";
+const VERSION = "v10_direct_hard_commerce_v5_terminal_job_settlement";
 const POLL_MS = Math.max(3000, Number(process.env.AIGUKA_V10_CORE_POLL_MS || 5000));
 const BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.AIGUKA_V10_CORE_BATCH || 5)));
 let running = false;
@@ -54,6 +54,42 @@ async function recoverStaleJobs() {
     });
   }
   return stale?.length || 0;
+}
+
+async function settleTerminalDecisionJobs() {
+  const processing = await core("v9_jobs?select=id,source_event_id&job_type=eq.decision_shadow&status=eq.processing&limit=50");
+  const sourceEventIds = [...new Set((processing || [])
+    .map((job) => String(job.source_event_id || "").trim())
+    .filter((value) => /^[A-Za-z0-9:_-]+$/.test(value)))];
+  if (!sourceEventIds.length) return 0;
+
+  const sourceFilter = encodeURIComponent(`(${sourceEventIds.join(",")})`);
+  const statusFilter = encodeURIComponent("(live_delivered,live_suppressed)");
+  const terminal = await core(`v9_decisions?select=source_event_id,status&source_event_id=in.${sourceFilter}&status=in.${statusFilter}`);
+  const terminalBySource = new Map((terminal || []).map((decision) => [decision.source_event_id, decision.status]));
+  let settled = 0;
+  for (const job of processing || []) {
+    const terminalStatus = terminalBySource.get(job.source_event_id);
+    if (!terminalStatus) continue;
+    await core(`v9_jobs?id=eq.${job.id}&status=eq.processing`, {
+      method: "PATCH",
+      prefer: "return=minimal",
+      body: {
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        locked_by: null,
+        locked_at: null,
+        last_error: null,
+        result: {
+          terminal_decision_already_final: true,
+          decision_status: terminalStatus,
+        },
+        updated_at: new Date().toISOString(),
+      },
+    });
+    settled += 1;
+  }
+  return settled;
 }
 
 async function claimJobs() {
@@ -293,6 +329,7 @@ async function tick() {
     if (!["SHADOW", "ACTIVE"].includes(mode)) throw new Error(`V10_MODE_NOT_ALLOWED:${mode}`);
     if (ingestMode !== "DIRECT_CORE") throw new Error(`V10_INGEST_MODE_NOT_ALLOWED:${ingestMode}`);
 
+    const terminalJobsSettled = await settleTerminalDecisionJobs();
     const recovered = await recoverStaleJobs();
     const jobs = await claimJobs();
     for (const job of jobs || []) {
@@ -312,6 +349,7 @@ async function tick() {
       jobs_completed: completed,
       jobs_superseded_before_decision: superseded,
       jobs_failed: failed,
+      terminal_decision_jobs_settled: terminalJobsSettled,
       stale_jobs_recovered: recovered,
       sla_breached: breached,
       outbound_enabled: mode === "ACTIVE",

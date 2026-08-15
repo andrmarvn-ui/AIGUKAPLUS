@@ -138,3 +138,11 @@ test("queue janitor rehydrates legacy work and dedupes exact customer frontiers"
   assert.match(source, /conversation_merge_authority: "core_ingest_debounce"/);
   assert.match(source, /business_decision_authority: "none"/);
 });
+
+test("Direct Core settles orphaned jobs when their decision is already terminal", () => {
+  const source = fs.readFileSync(new URL("../v10-direct-core-worker.js", import.meta.url), "utf8");
+  assert.match(source, /v10_direct_hard_commerce_v5_terminal_job_settlement/);
+  assert.match(source, /settleTerminalDecisionJobs/);
+  assert.match(source, /live_delivered,live_suppressed/);
+  assert.match(source, /terminal_decision_already_final/);
+});
