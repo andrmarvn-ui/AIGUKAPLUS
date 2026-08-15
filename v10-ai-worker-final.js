@@ -7,6 +7,7 @@ import { deriveMediaScope, explicitMediaRequestFromMessages, mediaExpectedFromMe
 import {
   commerceDecisionViolations,
   commerceRequestContext,
+  commerceRequiresDeterministicResolution,
   enforceCommerceIntegrity,
   vietnameseLanguageIssue,
 } from "./v10/core/commerce-integrity.js";
@@ -16,7 +17,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-ai";
-const VERSION = "v10_ai_commerce_integrity_v20"; // AIGUKA_PROVIDER_LOAD_BALANCER_V4 // AIGUKA_PROVIDER_RESILIENCE_V1
+const VERSION = "v10_ai_commerce_integrity_v21"; // AIGUKA_PROVIDER_LOAD_BALANCER_V4 // AIGUKA_PROVIDER_RESILIENCE_V1
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_AI_POLL_MS || 3000));
 const BATCH_SIZE = Math.max(1, Math.min(4, Number(process.env.AIGUKA_V10_AI_BATCH_SIZE || 3)));
 const PROVIDER_CACHE_MS = Math.max(3000, Number(process.env.AIGUKA_V10_PROVIDER_CACHE_MS || 5000));
@@ -1752,7 +1753,11 @@ function sovereignDecisionViolations(decision, modelInput) {
   const commerceContext = commerceRequestContext(modelInput);
   const unresolved = Array.isArray(modelInput?.unresolved_needs) ? modelInput.unresolved_needs : [];
   const pendingMedia = unresolved.filter((need) => need?.status === "pending_media" && Array.isArray(need.catalog_keys) && need.catalog_keys.length);
-  const mediaHandoffRequired = commerceContext.specific || Boolean(commerceContext.comment);
+  const mediaHandoffRequired = commerceContext.specific
+    || commerceContext.asksAddress
+    || commerceContext.asksPrice
+    || commerceContext.asksSpecs
+    || Boolean(commerceContext.comment);
   if (!mediaHandoffRequired && pendingMedia.length && !(decision?.needs_slides && decision?.action === "reply_with_slides")) {
     violations.push("UNRESOLVED_MEDIA_NEEDS_NOT_SCHEDULED");
   }
@@ -1868,6 +1873,51 @@ async function sovereignProviderDecision(provider, modelInput) {
   throw error;
 }
 
+function deterministicCommerceResult(modelInput) {
+  if (!commerceRequiresDeterministicResolution(modelInput)) return null;
+  const context = commerceRequestContext(modelInput);
+  const seed = {
+    action: "reply_text",
+    final_reply: "",
+    selected_products: [],
+    selected_catalog_keys: [],
+    intents: context.intents.length ? context.intents : [context.comment ? "comment_private_reply" : "sales_support"],
+    needs_slides: false,
+    contact_state: "unclear",
+    should_request_contact: false,
+    contact_benefit: "",
+    confidence: 0.99,
+    decision_reason: "Mandatory deterministic commerce resolution; provider call is unnecessary for this request class.",
+    follow_up_plan: [{
+      topic: context.groups.join(",") || (context.asksAddress ? "showroom_address" : "customer_request"),
+      status: "answer_now",
+    }],
+  };
+  const protectedDecision = enforceCommerceIntegrity(seed, modelInput);
+  const decision = validateDecision(protectedDecision);
+  decision.commerce_integrity = protectedDecision.commerce_integrity;
+  const remaining = sovereignDecisionViolations(decision, modelInput);
+  if (remaining.length) {
+    const error = new Error(`V10_DETERMINISTIC_COMMERCE_INVALID:${remaining.join("|")}`);
+    error.code = "decision_invalid";
+    throw error;
+  }
+  return {
+    provider: "hard-commerce-guard",
+    model: "deterministic-commerce-v2",
+    responseId: null,
+    decision,
+    rawDecision: null,
+    finalRawDecision: null,
+    validationFeedbackRounds: 0,
+    validationFeedback: [],
+    commerceRepairApplied: true,
+    hardRepair: true,
+    hardRepairReason: "PROVIDER_BYPASSED_FOR_DETERMINISTIC_COMMERCE",
+    deterministicResolution: true,
+  };
+}
+
 async function processOne(row, availableProviders, knowledgeSnapshot) {
   const claimed = await claim(row);
   if (!claimed) return { processed: 0, retried: 0, reviewRequired: 0, providerErrors: [] };
@@ -1900,29 +1950,31 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
   const startedAt = Date.now();
 
   try {
-    let result = null;
-    const orderedProviders = providerOrder(availableProviders, Date.now(), modelInputChars);
-    for (const provider of orderedProviders) {
-      const callStartedAt = Date.now();
-      try {
-        result = await sovereignProviderDecision(provider, modelInput);
-        if (result.hardRepair) {
-          const qualityError = new Error(`HARD_COMMERCE_REPAIR:${result.hardRepairReason || "provider_ignored_policy"}`);
-          qualityError.code = "decision_invalid";
-          recordProviderFailure(provider, "decision_error", qualityError, modelInputChars);
-          await persistProviderRuntimeState(provider, "cooldown", "decision_error", qualityError);
-        } else {
-          recordProviderSuccess(provider, Date.now() - callStartedAt, modelInputChars);
-          await persistProviderRuntimeState(provider, "ready");
+    let result = deterministicCommerceResult(modelInput);
+    if (!result) {
+      const orderedProviders = providerOrder(availableProviders, Date.now(), modelInputChars);
+      for (const provider of orderedProviders) {
+        const callStartedAt = Date.now();
+        try {
+          result = await sovereignProviderDecision(provider, modelInput);
+          if (result.hardRepair) {
+            const qualityError = new Error(`HARD_COMMERCE_REPAIR:${result.hardRepairReason || "provider_ignored_policy"}`);
+            qualityError.code = "decision_invalid";
+            recordProviderFailure(provider, "decision_error", qualityError, modelInputChars);
+            await persistProviderRuntimeState(provider, "cooldown", "decision_error", qualityError);
+          } else {
+            recordProviderSuccess(provider, Date.now() - callStartedAt, modelInputChars);
+            await persistProviderRuntimeState(provider, "ready");
+          }
+          providerCache.lastProviderKey = result.provider;
+          break;
+        } catch (error) {
+          const classification = classifyProviderError(provider, error);
+          recordProviderFailure(provider, classification, error, modelInputChars);
+          await persistProviderRuntimeState(provider, "cooldown", classification, error);
+          classifications.push(classification);
+          providerErrors.push(providerKey(provider) + ":" + classification + ":" + String(error?.message || error).slice(0, 260));
         }
-        providerCache.lastProviderKey = result.provider;
-        break;
-      } catch (error) {
-        const classification = classifyProviderError(provider, error);
-        recordProviderFailure(provider, classification, error, modelInputChars);
-        await persistProviderRuntimeState(provider, "cooldown", classification, error);
-        classifications.push(classification);
-        providerErrors.push(providerKey(provider) + ":" + classification + ":" + String(error?.message || error).slice(0, 260));
       }
     }
     if (!result) throw new Error(providerErrors.join(" | ") || "V10_ALL_AVAILABLE_PROVIDERS_FAILED");
@@ -1962,6 +2014,7 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
           legacy_smart_reply_repair_applied: Boolean(result.commerceRepairApplied),
           hard_commerce_repair_applied: Boolean(result.hardRepair),
           hard_commerce_repair_reason: result.hardRepairReason || null,
+          provider_bypassed_for_deterministic_commerce: Boolean(result.deterministicResolution),
           knowledge_snapshot: { id: knowledgeSnapshot.id, version_no: knowledgeSnapshot.version_no, checksum: knowledgeSnapshot.checksum },
         },
         updated_at: new Date().toISOString(),
@@ -2123,7 +2176,7 @@ async function tick() {
 if (!CORE_BASE || !CORE_KEY || !KNOWLEDGE_BASE || !KNOWLEDGE_KEY) {
   console.warn("[AIGUKA V10 AI v2] Core or Knowledge configuration missing; disabled");
 } else {
-  console.log("[AIGUKA V10 AI v2] provider-aware scheduler started; AI sole decision; no operational customer fallback");
+  console.log("[AIGUKA V10 AI v2] provider-aware scheduler started; deterministic commerce rules bypass providers when the safe answer is fully defined");
   tick().catch(() => {});
 }
 

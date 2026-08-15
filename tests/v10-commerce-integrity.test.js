@@ -4,6 +4,7 @@ import { validateDecision } from "../v10/core/decision-contract.js";
 import {
   commerceDecisionViolations,
   commerceRequestContext,
+  commerceRequiresDeterministicResolution,
   enforceCommerceIntegrity,
   vietnameseLanguageIssue,
 } from "../v10/core/commerce-integrity.js";
@@ -186,4 +187,12 @@ test("contact cooldown prevents repeated phone requests while preserving handoff
   assert.equal(repaired.should_request_contact, false);
   assert.doesNotMatch(repaired.final_reply, /SĐT hoặc Zalo/);
   assert.deepEqual(commerceDecisionViolations(repaired, input), []);
+});
+
+test("comments and fully defined commerce rules bypass providers", () => {
+  assert.equal(commerceRequiresDeterministicResolution(modelInput("Ib", { comment: true })), true);
+  assert.equal(commerceRequiresDeterministicResolution(modelInput("KS8600 bao nhiêu tiền một cái?")), true);
+  assert.equal(commerceRequiresDeterministicResolution(modelInput("Cửa hàng ở đâu?")), true);
+  assert.equal(commerceRequiresDeterministicResolution(modelInput("Bồn cầu giá bao nhiêu?")), true);
+  assert.equal(commerceRequiresDeterministicResolution(modelInput("Chào shop")), false);
 });

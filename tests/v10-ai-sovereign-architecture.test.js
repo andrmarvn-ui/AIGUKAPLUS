@@ -97,7 +97,8 @@ test("final AI worker contains lease recovery and provider-aware scheduling befo
   const source = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
   assert.match(entry, /v10-ai-worker-final\.js/);
   assert.doesNotMatch(entry, /patch-v10-/);
-  assert.match(source, /const VERSION = "v10_ai_commerce_integrity_v20"/);
+  assert.match(source, /const VERSION = "v10_ai_commerce_integrity_v21"/);
+  assert.match(source, /PROVIDER_BYPASSED_FOR_DETERMINISTIC_COMMERCE/);
   assert.match(source, /enforceCommerceIntegrity/);
   assert.match(source, /mandatory_deterministic_enforcement/);
   assert.match(source, /recoverStaleProcessing/);

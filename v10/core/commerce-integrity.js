@@ -454,6 +454,18 @@ export function commerceRequestContext(modelInput = {}) {
   };
 }
 
+export function commerceRequiresDeterministicResolution(modelInput = {}) {
+  const context = commerceRequestContext(modelInput);
+  return Boolean(
+    context.comment
+    || context.asksAddress
+    || context.asksPrice
+    || context.asksSpecs
+    || context.specific
+    || context.generalGroupPrice
+  );
+}
+
 function safeSpecialistReply(modelInput, context) {
   const style = salutation(modelInput);
   const label = groupLabel(context.groups);
@@ -623,4 +635,4 @@ export function enforceCommerceIntegrity(input = {}, modelInput = {}) {
 }
 
 export { languageIssue as vietnameseLanguageIssue, priceRangeForGroup };
-export const commerceIntegrityVersion = "v10_commerce_integrity_v1_grounded_facts";
+export const commerceIntegrityVersion = "v10_commerce_integrity_v2_deterministic_resolution";

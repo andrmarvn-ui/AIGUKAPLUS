@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V23";
+const RELEASE = "AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V24";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -88,10 +88,11 @@ requireToken("v10/core/page-reply-evidence.js", "v10_page_reply_evidence_v1_pers
 requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v4_recover_customer_media_reask";');
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gateway_v5";');
 requireToken("v10-followup-worker.js", "recoverStaleProcessing");
-requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_commerce_integrity_v20";');
+requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_commerce_integrity_v21";');
 requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-ai-worker-final.js", "mandatory_deterministic_enforcement");
+requireToken("v10-ai-worker-final.js", "PROVIDER_BYPASSED_FOR_DETERMINISTIC_COMMERCE");
 requireToken("v10/core/commerce-integrity.js", "SPECIFIC_PRODUCT_INFORMATION_REQUIRES_CONTACT_HANDOFF");
 requireToken("v10/core/commerce-integrity.js", "deterministic_group_price_range");
 requireToken("v10/core/commerce-integrity.js", "KNOWN_PROVIDER_LANGUAGE_CORRUPTION");
