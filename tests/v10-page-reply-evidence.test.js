@@ -73,5 +73,5 @@ test("live worker persists Page evidence, closes SLA and clears the response dea
   assert.match(worker, /v9_events\?on_conflict=source_system,source_event_id/);
   assert.match(worker, /v9_sla_events\?source_event_id=eq\./);
   assert.match(worker, /response_deadline_at: null/);
-  assert.match(worker, /v10_outbound_single_gateway_v17_comment_private_reply/);
+  assert.match(worker, /v10_outbound_single_gateway_v18_comment_idempotency/);
 });

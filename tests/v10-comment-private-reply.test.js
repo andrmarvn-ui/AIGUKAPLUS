@@ -111,6 +111,8 @@ test("Message Gateway addresses source comment and never a public comments endpo
   const source = fs.readFileSync(new URL("../v10-outbound-worker.js", import.meta.url), "utf8");
   assert.match(source, /meta_comment_private_reply/);
   assert.match(source, /public_comment_reply_forbidden/);
+  assert.match(source, /Number\(error\?\.code \|\| 0\) === 10900/);
+  assert.match(source, /COMMENT_PRIVATE_REPLY_ALREADY_EXISTS/);
   assert.doesNotMatch(source, /graph\.facebook\.com|\/comments/);
 });
 

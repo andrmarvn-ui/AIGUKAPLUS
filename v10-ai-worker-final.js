@@ -17,7 +17,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-ai";
-const VERSION = "v10_ai_commerce_integrity_v21"; // AIGUKA_PROVIDER_LOAD_BALANCER_V4 // AIGUKA_PROVIDER_RESILIENCE_V1
+const VERSION = "v10_ai_commerce_integrity_v22"; // AIGUKA_PROVIDER_LOAD_BALANCER_V4 // AIGUKA_PROVIDER_RESILIENCE_V1
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_AI_POLL_MS || 3000));
 const BATCH_SIZE = Math.max(1, Math.min(4, Number(process.env.AIGUKA_V10_AI_BATCH_SIZE || 3)));
 const PROVIDER_CACHE_MS = Math.max(3000, Number(process.env.AIGUKA_V10_PROVIDER_CACHE_MS || 5000));
@@ -1722,6 +1722,10 @@ function sovereignDecisionViolations(decision, modelInput) {
   const cooldown = typeof continuityContactCooldown === "function"
     ? continuityContactCooldown(modelInput)
     : { active: false, customerMessagesSince: 999 };
+  const commerceContext = commerceRequestContext(modelInput);
+  const specialistContactHandoff = (commerceContext.specific || Boolean(commerceContext.comment))
+    && decision?.should_request_contact === true
+    && contactRequestDetected(reply);
 
   if (DECISION_LEAK_PATTERN.test([reply, decision?.decision_reason, decision?.contact_benefit].join(" "))) {
     violations.push("INTERNAL_TEXT_LEAK");
@@ -1748,9 +1752,10 @@ function sovereignDecisionViolations(decision, modelInput) {
     const noMediaKeys = selected.filter((key) => !slide.has(String(key)));
     if (noMediaKeys.length) violations.push("CATALOG_WITHOUT_PUBLISHED_MEDIA:" + noMediaKeys.join(","));
   }
-  if (sovereignReplyPromisesMedia(reply) && !decision?.needs_slides) violations.push("REPLY_PROMISES_MEDIA_BUT_MEDIA_DISABLED");
+  if (sovereignReplyPromisesMedia(reply) && !decision?.needs_slides && !specialistContactHandoff) {
+    violations.push("REPLY_PROMISES_MEDIA_BUT_MEDIA_DISABLED");
+  }
 
-  const commerceContext = commerceRequestContext(modelInput);
   const unresolved = Array.isArray(modelInput?.unresolved_needs) ? modelInput.unresolved_needs : [];
   const pendingMedia = unresolved.filter((need) => need?.status === "pending_media" && Array.isArray(need.catalog_keys) && need.catalog_keys.length);
   const mediaHandoffRequired = commerceContext.specific

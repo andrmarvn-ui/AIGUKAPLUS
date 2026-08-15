@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V24";
+const RELEASE = "AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V25";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -81,14 +81,15 @@ requireToken("v10/core/constitution.js", "AICAKE_PRIMARY_AIGUKA_ASSIST");
 requireToken("v10/core/message-gateway.js", "v10_claim_message_dispatch");
 requireToken("v10/core/message-gateway.js", "v10_release_message_dispatch");
 requireToken("v10/core/message-gateway.js", "recipient: { comment_id: normalizedCommentId }");
-requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v17_comment_private_reply";');
+requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v18_comment_idempotency";');
 requireToken("v10-outbound-worker.js", '"meta_comment_private_reply"');
 requireToken("v10-outbound-worker.js", "public_comment_reply_forbidden");
+requireToken("v10-outbound-worker.js", "COMMENT_PRIVATE_REPLY_ALREADY_EXISTS");
 requireToken("v10/core/page-reply-evidence.js", "v10_page_reply_evidence_v1_persist_and_resolve_sla");
 requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v4_recover_customer_media_reask";');
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gateway_v5";');
 requireToken("v10-followup-worker.js", "recoverStaleProcessing");
-requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_commerce_integrity_v21";');
+requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_commerce_integrity_v22";');
 requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-ai-worker-final.js", "mandatory_deterministic_enforcement");

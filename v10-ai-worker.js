@@ -16,7 +16,7 @@ async function reportStartupFailure(error) {
       },
       body: JSON.stringify({
         worker_name: "aiguka-v10-ai",
-        worker_version: "v10_ai_commerce_integrity_v21",
+        worker_version: "v10_ai_commerce_integrity_v22",
         status: "degraded",
         mode: "ACTIVE",
         details: {

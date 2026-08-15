@@ -13,7 +13,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-outbound";
-const VERSION = "v10_outbound_single_gateway_v17_comment_private_reply";
+const VERSION = "v10_outbound_single_gateway_v18_comment_idempotency";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_OUTBOUND_POLL_MS || 3000));
 const MAX_DECISION_AGE_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_LIVE_MAX_AGE_MS || 2 * 60 * 60_000));
 const MAX_MEDIA_ASSETS = Math.max(10, Math.min(20, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 20)));
@@ -1241,6 +1241,32 @@ async function processDecision(decision, config) {
     dispatchResult = partial ? "live_delivered_partial" : "live_delivered";
     return { sent: 1, suppressed: 0, failed: 0 };
   } catch (error) {
+    const commentAlreadyReplied = gate.commentPrivateReply && Number(error?.code || 0) === 10900;
+    if (commentAlreadyReplied) {
+      await recordAttempt(bundle.id, nextAttempt, textTransport, "failed", {}, error).catch(() => {});
+      await core(`v9_delivery_bundles?id=eq.${bundle.id}`, {
+        method: "PATCH",
+        prefer: "return=minimal",
+        body: { status: "failed", updated_at: new Date().toISOString() },
+      }).catch(() => {});
+      const handledAt = new Date().toISOString();
+      await patchDecision(claimed, "live_suppressed", {
+        should_send: false,
+        transport_locked: false,
+        delivery_bundle_id: bundle.id,
+        delivery_mode: "comment_private_reply",
+        comment_id: gate.commentContext?.commentId || null,
+        comment_source_event_id: gate.commentContext?.sourceEventId || null,
+        public_comment_reply_forbidden: true,
+        comment_private_reply_already_exists: true,
+        delivery_suppressed_reason: "COMMENT_PRIVATE_REPLY_ALREADY_EXISTS",
+        meta_error_code: "10900",
+        handled_at: handledAt,
+      }).catch(() => {});
+      await resolveDecisionSla(claimed, "page_already_replied", handledAt).catch(() => {});
+      dispatchResult = "comment_private_reply_already_exists";
+      return { sent: 0, suppressed: 1, failed: 0 };
+    }
     await recordAttempt(bundle.id, nextAttempt, textTransport, "failed", {}, error).catch(() => {});
     await core(`v9_delivery_bundles?id=eq.${bundle.id}`, { method: "PATCH", prefer: "return=minimal", body: { status: "failed", updated_at: new Date().toISOString() } }).catch(() => {});
     await patchDecision(claimed, "live_delivery_failed", {
