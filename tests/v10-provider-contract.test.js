@@ -28,14 +28,21 @@ test("final provider scheduler does not claim when no AI provider is ready", () 
   assert.match(source, /consumeAttempt: !transientOnly/);
   assert.match(source, /operational_fallback_enabled: false/);
   assert.match(source, /providerSettings\(provider\)\.max_input_chars/);
+  assert.match(source, /stickyModelProviderOrder\(eligible/);
+  assert.doesNotMatch(source, /eligible\.length \? eligible : \(rows \|\| \[\]\)/);
+  assert.match(source, /providerModelInputBudgetChars/);
 });
 
 test("AI entrypoint installs adapters but never rewrites worker source", () => {
   const entry = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
+  const runtimePolicy = fs.readFileSync(new URL("../v10-provider-runtime-policy.js", import.meta.url), "utf8");
   assert.match(entry, /v10-provider-runtime-policy\.js/);
   assert.match(entry, /v10-cohere-schema-sanitizer\.js/);
   assert.match(entry, /v10-openai-compatible-adapter\.js/);
   assert.match(entry, /v10-sambanova-runtime-adapter\.js/);
   assert.match(entry, /v10-ai-worker-final\.js/);
   assert.doesNotMatch(entry, /patch-v10-/);
+  assert.match(runtimePolicy, /provider runtime policy v3 enabled/);
+  assert.match(runtimePolicy, /globalArraySortOverride: false/);
+  assert.doesNotMatch(runtimePolicy, /Array\.prototype\.sort\s*=/);
 });

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V27";
+const RELEASE = "AIGUKA_V10_COMPACT_PROMPT_STICKY_MODEL_FAMILY_V28";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -13,6 +13,7 @@ const ACTIVE_FILES = [
   "start.js",
   "v10-ai-worker.js",
   "v10-ai-worker-final.js",
+  "v10-provider-runtime-policy.js",
   "v10-direct-core-worker.js",
   "v10-comment-private-reply-recovery-worker.js",
   "v10-outbound-worker.js",
@@ -26,6 +27,8 @@ const ACTIVE_FILES = [
   "v10/core/decision-contract.js",
   "v10/core/commerce-integrity.js",
   "v10/core/knowledge-advisor.js",
+  "v10/core/model-input-compiler.js",
+  "v10/core/provider-routing.js",
   "v10/core/media-obligation.js",
   "v10/core/product-threads.js",
   "v10/core/outbound-priority.js",
@@ -89,11 +92,18 @@ requireToken("v10/core/page-reply-evidence.js", "v10_page_reply_evidence_v1_pers
 requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v4_recover_customer_media_reask";');
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gateway_v5";');
 requireToken("v10-followup-worker.js", "recoverStaleProcessing");
-requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_commerce_integrity_v22";');
+requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_prompt_compiler_v23_sticky_model_family";');
 requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-ai-worker-final.js", "mandatory_deterministic_enforcement");
 requireToken("v10-ai-worker-final.js", "PROVIDER_BYPASSED_FOR_DETERMINISTIC_COMMERCE");
+requireToken("v10-ai-worker-final.js", "sticky_model_family_then_next_family_on_limit");
+requireToken("v10-ai-worker-final.js", "compileProviderModelInput");
+requireToken("v10-provider-runtime-policy.js", "provider runtime policy v3 enabled");
+requireToken("v10-provider-runtime-policy.js", "globalArraySortOverride: false");
+requireToken("v10/core/model-input-compiler.js", "v10_model_input_compiler_v1_dedup_no_raw");
+requireToken("v10/core/model-input-compiler.js", "V10_PROVIDER_INPUT_FORBIDDEN_FIELD");
+requireToken("v10/core/provider-routing.js", "v10_provider_sticky_model_family_v1");
 requireToken("v10/core/commerce-integrity.js", "SPECIFIC_PRODUCT_INFORMATION_REQUIRES_CONTACT_HANDOFF");
 requireToken("v10/core/commerce-integrity.js", "deterministic_group_price_range");
 requireToken("v10/core/commerce-integrity.js", "KNOWN_PROVIDER_LANGUAGE_CORRUPTION");
@@ -113,4 +123,4 @@ requireToken("v10-comment-private-reply-recovery-worker.js", "v10_comment_privat
 requireToken("v10/core/decision-contract.js", "V10_CONTACT_ONLY_REPLY_INVALID");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: hard grounded commerce rules, comment-to-private-Messenger delivery, one Message Gateway and no runtime business source patching`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: compact deduplicated provider input, sticky model-family failover, hard grounded commerce rules and private comment delivery`);

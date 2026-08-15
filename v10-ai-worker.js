@@ -16,7 +16,7 @@ async function reportStartupFailure(error) {
       },
       body: JSON.stringify({
         worker_name: "aiguka-v10-ai",
-        worker_version: "v10_ai_commerce_integrity_v22",
+        worker_version: "v10_ai_prompt_compiler_v23_sticky_model_family",
         status: "degraded",
         mode: "ACTIVE",
         details: {
@@ -35,6 +35,8 @@ async function reportStartupFailure(error) {
           separate_media_bundle_per_product_group: true,
           recursive_catalog_advisory: true,
           provider_cooldown_is_per_key: true,
+          provider_model_family_sticky: true,
+          provider_input_compacted_without_raw_payload: true,
           provider_auto_recovery: true,
           customer_turn_supersession_guard: true,
           contact_request_cooldown_messages: 2,

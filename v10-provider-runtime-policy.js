@@ -1,4 +1,4 @@
-const MARK = Symbol.for("aiguka.v10.providerRuntimePolicy.v2");
+const MARK = Symbol.for("aiguka.v10.providerRuntimePolicy.v3");
 
 function isProviderQuery(input) {
   try {
@@ -30,10 +30,6 @@ function ready(row) {
   return true;
 }
 
-function providerRows(value) {
-  return Array.isArray(value) && value.length > 0 && value.every((row) => row && typeof row === "object" && row.provider_key && row.api_key_ciphertext);
-}
-
 export function installProviderRuntimePolicy() {
   if (globalThis[MARK]) return globalThis[MARK];
   const nativeFetch = globalThis.fetch.bind(globalThis);
@@ -53,15 +49,15 @@ export function installProviderRuntimePolicy() {
     return new Response(JSON.stringify(sorted), { status: response.status, statusText: response.statusText, headers: response.headers });
   };
 
-  Array.prototype.sort = function aigukaProviderAwareSort(compareFn) {
-    if (providerRows(this)) {
-      return nativeSort.call(this, (a, b) => priority(a) - priority(b) || String(a.provider_key || "").localeCompare(String(b.provider_key || "")));
-    }
-    return nativeSort.call(this, compareFn);
+  globalThis[MARK] = {
+    version: "v3",
+    source: "/ai-providers",
+    priority: "settings.runtime_order",
+    productionGate: "smoke_test",
+    schedulerOverride: false,
+    globalArraySortOverride: false,
   };
-
-  globalThis[MARK] = { version: "v2", source: "/ai-providers", priority: "settings.runtime_order", productionGate: "smoke_test", schedulerOverride: true };
-  console.log("[AIGUKA V10] provider runtime policy v2 enabled: /ai-providers priority overrides legacy Gemini-first sorting");
+  console.log("[AIGUKA V10] provider runtime policy v3 enabled: provider rows filtered safely; sticky model-family scheduler remains authoritative");
   return globalThis[MARK];
 }
 

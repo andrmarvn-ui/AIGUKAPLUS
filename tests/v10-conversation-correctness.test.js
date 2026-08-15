@@ -42,7 +42,8 @@ test("final V10 worker contains current-turn media and verified-address guards",
   assert.match(source, /enforceCurrentTurnMediaScope/);
   assert.match(source, /verifiedAddressSentence/);
   assert.doesNotMatch(source, /cosi\|ldo\|showoom\|ben em\|pho keo/);
-  assert.match(source, /v10_ai_commerce_integrity_v22/);
+  assert.match(source, /v10_ai_prompt_compiler_v23_sticky_model_family/);
+  assert.match(source, /compileProviderModelInput/);
   assert.match(source, /vietnameseLanguageIssue/);
 });
 

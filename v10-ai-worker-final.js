@@ -4,6 +4,8 @@ import { buildKnowledgeAdvisors } from "./v10/core/knowledge-advisor.js";
 import { deriveUnresolvedNeeds } from "./v10/core/unresolved-needs.js";
 import { deriveProductThreads } from "./v10/core/product-threads.js";
 import { deriveMediaScope, explicitMediaRequestFromMessages, mediaExpectedFromMessages } from "./v10/core/media-obligation.js";
+import { compileProviderModelInput, providerModelInputBudgetChars } from "./v10/core/model-input-compiler.js";
+import { providerModelFamily, stickyModelProviderOrder } from "./v10/core/provider-routing.js";
 import {
   commerceDecisionViolations,
   commerceRequestContext,
@@ -17,7 +19,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-ai";
-const VERSION = "v10_ai_commerce_integrity_v22"; // AIGUKA_PROVIDER_LOAD_BALANCER_V4 // AIGUKA_PROVIDER_RESILIENCE_V1
+const VERSION = "v10_ai_prompt_compiler_v23_sticky_model_family"; // AIGUKA_PROVIDER_STICKY_MODEL_FAMILY_V1 // AIGUKA_PROVIDER_RESILIENCE_V1
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_AI_POLL_MS || 3000));
 const BATCH_SIZE = Math.max(1, Math.min(4, Number(process.env.AIGUKA_V10_AI_BATCH_SIZE || 3)));
 const PROVIDER_CACHE_MS = Math.max(3000, Number(process.env.AIGUKA_V10_PROVIDER_CACHE_MS || 5000));
@@ -38,7 +40,7 @@ function acceptedInputArchitecture(value) {
 
 let running = false;
 let timer;
-let providerCache = { expiresAt: 0, rows: [], lastProviderKey: null };
+let providerCache = { expiresAt: 0, rows: [], lastProviderKey: null, activeFamily: null };
 let knowledgeCache = { expiresAt: 0, snapshot: null };
 const providerHealth = new Map();
 const gemini = { nextAllowedAt: 0, cooldownUntil: 0, consecutive429: 0 };
@@ -84,17 +86,6 @@ function isGemini(provider = {}) {
 
 function providerSettings(provider = {}) {
   return provider?.settings && typeof provider.settings === "object" ? provider.settings : {};
-}
-
-function providerPriority(provider = {}) {
-  const value = Number(providerSettings(provider).runtime_order ?? 100);
-  return Number.isFinite(value) ? Math.max(1, value) : 100;
-}
-
-function providerWeight(provider = {}) {
-  const configured = Number(providerSettings(provider).runtime_weight);
-  if (Number.isFinite(configured) && configured > 0) return Math.max(0.1, Math.min(20, configured));
-  return 1;
 }
 
 function providerMinIntervalMs(provider = {}) {
@@ -146,46 +137,11 @@ function healthFor(provider = {}) {
     contextLimitChars: 0,
     successes: 0,
     ewmaLatencyMs: 0,
-    currentWeight: 0,
-    lastSelectedAt: 0,
   });
   return providerHealth.get(key);
 }
 
-function weightedProviderOrder(pool = [], now = Date.now()) {
-  const scored = [];
-  let totalWeight = 0;
-  for (const provider of pool || []) {
-    const health = healthFor(provider);
-    const baseWeight = providerWeight(provider);
-    const latencyPenalty = health.ewmaLatencyMs > 0 ? Math.min(0.65, health.ewmaLatencyMs / 45_000) : 0;
-    const failurePenalty = Math.min(0.7, health.failures * 0.15);
-    const effectiveWeight = Math.max(0.1, baseWeight * (1 - latencyPenalty) * (1 - failurePenalty));
-    health.currentWeight += effectiveWeight;
-    totalWeight += effectiveWeight;
-    scored.push({ provider, health, effectiveWeight, priority: providerPriority(provider) });
-  }
-  if (!scored.length) return [];
-  let winner = scored[0];
-  for (const item of scored.slice(1)) {
-    if (item.health.currentWeight > winner.health.currentWeight) winner = item;
-    else if (item.health.currentWeight === winner.health.currentWeight && item.priority < winner.priority) winner = item;
-  }
-  winner.health.currentWeight -= totalWeight;
-  winner.health.lastSelectedAt = now;
-  const rest = scored
-    .filter((item) => item !== winner)
-    .sort((a, b) => b.health.currentWeight - a.health.currentWeight || a.priority - b.priority)
-    .map((item) => item.provider);
-  return [winner.provider, ...rest];
-}
-
-function providerIsStrictLastResort(provider = {}) {
-  const role = String(providerSettings(provider).quality_role || "").trim().toLowerCase();
-  return role === "penultimate_last_resort" || role === "absolute_last_resort";
-}
-
-function providerOrder(rows = [], now = Date.now(), inputChars = 0) {
+function providerOrder(rows = [], inputChars = 0) {
   const eligible = (rows || []).filter((provider) => {
     const learned = Number(healthFor(provider).contextLimitChars || 0);
     const configured = Number(providerSettings(provider).max_input_chars || 0);
@@ -193,21 +149,13 @@ function providerOrder(rows = [], now = Date.now(), inputChars = 0) {
     const limit = limits.length ? Math.min(...limits) : 0;
     return !limit || !inputChars || inputChars < limit;
   });
-  const pool = eligible.length ? eligible : (rows || []);
-  const regularPool = pool.filter((provider) => !providerIsStrictLastResort(provider));
-  const strictLastResortPool = pool
-    .filter((provider) => providerIsStrictLastResort(provider))
-    .sort((a, b) => providerPriority(a) - providerPriority(b) || providerKey(a).localeCompare(providerKey(b)));
-  const googlePrimary = regularPool.filter((provider) => isGemini(provider));
-  const fallback = regularPool.filter((provider) => !isGemini(provider));
-  return [
-    ...weightedProviderOrder(googlePrimary, now),
-    ...weightedProviderOrder(fallback, now),
-    ...strictLastResortPool,
-  ];
+  return stickyModelProviderOrder(eligible, {
+    activeFamily: providerCache.activeFamily,
+    lastProviderKey: providerCache.lastProviderKey,
+  });
 }
 
-// AIGUKA_V10_GOOGLE_PRIMARY_POOL_V1
+// AIGUKA_V10_STICKY_MODEL_FAMILY_V1
 // AIGUKA_V10_STRICT_LAST_RESORT_PROVIDER_POOL_V1
 
 function decryptProviderKey(value) {
@@ -224,7 +172,12 @@ async function providers() {
   const rows = await knowledge("ai_providers?select=provider_key,provider_type,base_url,model_name,api_key_ciphertext,is_enabled,updated_at,settings,connection_status,last_error&is_enabled=eq.true&order=updated_at.desc&limit=50", { timeout: 10000 });
   const usable = (rows || []).filter((row) => row?.api_key_ciphertext && row?.connection_status !== "error");
   if (!usable.length) throw new Error("V10_AI_PROVIDER_NOT_READY");
-  providerCache = { rows: usable, expiresAt: Date.now() + PROVIDER_CACHE_MS, lastProviderKey: providerCache.lastProviderKey };
+  providerCache = {
+    rows: usable,
+    expiresAt: Date.now() + PROVIDER_CACHE_MS,
+    lastProviderKey: providerCache.lastProviderKey,
+    activeFamily: providerCache.activeFamily,
+  };
   return usable;
 }
 
@@ -1785,7 +1738,7 @@ function sovereignValidationError(error) {
   return message.slice(0, 300);
 }
 
-async function sovereignProviderDecision(provider, modelInput) {
+async function sovereignProviderDecision(provider, providerModelInput, validationInput = providerModelInput) {
   let feedback = [];
   let firstRawDecision = null;
   let finalRawDecision = null;
@@ -1793,9 +1746,9 @@ async function sovereignProviderDecision(provider, modelInput) {
 
   for (let round = 0; round < 2; round += 1) {
     const attemptInput = round === 0
-      ? modelInput
+      ? providerModelInput
       : {
-          ...modelInput,
+          ...providerModelInput,
           validation_feedback: {
             validator: "v10_sovereign_feedback_v1",
             instruction: "Correct these validation failures yourself. Preserve all unresolved customer needs and do not repeat the rejected reply.",
@@ -1812,14 +1765,14 @@ async function sovereignProviderDecision(provider, modelInput) {
     let violations = [];
     try {
       decision = validateDecision(attempt.decision);
-      violations = sovereignDecisionViolations(decision, attemptInput);
+      violations = sovereignDecisionViolations(decision, validationInput);
     } catch (error) {
       violations = [sovereignValidationError(error)];
     }
 
     if (!violations.length) {
-      const protectedDecision = enforceCommerceIntegrity(decision, attemptInput);
-      const protectedViolations = sovereignDecisionViolations(protectedDecision, attemptInput);
+      const protectedDecision = enforceCommerceIntegrity(decision, validationInput);
+      const protectedViolations = sovereignDecisionViolations(protectedDecision, validationInput);
       if (protectedViolations.length) {
         violations = protectedViolations;
         feedback = protectedViolations;
@@ -1854,8 +1807,8 @@ async function sovereignProviderDecision(provider, modelInput) {
   // output, and the provider is still penalized/cooldowned by the caller.
   try {
     const validated = validateDecision(finalRawDecision || {});
-    const protectedDecision = enforceCommerceIntegrity(validated, modelInput);
-    const remaining = sovereignDecisionViolations(protectedDecision, modelInput);
+    const protectedDecision = enforceCommerceIntegrity(validated, validationInput);
+    const remaining = sovereignDecisionViolations(protectedDecision, validationInput);
     if (!remaining.length) {
       return {
         ...lastAttempt,
@@ -1928,10 +1881,16 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
   if (!claimed) return { processed: 0, retried: 0, reviewRequired: 0, providerErrors: [] };
   const baseConversation = claimed.input_snapshot?.conversation || {};
   const conversation = await enrichConversationWithDeliveredReplies(claimed, baseConversation);
-  const knowledgeAdvisors = buildKnowledgeAdvisors(knowledgeSnapshot, conversation, { maxDocuments: 8, maxCatalog: 20, maxAssetsPerCatalog: 5 });
+  const knowledgeAdvisors = buildKnowledgeAdvisors(knowledgeSnapshot, conversation, {
+    maxDocuments: 3,
+    maxDocumentChars: 4_000,
+    maxTotalDocumentChars: 6_000,
+    maxCatalog: 12,
+    maxAssetsPerCatalog: 1,
+  });
   const unresolvedNeeds = deriveUnresolvedNeeds(conversation, knowledgeAdvisors);
   const productThreads = deriveProductThreads(unresolvedNeeds, knowledgeAdvisors);
-  const modelInput = {
+  const validationInput = {
     architecture: ARCHITECTURE,
     authority: {
       ai_proposes_business_decision: true,
@@ -1949,19 +1908,41 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
     product_threads: productThreads,
     knowledge_advisors: knowledgeAdvisors,
   };
-  const modelInputChars = JSON.stringify(modelInput).length;
+  let modelInputChars = 0;
+  let promptProfile = {
+    compiler_version: "v10_model_input_compiler_v1_dedup_no_raw",
+    profile: "deterministic_provider_bypass",
+    budget_chars: providerModelInputBudgetChars,
+    source_chars: JSON.stringify(validationInput).length,
+    compiled_chars: 0,
+    reduction_chars: JSON.stringify(validationInput).length,
+    reduction_ratio: 1,
+    raw_payload_removed: true,
+    referral_removed: true,
+    media_urls_removed: true,
+    duplicated_context_consolidated: true,
+  };
   const providerErrors = [];
   const classifications = [];
   const startedAt = Date.now();
 
   try {
-    let result = deterministicCommerceResult(modelInput);
+    let result = deterministicCommerceResult(validationInput);
     if (!result) {
-      const orderedProviders = providerOrder(availableProviders, Date.now(), modelInputChars);
+      const compiled = compileProviderModelInput(validationInput, { budgetChars: providerModelInputBudgetChars });
+      const providerModelInput = compiled.input;
+      promptProfile = compiled.profile;
+      modelInputChars = compiled.profile.compiled_chars;
+      const orderedProviders = providerOrder(availableProviders, modelInputChars);
+      if (!orderedProviders.length) {
+        classifications.push("context_limit");
+        providerErrors.push(`router:context_limit:NO_PROVIDER_ACCEPTS_COMPILED_INPUT_${modelInputChars}`);
+        throw new Error(`V10_NO_PROVIDER_ACCEPTS_COMPILED_INPUT:${modelInputChars}`);
+      }
       for (const provider of orderedProviders) {
         const callStartedAt = Date.now();
         try {
-          result = await sovereignProviderDecision(provider, modelInput);
+          result = await sovereignProviderDecision(provider, providerModelInput, validationInput);
           if (result.hardRepair) {
             const qualityError = new Error(`HARD_COMMERCE_REPAIR:${result.hardRepairReason || "provider_ignored_policy"}`);
             qualityError.code = "decision_invalid";
@@ -1971,7 +1952,8 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
             recordProviderSuccess(provider, Date.now() - callStartedAt, modelInputChars);
             await persistProviderRuntimeState(provider, "ready");
           }
-          providerCache.lastProviderKey = result.provider;
+          providerCache.lastProviderKey = providerKey(provider);
+          providerCache.activeFamily = providerModelFamily(provider);
           break;
         } catch (error) {
           const classification = classifyProviderError(provider, error);
@@ -2000,6 +1982,10 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
           transport_locked: true,
           provider_key: result.provider,
           model_input_chars: modelInputChars,
+          prompt_profile: promptProfile,
+          provider_model_family: result.provider === "hard-commerce-guard"
+            ? "deterministic"
+            : providerCache.activeFamily,
           model: result.model,
           response_id: result.responseId,
           provider_errors: providerErrors,
@@ -2077,8 +2063,11 @@ async function heartbeat(status, error = null, details = {}) {
         hard_commerce_policy_authority: "mandatory_deterministic_enforcement",
         advisor_authority: "non_binding",
         batch_size: BATCH_SIZE,
-        load_balancing: "google_primary_then_weighted_fallback",
+        load_balancing: "sticky_model_family_then_next_family_on_limit",
         google_primary_pool: true,
+        provider_model_family_sticky: true,
+        same_model_keys_exhausted_before_family_switch: true,
+        provider_model_input_budget_chars: providerModelInputBudgetChars,
         google_rate_limit_scope: "per_independent_provider_project",
         circuit_breaker: true,
         retry_after_respected: true,
@@ -2155,6 +2144,7 @@ async function tick() {
       provider_wait: providerWait,
       provider_errors_last_tick: providerErrorCount,
       provider_key: providerCache.lastProviderKey,
+      provider_model_family: providerCache.activeFamily,
       provider_priority: providerCache.rows.map((row) => providerKey(row)),
       transport_locked_at_decision_stage: true,
       operational_fallback_enabled: false,
