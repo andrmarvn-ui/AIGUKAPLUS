@@ -128,6 +128,134 @@ export function installReportRoutes(app, { supabaseUrl, publishableKey }) {
     }
   }
 
+  function leadAdInventory(filterData = {}) {
+    return new Map((Array.isArray(filterData.ads) ? filterData.ads : [])
+      .filter((row) => clean(row?.ad_id))
+      .map((row) => [clean(row.ad_id), row]));
+  }
+
+  function attachLiveLeadAdDimensions(report, filterResult = {}) {
+    const mappings = leadAdInventory(filterResult.data || {});
+    let enrichedCount = 0;
+    let unresolvedCount = 0;
+    const data = (Array.isArray(report?.data) ? report.data : []).map((row) => {
+      const adId = clean(row.ad_id);
+      if (!adId) return row;
+      const mapping = mappings.get(adId);
+      if (!mapping) {
+        unresolvedCount += 1;
+        return row;
+      }
+      if (!clean(row.campaign_id) || !clean(row.adset_id) || !clean(row.ad_name)) enrichedCount += 1;
+      return {
+        ...row,
+        page_id: clean(row.page_id || mapping.page_id) || null,
+        page_name: clean(row.page_name || mapping.page_name) || null,
+        ad_account_id: normalizeAccountId(mapping.ad_account_id || row.ad_account_id) || null,
+        ad_account_name: clean(mapping.ad_account_name || row.ad_account_name) || null,
+        campaign_id: clean(mapping.campaign_id || row.campaign_id) || null,
+        campaign_name: clean(mapping.campaign_name || row.campaign_name) || null,
+        adset_id: clean(mapping.adset_id || row.adset_id) || null,
+        adset_name: clean(mapping.adset_name || row.adset_name) || null,
+        ad_id: adId,
+        ad_name: clean(mapping.ad_name || row.ad_name) || adId,
+        ad_status: clean(mapping.effective_status || mapping.ad_status || row.ad_status) || null,
+        effective_status: clean(mapping.effective_status || row.effective_status || row.ad_status) || null,
+        ad_dimension_source: clean(mapping.inventory_source) || "meta_live_inventory",
+      };
+    });
+    return {
+      ...report,
+      data,
+      live_ad_dimension_enriched_count: enrichedCount,
+      unresolved_ad_dimension_count: unresolvedCount,
+      filter_source: filterResult.source || report?.filter_source || null,
+      warnings: [
+        ...(Array.isArray(report?.warnings) ? report.warnings : []),
+        ...(Array.isArray(filterResult.warnings) ? filterResult.warnings : []),
+      ],
+    };
+  }
+
+  function leadNeedsLiveFiltering(query = {}) {
+    return ["ad_account_id", "campaign_id", "adset_id", "ad_id", "search"]
+      .some((name) => Boolean(queryValue(query, name)));
+  }
+
+  function leadMatchesQuery(row, query = {}) {
+    const equals = (name, value, normalize = clean) => {
+      const selected = queryValue(query, name);
+      return !selected || normalize(value) === normalize(selected);
+    };
+    if (!equals("page_id", row.page_id)) return false;
+    if (!equals("ad_account_id", row.ad_account_id, normalizeAccountId)) return false;
+    if (!equals("campaign_id", row.campaign_id)) return false;
+    if (!equals("adset_id", row.adset_id)) return false;
+    if (!equals("ad_id", row.ad_id)) return false;
+    const search = clean(queryValue(query, "search")).toLocaleLowerCase("vi");
+    if (!search) return true;
+    return [
+      row.customer_name, row.phone, row.zalo, row.sender_id, row.customer_id, row.conversation_id,
+      row.page_name, row.ad_account_name, row.campaign_name, row.adset_name, row.ad_name, row.ad_id,
+      row.product_group, row.product_label, row.last_snippet, row.pancake_employee,
+      row.source_channel, row.customer_source_type,
+    ].map(clean).join(" ").toLocaleLowerCase("vi").includes(search);
+  }
+
+  function leadCounts(rows = []) {
+    const identity = (row) => `${clean(row.page_id)}:${clean(row.customer_id || row.sender_id)}`;
+    const unique = (predicate = () => true) => new Set(rows.filter(predicate).map(identity).filter((key) => key !== ":")).size;
+    return {
+      count: rows.length,
+      customer_count: unique(),
+      message_customer_count: unique((row) => row.customer_source_type !== "comment"),
+      comment_customer_count: unique((row) => row.customer_source_type === "comment"),
+      contact_count: unique((row) => Boolean(row.has_contact || row.phone || row.zalo)),
+      account_count: new Set(rows.map((row) => normalizeAccountId(row.ad_account_id)).filter(Boolean)).size,
+    };
+  }
+
+  async function liveLeads(query, limit = null) {
+    const requestedLimit = Math.min(Math.max(Number(limit ?? query?.limit ?? 250), 1), 10_000);
+    const requestedOffset = Math.max(Number(query?.offset || 0), 0);
+    const postFilter = leadNeedsLiveFiltering(query);
+    const storedQuery = postFilter ? {
+      ...query,
+      ad_account_id: null,
+      campaign_id: null,
+      adset_id: null,
+      ad_id: null,
+      search: null,
+      limit: 10_000,
+      offset: 0,
+    } : query;
+    const [storedReport, filterResult] = await Promise.all([
+      stored("leads", storedQuery, postFilter ? 10_000 : requestedLimit),
+      filters().catch((error) => ({
+        ok: false,
+        data: { ads: [] },
+        source: "lead_live_inventory_unavailable",
+        warnings: [`LEAD_LIVE_INVENTORY:${error.message}`],
+      })),
+    ]);
+    const enriched = attachLiveLeadAdDimensions(storedReport, filterResult);
+    if (!postFilter) return enriched;
+
+    const allRows = Array.isArray(enriched.data) ? enriched.data : [];
+    const filtered = allRows.filter((row) => leadMatchesQuery(row, query));
+    const capped = Number(storedReport?.count || 0) > allRows.length;
+    return {
+      ...enriched,
+      ...leadCounts(filtered),
+      data: filtered.slice(requestedOffset, requestedOffset + requestedLimit),
+      live_dimension_filtering: true,
+      result_capped: capped,
+      warnings: capped
+        ? [...(enriched.warnings || []), "LEAD_FILTER_RESULT_CAPPED_AT_10000"]
+        : enriched.warnings,
+    };
+  }
+
   function accountIds(filterData, query) {
     const selected = normalizeAccountId(queryValue(query, "ad_account_id"));
     if (selected) return [selected];
@@ -406,8 +534,7 @@ export function installReportRoutes(app, { supabaseUrl, publishableKey }) {
   async function loadReport(type, query, limit = null) {
     if (type === "ads") return liveAds(query);
     if (type === "daily") return liveDaily(query);
-    const defaultLimit = limit ?? (!clean(query.limit) ? 250 : null);
-    const result = await stored("leads", query, defaultLimit);
+    const result = await liveLeads(query, limit);
     return enrichLeadsFromCore({ ...result, source: result.source || "supabase_customer_history" });
   }
 
@@ -465,11 +592,12 @@ export function installReportRoutes(app, { supabaseUrl, publishableKey }) {
       if (action === "health") return res.json({
         ok: true,
         service: "aiguka-v10-direct-report",
-        version: 6,
+        version: 7,
         meta_direct_ready: meta.ready(),
         filter_source: "meta_live_inventory_plus_static_mapping",
         customer_metric_source: "v10_core_live_customer_metrics",
         customer_history_source: coreBase() && coreKey() ? "core_live_plus_reporting_history" : "reporting_history",
+        lead_ad_dimension_source: "meta_live_inventory_by_ad_id",
         snapshot_workers_required: false,
         raw_contact_replication: false,
       });

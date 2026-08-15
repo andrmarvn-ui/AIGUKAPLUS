@@ -44,7 +44,7 @@ const staticFilters = {
   }],
 };
 
-async function withFetch(handler, { meta = true, core = true, leadRow = false, failInsights = false } = {}) {
+async function withFetch(handler, { meta = true, core = true, leadRow = false, failInsights = false, failFilterRegistry = false } = {}) {
   const originalFetch = globalThis.fetch;
   const originals = {
     token: process.env.META_ACCESS_TOKEN,
@@ -71,9 +71,11 @@ async function withFetch(handler, { meta = true, core = true, leadRow = false, f
     calls.push(item);
 
     if (item.url.includes("/rpc/v10_report_filter_registry")) {
+      if (failFilterRegistry) return response({ message: "registry unavailable" }, 503);
       return response({ ok: true, data: staticFilters, source: "v10_static_registry_and_mapping" });
     }
     if (item.url.includes("/rpc/v8_report_filters_test")) {
+      if (failFilterRegistry) return response({ message: "fallback unavailable" }, 503);
       return response({ ok: true, data: staticFilters });
     }
     if (item.url.startsWith("https://core.example.co/rest/v1/rpc/v10_report_customer_metrics")) {
@@ -107,6 +109,13 @@ async function withFetch(handler, { meta = true, core = true, leadRow = false, f
           customer_name: "Khách 000001",
           phone: "Đã có SĐT",
           has_contact: true,
+          ad_id: "ad-1",
+          ad_account_id: null,
+          campaign_id: null,
+          campaign_name: null,
+          adset_id: null,
+          adset_name: null,
+          ad_name: null,
         }] : [],
         count: leadRow ? 1 : 0,
       });
@@ -236,15 +245,69 @@ test("Lead rows read names and raw contacts from Core without copying them into 
   }, { leadRow: true });
 });
 
+test("Lead rows attach current Meta campaign, ad set and ad names by ad_id", async () => {
+  await withFetch(async (calls) => {
+    const res = makeResponse();
+    await installedHandler()({ query: { action: "leads", from: "2026-08-05", to: "2026-08-05", limit: "250" } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.payload.live_ad_dimension_enriched_count, 1);
+    assert.equal(res.payload.data[0].ad_account_name, "Account 123");
+    assert.equal(res.payload.data[0].campaign_id, "campaign-1");
+    assert.equal(res.payload.data[0].campaign_name, "Campaign 1");
+    assert.equal(res.payload.data[0].adset_id, "adset-1");
+    assert.equal(res.payload.data[0].adset_name, "Ad set 1");
+    assert.equal(res.payload.data[0].ad_name, "Ad 1");
+    assert.equal(res.payload.data[0].ad_dimension_source, "meta_live_inventory");
+    assert.ok(urls(calls).some((url) => url.includes("/act_123/ads?")));
+  }, { leadRow: true });
+});
+
+test("Lead campaign filters run after live Meta enrichment instead of stale Reporting dimensions", async () => {
+  await withFetch(async (calls) => {
+    const res = makeResponse();
+    await installedHandler()({ query: {
+      action: "leads",
+      from: "2026-08-05",
+      to: "2026-08-05",
+      campaign_id: "campaign-1",
+      search: "Ad set 1",
+      limit: "25",
+      offset: "0",
+    } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.payload.live_dimension_filtering, true);
+    assert.equal(res.payload.count, 1);
+    assert.equal(res.payload.data[0].campaign_name, "Campaign 1");
+    const leadCall = calls.find((call) => /v8_report_leads_test$/.test(call.url));
+    assert.equal(leadCall.body.p_campaign_id, null);
+    assert.equal(leadCall.body.p_search, null);
+    assert.equal(leadCall.body.p_limit, 10_000);
+    assert.equal(leadCall.body.p_offset, 0);
+  }, { leadRow: true });
+});
+
+test("Lead history still loads when live ad inventory is temporarily unavailable", async () => {
+  await withFetch(async () => {
+    const res = makeResponse();
+    await installedHandler()({ query: { action: "leads", from: "2026-08-05", to: "2026-08-05" } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.payload.count, 1);
+    assert.equal(res.payload.data[0].ad_id, "ad-1");
+    assert.equal(res.payload.data[0].campaign_name, null);
+    assert.ok(res.payload.warnings.some((warning) => String(warning).startsWith("LEAD_LIVE_INVENTORY:")));
+  }, { leadRow: true, failFilterRegistry: true });
+});
+
 test("filters and health expose the direct report source cutover", async () => {
   await withFetch(async (calls) => {
     const handler = installedHandler();
     const health = makeResponse();
     await handler({ query: { action: "health" } }, health);
-    assert.equal(health.payload.version, 6);
+    assert.equal(health.payload.version, 7);
     assert.equal(health.payload.snapshot_workers_required, false);
     assert.equal(health.payload.filter_source, "meta_live_inventory_plus_static_mapping");
     assert.equal(health.payload.customer_metric_source, "v10_core_live_customer_metrics");
+    assert.equal(health.payload.lead_ad_dimension_source, "meta_live_inventory_by_ad_id");
 
     const filterResponse = makeResponse();
     await handler({ query: { action: "filters" } }, filterResponse);
