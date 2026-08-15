@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V25";
+const RELEASE = "AIGUKA_V10_HARD_COMMERCE_COMMENT_PRIVATE_V26";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -99,6 +99,8 @@ requireToken("v10/core/commerce-integrity.js", "deterministic_group_price_range"
 requireToken("v10/core/commerce-integrity.js", "KNOWN_PROVIDER_LANGUAGE_CORRUPTION");
 requireToken("v10-direct-core-worker.js", "superseded_before_decision_save");
 requireToken("v10-direct-core-worker.js", 'architecture: "v10_ai_hard_commerce_integrity"');
+requireToken("v10-decision-queue-janitor.js", 'const VERSION = "v10_queue_hygiene_v4_hard_commerce_aware";');
+requireToken("v10-decision-queue-janitor.js", '"v10_ai_hard_commerce_integrity"');
 requireToken("v9-core-fetch-router.js", 'responsibility: "routing_only"');
 requireToken("v10/core/conversation-assembler.js", "structured_choice_same_menu_latest_replaces_previous");
 requireToken("v10/core/media-obligation.js", 'mediaObligationVersion = "v10_media_obligation_v6_continuation_fallback"');

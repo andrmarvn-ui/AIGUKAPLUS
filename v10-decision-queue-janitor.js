@@ -1,10 +1,13 @@
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-queue-janitor";
-const VERSION = "v10_queue_hygiene_v3_merge_safe";
+const VERSION = "v10_queue_hygiene_v4_hard_commerce_aware";
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_JANITOR_POLL_MS || 2000));
 const CAPACITY_GUARD_MS = Math.max(5 * 60_000, Number(process.env.AIGUKA_V10_CAPACITY_GUARD_MS || 30 * 60_000));
-const V10 = "v10_ai_sovereign_advisory";
+const V10_ARCHITECTURES = new Set([
+  "v10_ai_hard_commerce_integrity",
+  "v10_ai_sovereign_advisory",
+]);
 let running = false;
 let timer;
 let lastCapacityGuardAt = 0;
@@ -30,7 +33,8 @@ async function core(path, options = {}) {
 }
 
 function isV10(row) {
-  return row?.input_snapshot?.architecture === V10 || row?.output?.architecture === V10;
+  return V10_ARCHITECTURES.has(String(row?.input_snapshot?.architecture || ""))
+    || V10_ARCHITECTURES.has(String(row?.output?.architecture || ""));
 }
 
 async function suppress(row, action, reason) {

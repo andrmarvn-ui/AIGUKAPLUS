@@ -131,6 +131,8 @@ test("queue janitor rehydrates legacy work and dedupes exact customer frontiers"
   const source = fs.readFileSync(new URL("../v10-decision-queue-janitor.js", import.meta.url), "utf8");
   assert.match(source, /V10_REHYDRATE_LEGACY_PENDING/);
   assert.match(source, /legacy_rehydrating/);
+  assert.match(source, /v10_ai_hard_commerce_integrity/);
+  assert.match(source, /v10_queue_hygiene_v4_hard_commerce_aware/);
   assert.match(source, /created_at: now/);
   assert.match(source, /duplicate_customer_cluster/);
   assert.match(source, /conversation_merge_authority: "core_ingest_debounce"/);
