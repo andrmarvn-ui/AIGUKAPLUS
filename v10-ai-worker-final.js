@@ -8,6 +8,7 @@ import { compileProviderModelInput, providerModelInputBudgetChars } from "./v10/
 import { providerModelFamily, stickyModelProviderOrder } from "./v10/core/provider-routing.js";
 import {
   decisionConversationKey,
+  decisionCustomerWaitAt,
   decisionIsCurrentUnhandled,
   decisionRetryReady,
   prioritizeUnhandledDecisions,
@@ -25,7 +26,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-ai";
-const VERSION = "v10_ai_prompt_compiler_v24_unhandled_priority_recovery"; // AIGUKA_CURRENT_UNANSWERED_PRIORITY_V1 // AIGUKA_PROVIDER_RESILIENCE_V1
+const VERSION = "v10_ai_prompt_compiler_v25_deliverable_unanswered_priority"; // AIGUKA_META_WINDOW_PRIORITY_V1 // AIGUKA_PROVIDER_RESILIENCE_V1
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_AI_POLL_MS || 3000));
 const BATCH_SIZE = Math.max(1, Math.min(4, Number(process.env.AIGUKA_V10_AI_BATCH_SIZE || 3)));
 const PROVIDER_CACHE_MS = Math.max(3000, Number(process.env.AIGUKA_V10_PROVIDER_CACHE_MS || 5000));
@@ -35,6 +36,7 @@ const LEASE_MS = Math.max(60_000, Number(process.env.AIGUKA_V10_AI_LEASE_MS || 9
 const MAX_DECISION_ERRORS = Math.max(3, Number(process.env.AIGUKA_V10_AI_MAX_DECISION_ERRORS || 5));
 const AI_ERROR_AUTO_RECOVERY_LIMIT = Math.max(0, Math.min(3, Number(process.env.AIGUKA_V10_AI_ERROR_AUTO_RECOVERY_LIMIT || 1)));
 const AI_ERROR_RECOVERY_LOOKBACK_HOURS = Math.max(1, Math.min(168, Number(process.env.AIGUKA_V10_AI_ERROR_RECOVERY_HOURS || 48)));
+const META_DELIVERY_WINDOW_MS = Math.max(15 * 60_000, Math.min(24 * 60 * 60_000, Number(process.env.AIGUKA_V10_META_DELIVERY_WINDOW_MS || 23.75 * 60 * 60_000)));
 const GEMINI_MIN_INTERVAL_MS = Math.max(3_000, Number(process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS || 5_000));
 const GEMINI_MIN_COOLDOWN_MS = Math.max(120_000, Number(process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS || 120_000));
 const GEMINI_MAX_COOLDOWN_MS = Math.max(GEMINI_MIN_COOLDOWN_MS, Number(process.env.AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS || 300_000));
@@ -403,10 +405,13 @@ async function recoverLatestAiErrors() {
   const statesByConversation = await loadConversationStates(candidates);
   const nowMs = Date.now();
   const eligible = prioritizeUnhandledDecisions(candidates, { statesByConversation, nowMs })
-    .filter((row) => decisionIsCurrentUnhandled(
-      row,
-      statesByConversation.get(decisionConversationKey(row)),
-      nowMs,
+    .filter((row) => (
+      decisionIsCurrentUnhandled(
+        row,
+        statesByConversation.get(decisionConversationKey(row)),
+        nowMs,
+      )
+      && nowMs - decisionCustomerWaitAt(row) <= META_DELIVERY_WINDOW_MS
     ));
   let reset = 0;
   for (const row of eligible.slice(0, BATCH_SIZE)) {
@@ -2187,6 +2192,7 @@ async function tick() {
   let providerWait = false;
   let recovery = { stale: 0, reset: 0, aiErrorFound: 0, aiErrorEligible: 0, aiErrorReset: 0 };
   let unhandledBacklog = 0;
+  let manualFollowupBacklog = 0;
   try {
     const staleRecovery = await recoverStaleProcessing();
     const aiErrorRecovery = await recoverLatestAiErrors();
@@ -2203,15 +2209,20 @@ async function tick() {
     const candidates = (rows || []).filter((row) => acceptedInputArchitecture(row?.input_snapshot?.architecture));
     const now = Date.now();
     const statesByConversation = await loadConversationStates(candidates);
-    const providerRows = candidates.length ? await providers() : [];
-    const tickAvailability = providerAvailability(providerRows, now);
-    providerWait = candidates.length > 0 && !tickAvailability.available.length;
-    unhandledBacklog = candidates.filter((row) => decisionIsCurrentUnhandled(
+    const currentUnhandledCandidates = candidates.filter((row) => decisionIsCurrentUnhandled(
       row,
       statesByConversation.get(decisionConversationKey(row)),
       now,
-    )).length;
-    const ready = prioritizeUnhandledDecisions(candidates.filter((row) => decisionRetryReady(row, {
+    ));
+    unhandledBacklog = currentUnhandledCandidates.length;
+    const deliverableCandidates = currentUnhandledCandidates.filter(
+      (row) => now - decisionCustomerWaitAt(row) <= META_DELIVERY_WINDOW_MS,
+    );
+    manualFollowupBacklog = Math.max(0, unhandledBacklog - deliverableCandidates.length);
+    const providerRows = deliverableCandidates.length ? await providers() : [];
+    const tickAvailability = providerAvailability(providerRows, now);
+    providerWait = deliverableCandidates.length > 0 && !tickAvailability.available.length;
+    const ready = prioritizeUnhandledDecisions(deliverableCandidates.filter((row) => decisionRetryReady(row, {
       nowMs: now,
       providerAvailable: tickAvailability.available.length > 0,
     })), { statesByConversation, nowMs: now });
@@ -2234,9 +2245,9 @@ async function tick() {
       }
     }
 
-    const backlog = candidates.length;
-    const degraded = recovery.stale > 0 || retried > 0 || reviewRequired > 0 || providerErrorCount > 0 || providerWait || backlog > 10;
-    await heartbeat(degraded ? "degraded" : "healthy", degraded ? `recovered=${recovery.stale}, ai_error_requeued=${recovery.aiErrorReset}, retried=${retried}, review=${reviewRequired}, provider_wait=${providerWait}, provider_errors=${providerErrorCount}, backlog=${backlog}, unhandled=${unhandledBacklog}` : null, {
+    const backlog = deliverableCandidates.length;
+    const degraded = recovery.stale > 0 || retried > 0 || reviewRequired > 0 || providerErrorCount > 0 || providerWait || backlog > 10 || manualFollowupBacklog > 0;
+    await heartbeat(degraded ? "degraded" : "healthy", degraded ? `recovered=${recovery.stale}, ai_error_requeued=${recovery.aiErrorReset}, retried=${retried}, review=${reviewRequired}, provider_wait=${providerWait}, provider_errors=${providerErrorCount}, deliverable=${backlog}, manual_followup=${manualFollowupBacklog}` : null, {
       processed_last_tick: processed,
       retried_last_tick: retried,
       ai_review_required_last_tick: reviewRequired,
@@ -2247,7 +2258,10 @@ async function tick() {
       ai_error_requeued_last_tick: recovery.aiErrorReset,
       automatic_error_recovery_limit: AI_ERROR_AUTO_RECOVERY_LIMIT,
       unhandled_ready_backlog: unhandledBacklog,
-      priority_policy: "current_unanswered_frontier_oldest_first",
+      deliverable_unanswered_backlog: backlog,
+      manual_followup_required_backlog: manualFollowupBacklog,
+      meta_delivery_window_ms: META_DELIVERY_WINDOW_MS,
+      priority_policy: "deliverable_current_unanswered_oldest_first",
       ready_backlog: backlog,
       provider_wait: providerWait,
       provider_errors_last_tick: providerErrorCount,
@@ -2298,4 +2312,7 @@ if (!CORE_BASE || !CORE_KEY || !KNOWLEDGE_BASE || !KNOWLEDGE_KEY) {
 // AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1
 
 // AIGUKA_V10_CURRENT_UNANSWERED_PRIORITY_V1
+
+
+// AIGUKA_V10_META_DELIVERY_WINDOW_PRIORITY_V1
 
