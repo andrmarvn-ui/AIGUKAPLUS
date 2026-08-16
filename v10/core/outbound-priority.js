@@ -15,12 +15,11 @@ export function outboundDecisionCustomerAt(decision = {}) {
 
 export function currentUnansweredRecoveryEligible(decision = {}, state = {}, options = {}) {
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
-  const maxAgeMs = Math.max(1, Number(options.maxAgeMs || 72 * 60 * 60_000));
-  const createdAt = parsedTime(decision.created_at);
-  if (!createdAt || nowMs - createdAt > maxAgeMs) return false;
+  const maxAgeMs = Math.max(1, Number(options.maxAgeMs || 23.75 * 60 * 60_000));
   if (String(state.last_source_event_id || "") !== String(decision.source_event_id || "")) return false;
   const customerAt = parsedTime(state.last_customer_event_at);
   const pageAt = parsedTime(state.last_page_event_at);
+  if (!customerAt || nowMs - customerAt > maxAgeMs) return false;
   return customerAt > pageAt;
 }
 
@@ -57,5 +56,6 @@ export function prioritizeOutboundDecisions(decisions = [], options = {}) {
   };
 }
 
-export const outboundPriorityVersion = "v10_outbound_priority_v2_fresh_then_oldest_recovery";
+export const outboundPriorityVersion = "v10_outbound_priority_v3_meta_window_guarded_recovery";
+
 
