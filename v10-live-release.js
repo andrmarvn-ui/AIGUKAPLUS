@@ -97,7 +97,7 @@ requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gat
 requireToken("v10-followup-worker.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_prompt_compiler_v25_deliverable_unanswered_priority";');
 requireToken("v10-ai-worker-final.js", "recoverLatestAiErrors");
-requireToken("v10-ai-worker-final.js", "current_unanswered_frontier_oldest_first");
+requireToken("v10-ai-worker-final.js", "deliverable_current_unanswered_oldest_first");
 requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-ai-worker-final.js", "mandatory_deterministic_enforcement");
