@@ -7,6 +7,12 @@ import { deriveMediaScope, explicitMediaRequestFromMessages, mediaExpectedFromMe
 import { compileProviderModelInput, providerModelInputBudgetChars } from "./v10/core/model-input-compiler.js";
 import { providerModelFamily, stickyModelProviderOrder } from "./v10/core/provider-routing.js";
 import {
+  decisionConversationKey,
+  decisionIsCurrentUnhandled,
+  decisionRetryReady,
+  prioritizeUnhandledDecisions,
+} from "./v10/core/decision-queue-priority.js";
+import {
   commerceDecisionViolations,
   commerceRequestContext,
   commerceRequiresDeterministicResolution,
@@ -19,7 +25,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-ai";
-const VERSION = "v10_ai_prompt_compiler_v23_sticky_model_family"; // AIGUKA_PROVIDER_STICKY_MODEL_FAMILY_V1 // AIGUKA_PROVIDER_RESILIENCE_V1
+const VERSION = "v10_ai_prompt_compiler_v24_unhandled_priority_recovery"; // AIGUKA_CURRENT_UNANSWERED_PRIORITY_V1 // AIGUKA_PROVIDER_RESILIENCE_V1
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_AI_POLL_MS || 3000));
 const BATCH_SIZE = Math.max(1, Math.min(4, Number(process.env.AIGUKA_V10_AI_BATCH_SIZE || 3)));
 const PROVIDER_CACHE_MS = Math.max(3000, Number(process.env.AIGUKA_V10_PROVIDER_CACHE_MS || 5000));
@@ -27,6 +33,8 @@ const RATE_LIMIT_MAX_COOLDOWN_MS = Math.max(15 * 60_000, Number(process.env.AIGU
 const DECISION_ERROR_COOLDOWN_MS = Math.max(60_000, Number(process.env.AIGUKA_PROVIDER_DECISION_ERROR_COOLDOWN_MS || 5 * 60_000));
 const LEASE_MS = Math.max(60_000, Number(process.env.AIGUKA_V10_AI_LEASE_MS || 90_000));
 const MAX_DECISION_ERRORS = Math.max(3, Number(process.env.AIGUKA_V10_AI_MAX_DECISION_ERRORS || 5));
+const AI_ERROR_AUTO_RECOVERY_LIMIT = Math.max(0, Math.min(3, Number(process.env.AIGUKA_V10_AI_ERROR_AUTO_RECOVERY_LIMIT || 1)));
+const AI_ERROR_RECOVERY_LOOKBACK_HOURS = Math.max(1, Math.min(168, Number(process.env.AIGUKA_V10_AI_ERROR_RECOVERY_HOURS || 48)));
 const GEMINI_MIN_INTERVAL_MS = Math.max(3_000, Number(process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS || 5_000));
 const GEMINI_MIN_COOLDOWN_MS = Math.max(120_000, Number(process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS || 120_000));
 const GEMINI_MAX_COOLDOWN_MS = Math.max(GEMINI_MIN_COOLDOWN_MS, Number(process.env.AIGUKA_GEMINI_FREE_MAX_COOLDOWN_MS || 300_000));
@@ -350,6 +358,84 @@ function processingAttempts(row) {
 
 function decisionErrors(row) {
   return Math.max(0, Number(row?.output?.decision_errors || 0));
+}
+
+function automaticRecoveryCount(row) {
+  return Math.max(0, Number(row?.output?.automatic_recovery_count || 0));
+}
+
+function postgrestIn(values = []) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))]
+    .map((value) => encodeURIComponent(value))
+    .join(",");
+}
+
+async function loadConversationStates(rows = []) {
+  const pageIds = postgrestIn(rows.map((row) => row?.page_id));
+  const senderIds = postgrestIn(rows.map((row) => row?.sender_id));
+  if (!pageIds || !senderIds) return new Map();
+  const states = await core(
+    "v9_conversation_state?select=page_id,sender_id,last_source_event_id,last_customer_event_at,last_page_event_at,human_takeover,human_takeover_until"
+      + `&page_id=in.(${pageIds})`
+      + `&sender_id=in.(${senderIds})`
+      + "&limit=200",
+    { timeout: 15_000 },
+  );
+  return new Map((states || []).map((state) => [
+    `${String(state.page_id || "")}:${String(state.sender_id || "")}`,
+    state,
+  ]));
+}
+
+async function recoverLatestAiErrors() {
+  if (AI_ERROR_AUTO_RECOVERY_LIMIT <= 0) return { found: 0, eligible: 0, reset: 0 };
+  const cutoff = new Date(Date.now() - AI_ERROR_RECOVERY_LOOKBACK_HOURS * 60 * 60_000).toISOString();
+  const rows = await core(
+    "v9_decisions?select=id,source_event_id,page_id,sender_id,input_snapshot,output,status,created_at,updated_at"
+      + "&status=eq.shadow_ai_error"
+      + "&created_at=gte." + encodeURIComponent(cutoff)
+      + "&order=created_at.asc&limit=200",
+  );
+  const candidates = (rows || []).filter((row) => (
+    acceptedInputArchitecture(row?.input_snapshot?.architecture)
+      && automaticRecoveryCount(row) < AI_ERROR_AUTO_RECOVERY_LIMIT
+  ));
+  const statesByConversation = await loadConversationStates(candidates);
+  const nowMs = Date.now();
+  const eligible = prioritizeUnhandledDecisions(candidates, { statesByConversation, nowMs })
+    .filter((row) => decisionIsCurrentUnhandled(
+      row,
+      statesByConversation.get(decisionConversationKey(row)),
+      nowMs,
+    ));
+  let reset = 0;
+  for (const row of eligible.slice(0, BATCH_SIZE)) {
+    const previousError = String(row?.output?.last_error || "").slice(0, 800) || null;
+    const updated = await core(`v9_decisions?id=eq.${row.id}&status=eq.shadow_ai_error`, {
+      method: "PATCH",
+      prefer: "return=representation",
+      body: {
+        status: "shadow_context_ready",
+        action: "needs_ai_decision",
+        output: {
+          ...(row.output || {}),
+          should_send: false,
+          transport_locked: true,
+          decision_errors: 0,
+          ai_review_required: false,
+          automatic_recovery_count: automaticRecoveryCount(row) + 1,
+          automatic_recovery_reason: "LATEST_CUSTOMER_FRONTIER_UNANSWERED",
+          previous_last_error: previousError,
+          last_error: "AI_ERROR_AUTOMATICALLY_REQUEUED",
+          provider_wait_reason: null,
+          retry_not_before: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      },
+    });
+    if (updated?.[0]?.id) reset += 1;
+  }
+  return { found: rows?.length || 0, eligible: eligible.length, reset };
 }
 
 async function recoverStaleProcessing() {
@@ -1927,7 +2013,14 @@ async function processOne(row, availableProviders, knowledgeSnapshot) {
   const startedAt = Date.now();
 
   try {
-    let result = deterministicCommerceResult(validationInput);
+    let result = null;
+    try {
+      result = deterministicCommerceResult(validationInput);
+    } catch (error) {
+      const guardClassification = error?.code === "decision_invalid" ? "decision_error" : "provider_error";
+      classifications.push(guardClassification);
+      providerErrors.push("hard-commerce-guard:" + guardClassification + ":" + String(error?.message || error).slice(0, 260));
+    }
     if (!result) {
       const compiled = compileProviderModelInput(validationInput, { budgetChars: providerModelInputBudgetChars });
       const providerModelInput = compiled.input;
@@ -2092,29 +2185,38 @@ async function tick() {
   let reviewRequired = 0;
   let providerErrorCount = 0;
   let providerWait = false;
-  let recovery = { stale: 0, reset: 0 };
+  let recovery = { stale: 0, reset: 0, aiErrorFound: 0, aiErrorEligible: 0, aiErrorReset: 0 };
+  let unhandledBacklog = 0;
   try {
-    recovery = await recoverStaleProcessing();
-    const rows = await core("v9_decisions?select=id,input_snapshot,output,status,created_at,updated_at&status=eq.shadow_context_ready&order=created_at.asc&limit=50");
+    const staleRecovery = await recoverStaleProcessing();
+    const aiErrorRecovery = await recoverLatestAiErrors();
+    recovery = {
+      ...staleRecovery,
+      aiErrorFound: aiErrorRecovery.found,
+      aiErrorEligible: aiErrorRecovery.eligible,
+      aiErrorReset: aiErrorRecovery.reset,
+    };
+    const rows = await core(
+      "v9_decisions?select=id,source_event_id,page_id,sender_id,input_snapshot,output,status,created_at,updated_at"
+        + "&status=eq.shadow_context_ready&order=created_at.asc&limit=200",
+    );
+    const candidates = (rows || []).filter((row) => acceptedInputArchitecture(row?.input_snapshot?.architecture));
     const now = Date.now();
-    const ready = (rows || []).filter((row) => {
-      if (!acceptedInputArchitecture(row?.input_snapshot?.architecture)) return false;
-      const retryAt = Date.parse(row?.output?.retry_not_before || "");
-      return !Number.isFinite(retryAt) || retryAt <= now;
-    });
-    ready.sort(function (left, right) {
-      const leftMessages = left?.input_snapshot?.conversation?.messages || [];
-      const rightMessages = right?.input_snapshot?.conversation?.messages || [];
-      const leftMedia = explicitMediaRequestFromMessages(leftMessages);
-      const rightMedia = explicitMediaRequestFromMessages(rightMessages);
-      if (leftMedia !== rightMedia) return leftMedia ? -1 : 1;
-      const leftTime = Date.parse(left?.created_at || "") || 0;
-      const rightTime = Date.parse(right?.created_at || "") || 0;
-      return leftMedia ? rightTime - leftTime : leftTime - rightTime;
-    }); // explicit_media_backlog_first
+    const statesByConversation = await loadConversationStates(candidates);
+    const providerRows = candidates.length ? await providers() : [];
+    const tickAvailability = providerAvailability(providerRows, now);
+    providerWait = candidates.length > 0 && !tickAvailability.available.length;
+    unhandledBacklog = candidates.filter((row) => decisionIsCurrentUnhandled(
+      row,
+      statesByConversation.get(decisionConversationKey(row)),
+      now,
+    )).length;
+    const ready = prioritizeUnhandledDecisions(candidates.filter((row) => decisionRetryReady(row, {
+      nowMs: now,
+      providerAvailable: tickAvailability.available.length > 0,
+    })), { statesByConversation, nowMs: now });
 
     if (ready.length) {
-      const providerRows = await providers();
       let snapshot = null;
       for (const row of ready.slice(0, BATCH_SIZE)) {
         const availability = providerAvailability(providerRows, Date.now());
@@ -2132,14 +2234,20 @@ async function tick() {
       }
     }
 
-    const backlog = (rows || []).filter((row) => acceptedInputArchitecture(row?.input_snapshot?.architecture)).length;
+    const backlog = candidates.length;
     const degraded = recovery.stale > 0 || retried > 0 || reviewRequired > 0 || providerErrorCount > 0 || providerWait || backlog > 10;
-    await heartbeat(degraded ? "degraded" : "healthy", degraded ? `recovered=${recovery.stale}, retried=${retried}, review=${reviewRequired}, provider_wait=${providerWait}, provider_errors=${providerErrorCount}, backlog=${backlog}` : null, {
+    await heartbeat(degraded ? "degraded" : "healthy", degraded ? `recovered=${recovery.stale}, ai_error_requeued=${recovery.aiErrorReset}, retried=${retried}, review=${reviewRequired}, provider_wait=${providerWait}, provider_errors=${providerErrorCount}, backlog=${backlog}, unhandled=${unhandledBacklog}` : null, {
       processed_last_tick: processed,
       retried_last_tick: retried,
       ai_review_required_last_tick: reviewRequired,
       stale_processing_found: recovery.stale,
       stale_processing_reset: recovery.reset,
+      ai_error_found_last_tick: recovery.aiErrorFound,
+      ai_error_eligible_last_tick: recovery.aiErrorEligible,
+      ai_error_requeued_last_tick: recovery.aiErrorReset,
+      automatic_error_recovery_limit: AI_ERROR_AUTO_RECOVERY_LIMIT,
+      unhandled_ready_backlog: unhandledBacklog,
+      priority_policy: "current_unanswered_frontier_oldest_first",
       ready_backlog: backlog,
       provider_wait: providerWait,
       provider_errors_last_tick: providerErrorCount,
@@ -2188,3 +2296,6 @@ if (!CORE_BASE || !CORE_KEY || !KNOWLEDGE_BASE || !KNOWLEDGE_KEY) {
 // AIGUKA_V10_PRODUCT_THREAD_AI_V1
 
 // AIGUKA_V10_ACTIVE_INTENT_FOCUS_V1
+
+// AIGUKA_V10_CURRENT_UNANSWERED_PRIORITY_V1
+
