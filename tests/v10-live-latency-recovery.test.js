@@ -64,22 +64,22 @@ test("recovery backlog is oldest-first after the fresh SLA lane", () => {
 
 test("an old decision is recoverable only for the exact unanswered frontier", () => {
   const old = {
-    ...decision("old", "2026-08-15T08:00:00Z"),
+    ...decision("old", "2026-08-15T14:00:00Z"),
     source_event_id: "event-old",
   };
   const state = {
     last_source_event_id: "event-old",
-    last_customer_event_at: "2026-08-15T08:00:00Z",
-    last_page_event_at: "2026-08-15T07:59:00Z",
+    last_customer_event_at: "2026-08-15T14:00:00Z",
+    last_page_event_at: "2026-08-15T13:59:00Z",
   };
   const options = {
     nowMs: Date.parse("2026-08-16T10:00:00Z"),
-    maxAgeMs: 72 * 60 * 60_000,
+    maxAgeMs: 23.75 * 60 * 60_000,
   };
   assert.equal(currentUnansweredRecoveryEligible(old, state, options), true);
   assert.equal(currentUnansweredRecoveryEligible(old, { ...state, last_source_event_id: "newer-event" }, options), false);
-  assert.equal(currentUnansweredRecoveryEligible(old, { ...state, last_page_event_at: "2026-08-15T08:01:00Z" }, options), false);
-  assert.equal(currentUnansweredRecoveryEligible({ ...old, created_at: "2026-08-01T08:00:00Z" }, state, options), false);
+  assert.equal(currentUnansweredRecoveryEligible(old, { ...state, last_page_event_at: "2026-08-15T14:01:00Z" }, options), false);
+  assert.equal(currentUnansweredRecoveryEligible(old, { ...state, last_customer_event_at: "2026-08-15T08:00:00Z" }, options), false);
 });
 
 test("Pancake page snapshot is shared across concurrent recipient checks", async () => {
