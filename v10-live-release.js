@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_UNHANDLED_PRIORITY_RECOVERY_V29";
+const RELEASE = "AIGUKA_V10_UNANSWERED_DELIVERY_RECOVERY_V30";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -85,7 +85,9 @@ requireToken("v10/core/constitution.js", "AICAKE_PRIMARY_AIGUKA_ASSIST");
 requireToken("v10/core/message-gateway.js", "v10_claim_message_dispatch");
 requireToken("v10/core/message-gateway.js", "v10_release_message_dispatch");
 requireToken("v10/core/message-gateway.js", "recipient: { comment_id: normalizedCommentId }");
-requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v18_comment_idempotency";');
+requireToken("v10-outbound-worker.js", 'const VERSION = "v10_outbound_single_gateway_v19_unanswered_recovery";');
+requireToken("v10-outbound-worker.js", "currentUnansweredRecoveryEligible");
+requireToken("v10-outbound-worker.js", "MAX_UNANSWERED_RECOVERY_AGE_MS");
 requireToken("v10-outbound-worker.js", '"meta_comment_private_reply"');
 requireToken("v10-outbound-worker.js", "public_comment_reply_forbidden");
 requireToken("v10-outbound-worker.js", "COMMENT_PRIVATE_REPLY_ALREADY_EXISTS");
@@ -108,6 +110,7 @@ requireToken("v10/core/model-input-compiler.js", "v10_model_input_compiler_v1_de
 requireToken("v10/core/model-input-compiler.js", "V10_PROVIDER_INPUT_FORBIDDEN_FIELD");
 requireToken("v10/core/provider-routing.js", "v10_provider_sticky_model_family_v1");
 requireToken("v10/core/decision-queue-priority.js", "v10_current_unanswered_fifo_v1");
+requireToken("v10/core/outbound-priority.js", "v10_outbound_priority_v2_fresh_then_oldest_recovery");
 requireToken("v10/core/commerce-integrity.js", "SPECIFIC_PRODUCT_INFORMATION_REQUIRES_CONTACT_HANDOFF");
 requireToken("v10/core/commerce-integrity.js", "deterministic_group_price_range");
 requireToken("v10/core/commerce-integrity.js", "KNOWN_PROVIDER_LANGUAGE_CORRUPTION");
@@ -127,5 +130,6 @@ requireToken("v10-comment-private-reply-recovery-worker.js", "v10_comment_privat
 requireToken("v10/core/decision-contract.js", "V10_CONTACT_ONLY_REPLY_INVALID");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: current unanswered customers are oldest-first, provider waits recover immediately, and actionable comments route privately`);
+console.log(`[AIGUKA V10] ${RELEASE} verified: current unanswered customers are recovered oldest-first through guarded live delivery`);
+
 
