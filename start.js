@@ -109,10 +109,11 @@ if (v9CoreReady) {
   startDetached("./v10-direct-core-worker.js");
   startDetached("./v10-customer-profile-worker.js");
   startDetached("./v10-ai-worker.js");
+  startDetached("./v10-aiguka-provider-starvation-fallback-worker.js");
   startDetached("./v10-support-operational-fallback-worker.js");
   startDetached("./v10-outbound-worker.js");
   startDetached("./v9-reporting-publisher.js");
-  console.log(`[AIGUKA V10] Core workers started via ${v9CoreBridgeState.mode}; AI is primary and the overdue AICake-support no-drop fallback is active`);
+  console.log(`[AIGUKA V10] Core workers started via ${v9CoreBridgeState.mode}; AI is primary with provider-starvation no-drop fallback and AICake-support fallback active`);
 
   if (reportingReady) {
     startDetached("./v9-reporting-sync-worker.js");
