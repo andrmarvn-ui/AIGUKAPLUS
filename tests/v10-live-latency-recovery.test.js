@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { prioritizeOutboundDecisions } from "../v10/core/outbound-priority.js";
+import { currentUnansweredRecoveryEligible, prioritizeOutboundDecisions } from "../v10/core/outbound-priority.js";
 import { createPancakeConversationSnapshotCache } from "../v10/core/pancake-conversation-snapshot.js";
 import { bridgeFreshCutoff, prioritizeBridgeCandidates } from "../v9/core/bridge-priority.js";
 
@@ -48,6 +48,38 @@ test("fresh lane remains FIFO so normal live traffic is fair", () => {
     responseSlaSeconds: 45,
   });
   assert.deepEqual(result.rows.map((row) => row.id), ["older", "newer"]);
+});
+
+test("recovery backlog is oldest-first after the fresh SLA lane", () => {
+  const result = prioritizeOutboundDecisions([
+    decision("newer-recovery", "2026-08-16T06:00:00Z"),
+    decision("older-recovery", "2026-08-15T06:00:00Z"),
+    decision("fresh", "2026-08-16T09:59:40Z"),
+  ], {
+    nowMs: Date.parse("2026-08-16T10:00:00Z"),
+    responseSlaSeconds: 45,
+  });
+  assert.deepEqual(result.rows.map((row) => row.id), ["fresh", "older-recovery", "newer-recovery"]);
+});
+
+test("an old decision is recoverable only for the exact unanswered frontier", () => {
+  const old = {
+    ...decision("old", "2026-08-15T08:00:00Z"),
+    source_event_id: "event-old",
+  };
+  const state = {
+    last_source_event_id: "event-old",
+    last_customer_event_at: "2026-08-15T08:00:00Z",
+    last_page_event_at: "2026-08-15T07:59:00Z",
+  };
+  const options = {
+    nowMs: Date.parse("2026-08-16T10:00:00Z"),
+    maxAgeMs: 72 * 60 * 60_000,
+  };
+  assert.equal(currentUnansweredRecoveryEligible(old, state, options), true);
+  assert.equal(currentUnansweredRecoveryEligible(old, { ...state, last_source_event_id: "newer-event" }, options), false);
+  assert.equal(currentUnansweredRecoveryEligible(old, { ...state, last_page_event_at: "2026-08-15T08:01:00Z" }, options), false);
+  assert.equal(currentUnansweredRecoveryEligible({ ...old, created_at: "2026-08-01T08:00:00Z" }, state, options), false);
 });
 
 test("Pancake page snapshot is shared across concurrent recipient checks", async () => {
@@ -97,7 +129,9 @@ test("release keeps the fresh queue and shared Pancake snapshot guards", () => {
   const bridge = fs.readFileSync(new URL("../v9-legacy-inbox-bridge.js", import.meta.url), "utf8");
   const pancakeGuard = fs.readFileSync(new URL("../patch-v10-live-page-reply-guard.js", import.meta.url), "utf8");
   assert.match(outbound, /order=created_at\.desc&limit=\$\{CANDIDATE_SCAN_LIMIT\}/);
-  assert.match(outbound, /fresh_sla_first_then_recent_recovery/);
+  assert.match(outbound, /fresh_sla_first_then_oldest_unanswered_recovery/);
+  assert.match(outbound, /currentUnansweredRecoveryEligible/);
+  assert.match(outbound, /MAX_UNANSWERED_RECOVERY_AGE_MS/);
   assert.match(bridge, /fresh_received_first_then_bounded_recovery/);
   assert.match(bridge, /AIGUKA_V9_BRIDGE_RECOVERY_BATCH/);
   assert.match(bridge, /const common = `v8_webhook_inbox\?\$\{select\}/);

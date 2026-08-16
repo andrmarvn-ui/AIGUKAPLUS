@@ -3,7 +3,7 @@ import { MEDIA_DEDUPE_WINDOW_MS, mediaClaimDisposition, mediaRequestedAfterDeliv
 import { createPancakeConversationSnapshotCache } from "./v10/core/pancake-conversation-snapshot.js";
 import { buildObservedPageReplyEvent, customerSlaSourceIds, observedPageReplyDisposition, observedPageReplyStatePatch } from "./v10/core/page-reply-evidence.js";
 import { prepareCarouselAssets } from "./v10/core/carousel-media.js";
-import { prioritizeOutboundDecisions } from "./v10/core/outbound-priority.js";
+import { currentUnansweredRecoveryEligible, prioritizeOutboundDecisions } from "./v10/core/outbound-priority.js";
 import { humanTakeoverActive, resolveChannelAuthority } from "./v10/core/constitution.js";
 import { createMessageGateway, DISPATCH_OWNERS } from "./v10/core/message-gateway.js";
 import { commentPrivateReplyContextFromMessages } from "./v9/core/comment-private-reply.js";
@@ -13,9 +13,10 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-outbound";
-const VERSION = "v10_outbound_single_gateway_v18_comment_idempotency";
+const VERSION = "v10_outbound_single_gateway_v19_unanswered_recovery";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_OUTBOUND_POLL_MS || 3000));
 const MAX_DECISION_AGE_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_LIVE_MAX_AGE_MS || 2 * 60 * 60_000));
+const MAX_UNANSWERED_RECOVERY_AGE_MS = Math.max(MAX_DECISION_AGE_MS, Number(process.env.AIGUKA_V10_UNANSWERED_RECOVERY_MAX_AGE_MS || 72 * 60 * 60_000));
 const MAX_MEDIA_ASSETS = Math.max(10, Math.min(20, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 20)));
 const CANDIDATE_SCAN_LIMIT = Math.max(20, Math.min(200, Number(process.env.AIGUKA_V10_OUTBOUND_SCAN_LIMIT || 100)));
 const DELIVERY_BATCH_SIZE = Math.max(1, Math.min(20, Number(process.env.AIGUKA_V10_OUTBOUND_BATCH || 10)));
@@ -655,7 +656,8 @@ async function finalGate(decision, config) {
     ? (page?.settings?.support_cutover_at || page?.settings?.active_cutover_at)
     : page?.settings?.active_cutover_at;
   if (!cutover || !isAfterOrEqual(decision.created_at, cutover)) return { allowed: false, reason: "PRE_CUTOVER_DECISION" };
-  if (Date.now() - Date.parse(decision.created_at) > MAX_DECISION_AGE_MS) return { allowed: false, reason: "DECISION_TOO_OLD" };
+  const decisionAgeMs = Date.now() - Date.parse(decision.created_at);
+  const decisionTooOld = decisionAgeMs > MAX_DECISION_AGE_MS;
 
   const conversation = decision?.input_snapshot?.conversation || {};
   if (conversation?.safety?.opt_out) return { allowed: false, reason: "OPT_OUT" };
@@ -692,6 +694,11 @@ async function finalGate(decision, config) {
   const supportCustomer = supportMode && !commentContext ? await supportCustomerIdentity(decision.page_id, decision.sender_id) : {};
   const supportSalutationInfo = supportMode && !commentContext ? supportResolveSalutation(supportCustomer, decision) : { value: null, source: null };
   if (humanTakeoverActive(state)) return { allowed: false, reason: "HUMAN_TAKEOVER" };
+  const currentUnansweredRecovery = currentUnansweredRecoveryEligible(decision, state, {
+    nowMs: Date.now(),
+    maxAgeMs: MAX_UNANSWERED_RECOVERY_AGE_MS,
+  });
+  if (decisionTooOld && !currentUnansweredRecovery) return { allowed: false, reason: "DECISION_TOO_OLD" };
 
   const customerAt = latestCustomerAt(decision);
   const liveCustomerAt = Date.parse(state.last_customer_event_at || "");
@@ -1340,7 +1347,8 @@ async function tick() {
       candidates_scanned: candidates?.length || 0,
       fresh_sla_candidates: priority.fresh_count,
       recovery_backlog_candidates: priority.recovery_count,
-      outbound_priority: "fresh_sla_first_then_recent_recovery",
+      outbound_priority: "fresh_sla_first_then_oldest_unanswered_recovery",
+      unanswered_recovery_max_age_ms: MAX_UNANSWERED_RECOVERY_AGE_MS,
       delivery_batch_size: DELIVERY_BATCH_SIZE,
       candidate_scan_limit: CANDIDATE_SCAN_LIMIT,
       sent,
@@ -1375,3 +1383,4 @@ if (!configured()) {
 // AIGUKA_V10_GROUPED_MEDIA_BUNDLES_V1
 
 // AIGUKA_V10_MEDIA_DELIVERY_PROXY_V1
+
