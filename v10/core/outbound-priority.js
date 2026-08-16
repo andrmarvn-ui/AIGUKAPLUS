@@ -13,6 +13,17 @@ export function outboundDecisionCustomerAt(decision = {}) {
   return Math.max(stateAt, latestAt, messageAt, parsedTime(decision.created_at));
 }
 
+export function currentUnansweredRecoveryEligible(decision = {}, state = {}, options = {}) {
+  const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
+  const maxAgeMs = Math.max(1, Number(options.maxAgeMs || 72 * 60 * 60_000));
+  const createdAt = parsedTime(decision.created_at);
+  if (!createdAt || nowMs - createdAt > maxAgeMs) return false;
+  if (String(state.last_source_event_id || "") !== String(decision.source_event_id || "")) return false;
+  const customerAt = parsedTime(state.last_customer_event_at);
+  const pageAt = parsedTime(state.last_page_event_at);
+  return customerAt > pageAt;
+}
+
 export function prioritizeOutboundDecisions(decisions = [], options = {}) {
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const responseSlaSeconds = Math.max(1, Number(options.responseSlaSeconds || 45));
@@ -34,7 +45,7 @@ export function prioritizeOutboundDecisions(decisions = [], options = {}) {
     if (left.lane === "fresh_sla") {
       return left.customerAt - right.customerAt || left.index - right.index;
     }
-    return right.customerAt - left.customerAt || left.index - right.index;
+    return left.customerAt - right.customerAt || left.index - right.index;
   });
 
   return {
@@ -46,4 +57,5 @@ export function prioritizeOutboundDecisions(decisions = [], options = {}) {
   };
 }
 
-export const outboundPriorityVersion = "v10_outbound_priority_v1_fresh_sla_first";
+export const outboundPriorityVersion = "v10_outbound_priority_v2_fresh_then_oldest_recovery";
+
