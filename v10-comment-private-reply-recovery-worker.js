@@ -3,7 +3,7 @@ import { commentPrivateReplyEligibility } from "./v9/core/comment-private-reply.
 const CORE_BASE = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
 const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-comment-private-reply-recovery";
-const VERSION = "v10_comment_private_reply_recovery_v1_frontier_safe";
+const VERSION = "v10_comment_private_reply_recovery_v2_oldest_frontier_first";
 const POLL_MS = Math.max(5_000, Number(process.env.AIGUKA_V10_COMMENT_RECOVERY_POLL_MS || 15_000));
 const LOOKBACK_HOURS = Math.max(1, Math.min(72, Number(process.env.AIGUKA_V10_COMMENT_RECOVERY_HOURS || 24)));
 const SCAN_LIMIT = Math.max(20, Math.min(500, Number(process.env.AIGUKA_V10_COMMENT_RECOVERY_LIMIT || 200)));
@@ -116,7 +116,7 @@ async function recover(config) {
     "v9_events?select=id,source_event_id,page_id,customer_id,message_text,payload,event_type,occurred_at,received_at"
       + "&event_type=eq.customer_comment"
       + "&received_at=gte." + encodeURIComponent(cutoff)
-      + "&order=received_at.desc"
+      + "&order=received_at.asc"
       + `&limit=${SCAN_LIMIT}`,
   );
   let eligible = 0;
@@ -204,3 +204,4 @@ if (!CORE_BASE || !CORE_KEY) {
   console.log("[AIGUKA V10 comment private-reply recovery] actionable comments route to private Messenger only");
   tick().catch(() => {});
 }
+
