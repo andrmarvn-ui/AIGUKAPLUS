@@ -26,7 +26,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-ai";
-const VERSION = "v10_ai_prompt_compiler_v25_deliverable_unanswered_priority"; // AIGUKA_META_WINDOW_PRIORITY_V1 // AIGUKA_PROVIDER_RESILIENCE_V1
+const VERSION = "v10_ai_prompt_compiler_v26_local_media_promise_repair"; // AIGUKA_MEDIA_PROMISE_LOCAL_REPAIR_V1 // AIGUKA_META_WINDOW_PRIORITY_V1 // AIGUKA_PROVIDER_RESILIENCE_V1
 const POLL_MS = Math.max(1000, Number(process.env.AIGUKA_V10_AI_POLL_MS || 3000));
 const BATCH_SIZE = Math.max(1, Math.min(4, Number(process.env.AIGUKA_V10_AI_BATCH_SIZE || 3)));
 const PROVIDER_CACHE_MS = Math.max(3000, Number(process.env.AIGUKA_V10_PROVIDER_CACHE_MS || 5000));
@@ -1734,6 +1734,28 @@ function sovereignReplyPromisesMedia(value) {
   return /\b(gui|dua|cho xem).{0,32}\b(mau|anh|hinh|catalog)\b/.test(text);
 }
 
+export function repairUnavailableMediaPromise(decision, modelInput) {
+  const reply = String(decision?.final_reply || "").trim();
+  const context = commerceRequestContext(modelInput);
+  const specialistContactHandoff = (context.specific || Boolean(context.comment))
+    && decision?.should_request_contact === true
+    && contactRequestDetected(reply);
+  if (!sovereignReplyPromisesMedia(reply) || decision?.needs_slides || specialistContactHandoff) return decision;
+
+  const repaired = { ...decision };
+  const safeParts = continuitySentenceParts(reply).filter((part) => !sovereignReplyPromisesMedia(part));
+  const safeReply = safeParts.join(" ").trim();
+  repaired.action = repaired.action === "reply_with_slides" ? "reply_text" : repaired.action;
+  repaired.needs_slides = false;
+  repaired.final_reply = safeReply && !sovereignReplyPromisesMedia(safeReply)
+    ? safeReply
+    : "Dạ, em đã ghi nhận yêu cầu xem mẫu của anh/chị. Anh/chị cho em biết thêm dòng sản phẩm hoặc kích thước đang quan tâm để em hỗ trợ đúng hơn nhé.";
+  repaired.media_promise_local_repair = true;
+  repaired.decision_reason = String(repaired.decision_reason || "").trim()
+    + " Local guard removed an unavailable-media promise without discarding the customer reply.";
+  return enforceConversationContinuity(repaired, modelInput);
+}
+
 function sovereignCatalogIsAncestor(ancestorKey, descendantKey, allowed) {
   if (!ancestorKey || !descendantKey) return false;
   let cursor = String(descendantKey);
@@ -1855,14 +1877,14 @@ async function sovereignProviderDecision(provider, providerModelInput, validatio
     let decision = null;
     let violations = [];
     try {
-      decision = validateDecision(attempt.decision);
+      decision = repairUnavailableMediaPromise(validateDecision(attempt.decision), validationInput);
       violations = sovereignDecisionViolations(decision, validationInput);
     } catch (error) {
       violations = [sovereignValidationError(error)];
     }
 
     if (!violations.length) {
-      const protectedDecision = enforceCommerceIntegrity(decision, validationInput);
+      const protectedDecision = repairUnavailableMediaPromise(enforceCommerceIntegrity(decision, validationInput), validationInput);
       const protectedViolations = sovereignDecisionViolations(protectedDecision, validationInput);
       if (protectedViolations.length) {
         violations = protectedViolations;
@@ -1898,7 +1920,7 @@ async function sovereignProviderDecision(provider, providerModelInput, validatio
   // output, and the provider is still penalized/cooldowned by the caller.
   try {
     const validated = validateDecision(finalRawDecision || {});
-    const protectedDecision = enforceCommerceIntegrity(validated, validationInput);
+    const protectedDecision = repairUnavailableMediaPromise(enforceCommerceIntegrity(validated, validationInput), validationInput);
     const remaining = sovereignDecisionViolations(protectedDecision, validationInput);
     if (!remaining.length) {
       return {
@@ -1942,7 +1964,7 @@ function deterministicCommerceResult(modelInput) {
       status: "answer_now",
     }],
   };
-  const protectedDecision = enforceCommerceIntegrity(seed, modelInput);
+  const protectedDecision = repairUnavailableMediaPromise(enforceCommerceIntegrity(seed, modelInput), modelInput);
   const decision = validateDecision(protectedDecision);
   decision.commerce_integrity = protectedDecision.commerce_integrity;
   const remaining = sovereignDecisionViolations(decision, modelInput);
@@ -2316,3 +2338,4 @@ if (!CORE_BASE || !CORE_KEY || !KNOWLEDGE_BASE || !KNOWLEDGE_KEY) {
 
 // AIGUKA_V10_META_DELIVERY_WINDOW_PRIORITY_V1
 
+// AIGUKA_MEDIA_PROMISE_LOCAL_REPAIR_V1
