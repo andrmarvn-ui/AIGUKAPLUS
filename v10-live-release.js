@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const RELEASE = "AIGUKA_V10_META_WINDOW_PRIORITY_V31";
+const RELEASE = "AIGUKA_V10_PROVIDER_CAPACITY_RECOVERY_V32";
 
 process.env.AIGUKA_GEMINI_FREE_MIN_INTERVAL_MS ||= "60000";
 process.env.AIGUKA_GEMINI_FREE_MIN_COOLDOWN_MS ||= "120000";
@@ -95,9 +95,10 @@ requireToken("v10/core/page-reply-evidence.js", "v10_page_reply_evidence_v1_pers
 requireToken("v10-support-operational-fallback-worker.js", 'const VERSION = "v10_support_failover_v4_recover_customer_media_reask";');
 requireToken("v10-followup-worker.js", 'const VERSION = "v10_followup_single_gateway_v5";');
 requireToken("v10-followup-worker.js", "recoverStaleProcessing");
-requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_prompt_compiler_v25_deliverable_unanswered_priority";');
+requireToken("v10-ai-worker-final.js", 'const VERSION = "v10_ai_prompt_compiler_v26_local_media_promise_repair";');
 requireToken("v10-ai-worker-final.js", "recoverLatestAiErrors");
 requireToken("v10-ai-worker-final.js", "deliverable_current_unanswered_oldest_first");
+requireToken("v10-ai-worker-final.js", "AIGUKA_MEDIA_PROMISE_LOCAL_REPAIR_V1");
 requireToken("v10-ai-worker-final.js", "recoverStaleProcessing");
 requireToken("v10-ai-worker-final.js", "operational_fallback_enabled: false");
 requireToken("v10-ai-worker-final.js", "mandatory_deterministic_enforcement");
@@ -130,7 +131,6 @@ requireToken("v10-comment-private-reply-recovery-worker.js", "v10_comment_privat
 requireToken("v10/core/decision-contract.js", "V10_CONTACT_ONLY_REPLY_INVALID");
 
 globalThis.__AIGUKA_V10_LIVE_RELEASE__ = RELEASE;
-console.log(`[AIGUKA V10] ${RELEASE} verified: deliverable unanswered customers are oldest-first and expired windows require manual follow-up`);
-
+console.log(`[AIGUKA V10] ${RELEASE} verified: deliverable unanswered customers are oldest-first and unavailable-media promises are repaired locally`);
 
 
