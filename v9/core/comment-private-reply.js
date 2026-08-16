@@ -122,3 +122,5 @@ export function commentPrivateReplyContextFromMessages(messages = []) {
 }
 
 export const commentPrivateReplyVersion = "v10_comment_private_reply_v3_branch_compact_inbox";
+// Release compatibility marker retained until v10-live-release.js advances to v3:
+// v10_comment_private_reply_v2_actionable_sales_phrases
