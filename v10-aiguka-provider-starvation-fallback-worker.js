@@ -5,7 +5,7 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-primary-provider-fallback";
-const VERSION = "v10_primary_provider_starvation_fallback_v1";
+const VERSION = "v10_primary_provider_starvation_fallback_v2";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_PRIMARY_FALLBACK_POLL_MS || 3000));
 const SCAN_LIMIT = Math.max(20, Math.min(200, Number(process.env.AIGUKA_V10_PRIMARY_FALLBACK_SCAN_LIMIT || 120)));
 const BATCH_SIZE = Math.max(1, Math.min(20, Number(process.env.AIGUKA_V10_PRIMARY_FALLBACK_BATCH || 10)));
@@ -210,7 +210,7 @@ async function tick() {
 
     for (const row of rows || []) {
       if (!enabledPages.has(String(row.page_id))) continue;
-      if (row?.input_snapshot?.architecture !== "v10_ai_hard_commerce") continue;
+      if (!String(row?.input_snapshot?.architecture || "").startsWith("v10_ai_hard_commerce")) continue;
       const customerAt = supportFallbackCustomerAt(row.input_snapshot);
       if (customerAt <= 0 || nowMs - customerAt < fallbackWaitMs || nowMs - customerAt > RESPONSE_WINDOW_MS) continue;
       const state = await stateRow(row.page_id, row.sender_id);
