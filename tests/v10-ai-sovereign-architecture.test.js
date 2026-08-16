@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { buildAdvisoryBundle, detectIntentCandidates, detectProductCandidates } from "../v10/core/advisory-engine.js";
 import { buildConversationContext } from "../v10/core/conversation-assembler.js";
 import { validateDecision } from "../v10/core/decision-contract.js";
+import { repairUnavailableMediaPromise } from "../v10-ai-worker-final.js";
 
 function event(id, text, occurredAt, extra = {}) {
   return {
@@ -92,12 +93,37 @@ test("AI proposal is structurally validated before mandatory commerce enforcemen
   assert.deepEqual(decision.selected_products, ["chau_voi_rua_bat", "sen_tam"]);
 });
 
+test("unavailable-media promise is repaired locally without dropping a useful reply", () => {
+  const repaired = repairUnavailableMediaPromise({
+    action: "reply_text",
+    final_reply: "Dạ mẫu này có giá 3 triệu ạ. Em sẽ gửi hình mẫu để anh/chị xem ngay.",
+    selected_products: ["quat_tran"],
+    selected_catalog_keys: [],
+    intents: ["price", "samples"],
+    needs_slides: false,
+    contact_state: "unclear",
+    should_request_contact: false,
+    contact_benefit: "",
+    confidence: 0.8,
+    decision_reason: "Provider answer",
+    follow_up_plan: [],
+  }, {
+    conversation: { messages: [{ role: "customer", text: "Cho xem mẫu quạt và giá", occurred_at: "2026-08-16T01:00:00Z" }] },
+    customer: {},
+    state: {},
+  });
+
+  assert.equal(repaired.media_promise_local_repair, true);
+  assert.match(repaired.final_reply, /3 triệu/);
+  assert.doesNotMatch(repaired.final_reply, /gửi.{0,32}(mẫu|ảnh|hình|catalog)/i);
+});
+
 test("final AI worker contains lease recovery and provider-aware scheduling before claim", () => {
   const entry = fs.readFileSync(new URL("../v10-ai-worker.js", import.meta.url), "utf8");
   const source = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
   assert.match(entry, /v10-ai-worker-final\.js/);
   assert.doesNotMatch(entry, /patch-v10-/);
-  assert.match(source, /const VERSION = "v10_ai_prompt_compiler_v25_deliverable_unanswered_priority"/);
+  assert.match(source, /const VERSION = "v10_ai_prompt_compiler_v26_local_media_promise_repair"/);
   assert.match(source, /PROVIDER_BYPASSED_FOR_DETERMINISTIC_COMMERCE/);
   assert.match(source, /compileProviderModelInput/);
   assert.match(source, /sticky_model_family_then_next_family_on_limit/);
@@ -109,6 +135,8 @@ test("final AI worker contains lease recovery and provider-aware scheduling befo
   assert.match(source, /decisionRetryReady/);
   assert.match(source, /deliverable_current_unanswered_oldest_first/);
   assert.match(source, /META_DELIVERY_WINDOW_MS/);
+  assert.match(source, /repairUnavailableMediaPromise/);
+  assert.match(source, /media_promise_local_repair/);
   assert.doesNotMatch(source, /explicit_media_backlog_first/);
   const availability = source.indexOf("const availability = providerAvailability(providerRows, Date.now())");
   const wait = source.indexOf("scheduleWithoutClaim(row, availability.nextAvailableAt", availability);
@@ -153,5 +181,3 @@ test("Direct Core settles orphaned jobs when their decision is already terminal"
   assert.match(source, /live_delivered,live_suppressed/);
   assert.match(source, /terminal_decision_already_final/);
 });
-
-
