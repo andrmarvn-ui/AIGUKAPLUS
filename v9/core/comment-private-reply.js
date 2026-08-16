@@ -72,12 +72,14 @@ export function commentPrivateReplyEligibility(input = {}) {
     .filter((item) => item.type === "product")
     .map((item) => item.key);
   const codeLike = /\b[A-Za-z]{1,10}[-_.\/]?\d{2,8}[A-Za-z0-9._\/-]*\b/.test(messageText);
-  const inboxRequest = /\b(ib|inbox|check ib|nhắn riêng|nhan rieng|nhắn tin|nhan tin)\b/.test(normalized);
-  const commercialPhrase = /\b(cho minh|cho toi|cho anh|cho chi|xin|quan tam|tu van|muon mua|can mua|bao nhieu|o dau|cua hang|showroom|mau nay|loai nay|san pham nay|xem[ ./-]*(?:mau|anh|hinh)|sao[ ./-]*(?:re|mac)|(?:re|mac)[ ./-]*vay)\b/.test(normalized);
+  const inboxRequest = /\b(ib(?:ok|oke|oki)?|inbox|check ib|nhắn riêng|nhan rieng|nhắn tin|nhan tin)\b/.test(normalized);
+  const branchRequest = /\b(chi nhanh|chinhanh|co chi nhanh|có chi nhánh)\b/i.test(normalized);
+  const commercialPhrase = /\b(cho minh|cho toi|cho anh|cho chi|xin|quan tam|tu van|muon mua|can mua|bao nhieu|o dau|cua hang|showroom|chi nhanh|mau nay|loai nay|san pham nay|xem[ ./-]*(?:mau|anh|hinh)|sao[ ./-]*(?:re|mac)|(?:re|mac)[ ./-]*vay)\b/.test(normalized);
   const actionable = intents.some((intent) => ACTIONABLE_INTENTS.has(intent))
     || products.length > 0
     || codeLike
     || inboxRequest
+    || branchRequest
     || commercialPhrase;
 
   return {
@@ -119,4 +121,4 @@ export function commentPrivateReplyContextFromMessages(messages = []) {
   };
 }
 
-export const commentPrivateReplyVersion = "v10_comment_private_reply_v2_actionable_sales_phrases";
+export const commentPrivateReplyVersion = "v10_comment_private_reply_v3_branch_compact_inbox";
