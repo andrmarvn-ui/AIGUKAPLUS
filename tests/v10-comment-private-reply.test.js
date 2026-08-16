@@ -50,6 +50,17 @@ test("only actionable comments become private-reply work", () => {
     assert.equal(result.eligible, false);
   }
 
+  for (const messageText of ["Mình Xem.mẫu", "Sao rẻ vậy"]) {
+    const result = commentPrivateReplyEligibility({
+      page_id: "page-1",
+      sender_id: "customer-1",
+      comment_id: "comment-sales-phrase",
+      message_text: messageText,
+    });
+    assert.equal(result.eligible, true);
+    assert.equal(result.reason, "ACTIONABLE_CUSTOMER_COMMENT");
+  }
+
   const contact = commentPrivateReplyEligibility({
     page_id: "page-1",
     sender_id: "customer-1",
@@ -122,4 +133,6 @@ test("recovery worker only requeues the current customer frontier", () => {
   assert.match(source, /alreadyHandled/);
   assert.match(source, /public_reply_forbidden: true/);
   assert.match(source, /delivery_mode: "comment_private_reply"/);
+  assert.match(source, /order=received_at\.asc/);
 });
+
