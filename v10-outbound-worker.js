@@ -13,10 +13,10 @@ const CORE_KEY = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
 const KNOWLEDGE_BASE = String(process.env.AIGUKA_V9_KNOWLEDGE_URL || process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const KNOWLEDGE_KEY = String(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 const NAME = "aiguka-v10-outbound";
-const VERSION = "v10_outbound_single_gateway_v19_unanswered_recovery";
+const VERSION = "v10_outbound_single_gateway_v20_meta_window_guard";
 const POLL_MS = Math.max(2000, Number(process.env.AIGUKA_V10_OUTBOUND_POLL_MS || 3000));
 const MAX_DECISION_AGE_MS = Math.max(15 * 60_000, Number(process.env.AIGUKA_V10_LIVE_MAX_AGE_MS || 2 * 60 * 60_000));
-const MAX_UNANSWERED_RECOVERY_AGE_MS = Math.max(MAX_DECISION_AGE_MS, Number(process.env.AIGUKA_V10_UNANSWERED_RECOVERY_MAX_AGE_MS || 72 * 60 * 60_000));
+const MAX_UNANSWERED_RECOVERY_AGE_MS = Math.max(MAX_DECISION_AGE_MS, Math.min(24 * 60 * 60_000, Number(process.env.AIGUKA_V10_UNANSWERED_RECOVERY_MAX_AGE_MS || 23.75 * 60 * 60_000)));
 const MAX_MEDIA_ASSETS = Math.max(10, Math.min(20, Number(process.env.AIGUKA_V10_MAX_MEDIA_ASSETS || 20)));
 const CANDIDATE_SCAN_LIMIT = Math.max(20, Math.min(200, Number(process.env.AIGUKA_V10_OUTBOUND_SCAN_LIMIT || 100)));
 const DELIVERY_BATCH_SIZE = Math.max(1, Math.min(20, Number(process.env.AIGUKA_V10_OUTBOUND_BATCH || 10)));
@@ -1383,4 +1383,5 @@ if (!configured()) {
 // AIGUKA_V10_GROUPED_MEDIA_BUNDLES_V1
 
 // AIGUKA_V10_MEDIA_DELIVERY_PROXY_V1
+
 
