@@ -97,7 +97,7 @@ test("final AI worker contains lease recovery and provider-aware scheduling befo
   const source = fs.readFileSync(new URL("../v10-ai-worker-final.js", import.meta.url), "utf8");
   assert.match(entry, /v10-ai-worker-final\.js/);
   assert.doesNotMatch(entry, /patch-v10-/);
-  assert.match(source, /const VERSION = "v10_ai_prompt_compiler_v24_unhandled_priority_recovery"/);
+  assert.match(source, /const VERSION = "v10_ai_prompt_compiler_v25_deliverable_unanswered_priority"/);
   assert.match(source, /PROVIDER_BYPASSED_FOR_DETERMINISTIC_COMMERCE/);
   assert.match(source, /compileProviderModelInput/);
   assert.match(source, /sticky_model_family_then_next_family_on_limit/);
@@ -107,7 +107,8 @@ test("final AI worker contains lease recovery and provider-aware scheduling befo
   assert.match(source, /recoverStaleProcessing/);
   assert.match(source, /recoverLatestAiErrors/);
   assert.match(source, /decisionRetryReady/);
-  assert.match(source, /current_unanswered_frontier_oldest_first/);
+  assert.match(source, /deliverable_current_unanswered_oldest_first/);
+  assert.match(source, /META_DELIVERY_WINDOW_MS/);
   assert.doesNotMatch(source, /explicit_media_backlog_first/);
   const availability = source.indexOf("const availability = providerAvailability(providerRows, Date.now())");
   const wait = source.indexOf("scheduleWithoutClaim(row, availability.nextAvailableAt", availability);
@@ -152,4 +153,5 @@ test("Direct Core settles orphaned jobs when their decision is already terminal"
   assert.match(source, /live_delivered,live_suppressed/);
   assert.match(source, /terminal_decision_already_final/);
 });
+
 
