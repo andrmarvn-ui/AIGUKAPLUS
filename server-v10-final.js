@@ -22,6 +22,7 @@ import { installV9AdminAuth } from "./v9-admin-auth.js";
 import { installV9AdminReportApiV2 } from "./v9-admin-report-api-v2.js";
 import { installV9ReportBenchmarkApi } from "./v9-report-benchmark-api.js";
 import { installV9AdminUiV2 } from "./v9-admin-ui-v2.js";
+import { installSupabaseAdminAuth } from "./supabase-admin-auth.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -64,6 +65,10 @@ function setProxyAuth(proxyReq, req) {
   proxyReq.setHeader("x-aiguka-admin-secret", TEST_SESSION_VALUE);
 }
 
+installSupabaseAdminAuth(app, {
+  supabaseUrl: SUPABASE_URL,
+  publishableKey: SUPABASE_PUBLIC_KEY,
+});
 installV9AdminAuth(app);
 installV9AdminReportApiV2(app);
 installV9ReportBenchmarkApi(app);
@@ -337,6 +342,7 @@ app.get("/__aiguka/db-check", async (_req, res) => {
       headers: {
         apikey: SUPABASE_PUBLIC_KEY,
         authorization: `Bearer ${SUPABASE_PUBLIC_KEY}`,
+        "x-aiguka-internal-auth": process.env.AIGUKA_INTERNAL_HTTP_TOKEN || "",
         "x-aiguka-railway-test": "enabled",
         "x-aiguka-admin-secret": TEST_SESSION_VALUE,
       },

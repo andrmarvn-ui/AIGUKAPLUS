@@ -10,8 +10,8 @@ const { loadActiveMetaConnection } = await import("./meta-token-store.js");
 
 process.env.META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || "AIGUKA_V8_META_VERIFY";
 
-if (!process.env.SUPABASE_PUBLISHABLE_KEY && !process.env.SUPABASE_ANON_KEY && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  process.env.SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!process.env.SUPABASE_PUBLISHABLE_KEY && !process.env.SUPABASE_ANON_KEY) {
+  console.error("[AIGUKA startup] SUPABASE_PUBLISHABLE_KEY is required; service_role will never be exposed as a public key");
 }
 
 // Reporting remains a read model. Explicit Reporting credentials win; the legacy

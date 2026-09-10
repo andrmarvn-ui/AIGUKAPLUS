@@ -30,6 +30,7 @@ function missingSecretFallback(method, originalUrl) {
 
 export function installV9AdminAuth(app) {
   const guard = (req, res, next) => {
+    if (req.aigukaUser) return next();
     if (!SECRET) {
       const fallback = missingSecretFallback(req.method, req.originalUrl || req.url);
       if (fallback) {

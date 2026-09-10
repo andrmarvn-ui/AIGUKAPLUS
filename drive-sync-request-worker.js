@@ -74,7 +74,10 @@ async function claimRequestedMappings(limit = 3) {
 async function syncMapping(mapping) {
   const response = await fetch(`http://127.0.0.1:${PORT}/api/slide-manager/drive/sync`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-aiguka-internal-auth": process.env.AIGUKA_INTERNAL_HTTP_TOKEN || "",
+    },
     body: JSON.stringify({ mapping_id: mapping.id }),
     signal: AbortSignal.timeout(180000),
   });

@@ -27,6 +27,7 @@ for (const token of [
   'installAiContextCenterV3(app)',
   'installDriveSlideManagerV4(app',
   'installMappingCenter(app',
+  'installSupabaseAdminAuth(app',
   'app.listen(PORT, "0.0.0.0"',
 ]) {
   if (!text.includes(token)) throw new Error(`V10_SERVER_ROUTE_CONTRACT_MISSING:${token}`);
