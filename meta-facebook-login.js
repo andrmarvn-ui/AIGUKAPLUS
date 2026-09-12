@@ -103,23 +103,28 @@ async function fetchPages(url, maxPages = 20) {
 
 function page(title, body) {
   return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>
-  *{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#172033;font:15px Arial,sans-serif}.top{background:#0f172a;color:#fff;padding:20px}.wrap{max-width:920px;margin:24px auto;padding:0 14px}.card{background:#fff;border:1px solid #d7dfeb;border-radius:14px;padding:18px;margin-bottom:14px}.btn{display:inline-block;padding:12px 16px;border-radius:9px;background:#1877f2;color:#fff;text-decoration:none;font-weight:700}.muted{color:#667085}.good{background:#ecfdf3;border-color:#abefc6}.bad{background:#fff1f0;border-color:#fecdca}.code{font-family:monospace;background:#f2f4f7;padding:9px;border-radius:7px;word-break:break-all}.row{padding:10px 0;border-bottom:1px solid #eaecf0}.row:last-child{border-bottom:0}</style></head><body><div class="top"><h2 style="margin:0">AIGUKA — Kết nối Facebook</h2></div><div class="wrap">${body}</div></body></html>`;
+  *{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#172033;font:15px Arial,sans-serif}.top{background:#0f172a;color:#fff;padding:20px}.wrap{max-width:920px;margin:24px auto;padding:0 14px}.card{background:#fff;border:1px solid #d7dfeb;border-radius:14px;padding:18px;margin-bottom:14px}.btn{display:inline-block;padding:12px 16px;border-radius:9px;background:#1877f2;color:#fff;text-decoration:none;font-weight:700}.muted{color:#667085}.good{background:#ecfdf3;border-color:#abefc6}.bad{background:#fff1f0;border-color:#fecdca}.code{font-family:monospace;background:#f2f4f7;padding:9px;border-radius:7px;word-break:break-all}.row{padding:10px 0;border-bottom:1px solid #eaecf0}.row:last-child{border-bottom:0}.page-list{margin:8px 0 0;padding-left:18px}.page-list li{margin:5px 0}</style></head><body><div class="top"><h2 style="margin:0">AIGUKA — Kết nối Facebook / Page</h2></div><div class="wrap">${body}</div></body></html>`;
 }
 
-function successPage(profileName, accountCount) {
-  return page("Đã kết nối", `<div class="card good"><h2>Đã kết nối ${esc(profileName)}</h2><p>AIGUKA nhìn thấy <b>${accountCount}</b> tài khoản quảng cáo.</p><p id="apply-state">Đang làm mới dữ liệu Meta và chuyển về Dashboard…</p></div><script>
+function successPage(profileName, accountCount, pageCount) {
+  return page("Đã kết nối", `<div class="card good"><h2>Đã kết nối ${esc(profileName)}</h2><p>AIGUKA nhìn thấy <b>${pageCount}</b> Facebook Page và <b>${accountCount}</b> tài khoản quảng cáo.</p><p id="apply-state">Đang làm mới dữ liệu Meta và chuyển về trang kết nối…</p></div><script>
   (async function(){
     const status=document.getElementById('apply-state');
     try{
       const response=await fetch('/api/v7-dashboard/status?oauth_refresh='+Date.now(),{cache:'no-store'});
       if(!response.ok) throw new Error('HTTP '+response.status);
-      status.textContent='Đã áp dụng kết nối. Đang mở Dashboard…';
+      status.textContent='Đã áp dụng kết nối. Đang mở danh sách Facebook Page…';
     }catch(error){
-      status.textContent='Đã lưu kết nối. Dashboard sẽ tự làm mới dữ liệu Meta.';
+      status.textContent='Đã lưu kết nối. AIGUKA sẽ dùng quyền Meta vừa cấp.';
     }
-    setTimeout(function(){location.replace('/dashboard?facebook_connected=1');},900);
+    setTimeout(function(){location.replace('/facebook-connect?facebook_connected=1');},900);
   })();
   </script>`);
+}
+
+function renderPages(pages = []) {
+  if (!pages.length) return `<span class="muted">Chưa thấy Page nào. Hãy kiểm tra quyền pages_show_list hoặc quyền quản trị Page của tài khoản Facebook.</span>`;
+  return `<ul class="page-list">${pages.map((item) => `<li><b>${esc(item.name || item.id)}</b> <span class="muted">· ${esc(item.id || "")}</span></li>`).join("")}</ul>`;
 }
 
 export function installMetaFacebookLogin(app) {
@@ -130,19 +135,19 @@ export function installMetaFacebookLogin(app) {
     try { connections = await listMetaConnections(); } catch (error) { listError = error.message; }
 
     const status = configured()
-      ? `<div class="card good"><b>Sẵn sàng kết nối</b><p>Đăng nhập đúng tài khoản Facebook đang quản lý tài khoản quảng cáo cần đưa vào AIGUKA.</p><a class="btn" href="/facebook/login">Đăng nhập bằng Facebook</a></div>`
-      : `<div class="card bad"><b>Chưa đủ cấu hình Railway</b><p>Cần thêm <code>META_APP_ID</code>, <code>META_APP_SECRET</code> và giữ <code>SUPABASE_SERVICE_ROLE_KEY</code>.</p></div>`;
+      ? `<div class="card good"><b>Sẵn sàng kết nối Facebook / Page</b><p>Đăng nhập tài khoản Facebook đang quản lý Page cần dùng với AIGUKA. Hệ thống chỉ lưu token ở phía server và không hiển thị token trên trình duyệt.</p><a class="btn" href="/facebook/login">Kết nối Facebook / Page</a></div>`
+      : `<div class="card bad"><b>Chưa đủ cấu hình Railway</b><p>Cần cấu hình Meta App và kho lưu token phía server trước khi kết nối.</p></div>`;
 
     const rows = connections.length
-      ? connections.map((item) => `<div class="row"><b>${esc(item.facebook_user_name || item.facebook_user_id)}</b> ${item.active ? "· đang dùng" : ""}<br><span class="muted">${(item.ad_accounts || []).length} tài khoản quảng cáo · cập nhật ${esc(item.updated_at || "")}</span></div>`).join("")
+      ? connections.map((item) => `<div class="row"><b>${esc(item.facebook_user_name || item.facebook_user_id)}</b> ${item.active ? "· đang dùng" : ""}<br><span class="muted">${(item.pages || []).length} Facebook Page · ${(item.ad_accounts || []).length} tài khoản quảng cáo · cập nhật ${esc(item.updated_at || "")}</span>${renderPages(item.pages || [])}</div>`).join("")
       : `<div class="muted">Chưa có tài khoản Facebook nào được kết nối.</div>`;
 
-    res.type("html").send(page("Kết nối Facebook", `${status}<div class="card"><b>Redirect URI phải khai báo trong Meta</b><div class="code">${esc(redirect)}</div></div><div class="card"><h3 style="margin-top:0">Tài khoản đã kết nối</h3>${listError ? `<div class="bad">${esc(listError)}</div>` : rows}</div><a href="/dashboard">← Về Dashboard</a>`));
+    res.type("html").send(page("Kết nối Facebook / Page", `${status}<div class="card"><b>Redirect URI đã dùng cho Meta OAuth</b><div class="code">${esc(redirect)}</div></div><div class="card"><h3 style="margin-top:0">Tài khoản và Page đã kết nối</h3>${listError ? `<div class="bad">${esc(listError)}</div>` : rows}</div><a href="/admin">← Về quản trị AIGUKA</a>`));
   });
 
   app.get("/facebook/login", (req, res) => {
     if (!configured()) {
-      res.status(503).type("html").send(page("Thiếu cấu hình", `<div class="card bad">Thiếu META_APP_ID, META_APP_SECRET hoặc cấu hình lưu token.</div>`));
+      res.status(503).type("html").send(page("Thiếu cấu hình", `<div class="card bad">Kết nối Meta chưa đủ cấu hình phía server.</div>`));
       return;
     }
     const state = signState();
@@ -200,14 +205,20 @@ export function installMetaFacebookLogin(app) {
       }
 
       const token = encodeURIComponent(accessToken);
-      const [profile, permissions, adAccounts] = await Promise.all([
+      const [profile, permissions, adAccounts, managedPages] = await Promise.all([
         fetchJson(`https://graph.facebook.com/${GRAPH_VERSION}/me?fields=id,name&access_token=${token}`),
         fetchPages(`https://graph.facebook.com/${GRAPH_VERSION}/me/permissions?limit=200&access_token=${token}`),
         fetchPages(`https://graph.facebook.com/${GRAPH_VERSION}/me/adaccounts?fields=id,name,account_status&limit=200&access_token=${token}`),
+        fetchPages(`https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,tasks&limit=200&access_token=${token}`),
       ]);
       const scopes = permissions
         .filter((item) => item.status === "granted")
         .map((item) => item.permission);
+      const pages = managedPages.map((item) => ({
+        id: item.id,
+        name: item.name || null,
+        tasks: Array.isArray(item.tasks) ? item.tasks : [],
+      }));
 
       await saveMetaConnection({
         facebookUserId: profile.id,
@@ -215,14 +226,15 @@ export function installMetaFacebookLogin(app) {
         accessToken,
         scopes,
         adAccounts,
+        pages,
       });
       process.env.META_ACCESS_TOKEN = accessToken;
 
       res.setHeader("set-cookie", "aiguka_fb_state=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax");
-      res.status(200).type("html").send(successPage(profile.name, adAccounts.length));
+      res.status(200).type("html").send(successPage(profile.name, adAccounts.length, pages.length));
     } catch (error) {
       console.error("[AIGUKA Meta OAuth]", error);
-      res.status(400).type("html").send(page("Kết nối thất bại", `<div class="card bad"><b>Không thể kết nối Facebook</b><p>${esc(error.message)}</p></div><a href="/facebook-connect">Thử lại</a>`));
+      res.status(400).type("html").send(page("Kết nối thất bại", `<div class="card bad"><b>Không thể kết nối Facebook / Page</b><p>${esc(error.message)}</p></div><a href="/facebook-connect">Thử lại</a>`));
     }
   });
 }
