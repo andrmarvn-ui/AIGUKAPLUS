@@ -62,6 +62,7 @@ await safeImport("./v10-server-release.js", true);
 console.log("[AIGUKA startup] final V10 HTTP server initialized; verifying V10 AI release contract");
 await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
+startDetached("./v10-runtime-selfcheck.js");
 
 // Keep the Meta app/page webhook pointed at the active V9 Edge ingress after a
 // Railway/Supabase cutover. Complete this before customer workers capture page tokens.
@@ -105,12 +106,16 @@ if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && pr
 }
 
 if (v9CoreReady) {
-  // The webhook inbox bridge is still required: Meta events currently land in the
-  // durable legacy inbox before Core ingestion. It has no outbound authority.
   const legacyInboxBridgeEnabled = String(process.env.AIGUKA_V9_LEGACY_INBOX_BRIDGE_ENABLED || "false").trim().toLowerCase() === "true";
   if (legacyInboxBridgeEnabled) startDetached("./v9-legacy-inbox-bridge.js");
   else console.log("[AIGUKA V10] legacy inbox bridge disabled; direct V9 webhook is authoritative");
-  startDetached("./v10-mode-compat-worker.js");
+
+  // Fresh V10 Core owns page modes directly in v9_pages. The compatibility worker
+  // reads retired v8_pages and is therefore opt-in only for a real two-project migration.
+  const modeCompatEnabled = String(process.env.AIGUKA_V10_MODE_COMPAT_ENABLED || "false").trim().toLowerCase() === "true";
+  if (modeCompatEnabled) startDetached("./v10-mode-compat-worker.js");
+  else console.log("[AIGUKA V10] legacy mode compatibility disabled on fresh Core");
+
   await safeImport("./v10-decision-queue-janitor.js", true);
   startDetached("./v10-comment-private-reply-recovery-worker.js");
   startDetached("./v10-direct-core-worker.js");
