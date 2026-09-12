@@ -44,6 +44,7 @@ function wantsHtml(req) {
 function publicRequest(req) {
   const path = String(req.path || req.url || "").split("?", 1)[0].replace(/\/+$/, "") || "/";
   if (path === "/health" || path === "/favicon.ico" || path === "/robots.txt") return true;
+  if (path === "/__aiguka/verify-meta-signature") return true;
   if (path === "/auth/login" || path === "/auth/logout") return true;
   return [
     "/functions/v1/aiguka-v9-webhook",

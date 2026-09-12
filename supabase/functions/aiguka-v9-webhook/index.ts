@@ -6,6 +6,10 @@ const SUPABASE_URL = String(Deno.env.get("SUPABASE_URL") || "").replace(/\/$/, "
 const SERVICE_ROLE_KEY = String(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "");
 const VERIFY_TOKEN = String(Deno.env.get("META_VERIFY_TOKEN") || "AIGUKA_V8_META_VERIFY");
 const META_APP_SECRET = String(Deno.env.get("META_APP_SECRET") || "");
+const SIGNATURE_VERIFIER_URL = String(
+  Deno.env.get("AIGUKA_SIGNATURE_VERIFIER_URL")
+    || "https://aigukaplus.up.railway.app/__aiguka/verify-meta-signature",
+);
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -66,9 +70,25 @@ function constantTimeEqual(left: string, right: string): boolean {
 }
 
 async function verifyMetaSignature(rawBody: string, signature: string | null): Promise<boolean> {
-  if (!META_APP_SECRET || !signature?.startsWith("sha256=")) return false;
-  const expected = `sha256=${await hmacSha256(META_APP_SECRET, rawBody)}`;
-  return constantTimeEqual(expected, signature.toLowerCase());
+  if (!signature?.startsWith("sha256=")) return false;
+  if (META_APP_SECRET) {
+    const expected = `sha256=${await hmacSha256(META_APP_SECRET, rawBody)}`;
+    return constantTimeEqual(expected, signature.toLowerCase());
+  }
+  try {
+    const response = await fetch(SIGNATURE_VERIFIER_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": signature,
+      },
+      body: rawBody,
+      signal: AbortSignal.timeout(10_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function detectPhone(value: string | null): string | null {
@@ -238,8 +258,6 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return json({ ok: false, error: "CORE_CONFIGURATION_MISSING" }, 503);
-  if (!META_APP_SECRET) return json({ ok: false, error: "META_APP_SECRET_NOT_CONFIGURED" }, 503);
-
   const rawBody = await req.text();
   if (!await verifyMetaSignature(rawBody, req.headers.get("x-hub-signature-256"))) {
     return json({ ok: false, error: "INVALID_META_SIGNATURE" }, 401);

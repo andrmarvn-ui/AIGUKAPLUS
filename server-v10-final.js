@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "node:crypto";
 import vm from "node:vm";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { installReportRoutes } from "./report-handler.js";
@@ -63,7 +64,30 @@ function setProxyAuth(proxyReq, req) {
   }
   proxyReq.setHeader("x-aiguka-railway-test", "enabled");
   proxyReq.setHeader("x-aiguka-admin-secret", TEST_SESSION_VALUE);
+  if (process.env.AIGUKA_V9_CORE_BRIDGE_KEY) {
+    proxyReq.setHeader("x-aiguka-core-bridge", process.env.AIGUKA_V9_CORE_BRIDGE_KEY);
+  }
 }
+
+function safeEqual(left, right) {
+  const a = Buffer.from(String(left || ""));
+  const b = Buffer.from(String(right || ""));
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
+
+// Supabase Edge Functions cannot read Railway secrets. This endpoint lets the
+// webhook verify Meta's HMAC with the existing server-side app secret without
+// exposing that secret. It returns only a boolean and stores no request body.
+app.post("/__aiguka/verify-meta-signature", express.raw({ type: "*/*", limit: "2mb" }), (req, res) => {
+  const secret = String(process.env.META_APP_SECRET || "");
+  const signature = String(req.headers["x-hub-signature-256"] || "").toLowerCase();
+  if (!secret || !signature.startsWith("sha256=") || !Buffer.isBuffer(req.body)) {
+    res.status(401).json({ ok: false });
+    return;
+  }
+  const expected = `sha256=${crypto.createHmac("sha256", secret).update(req.body).digest("hex")}`;
+  res.status(safeEqual(expected, signature) ? 200 : 401).json({ ok: safeEqual(expected, signature) });
+});
 
 installSupabaseAdminAuth(app, {
   supabaseUrl: SUPABASE_URL,

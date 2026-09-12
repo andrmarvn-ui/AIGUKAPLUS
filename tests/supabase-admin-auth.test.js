@@ -19,6 +19,7 @@ test("only health, auth endpoints and explicit Meta webhooks are public", () => 
   assert.equal(__private__.publicRequest(request("/health")), true);
   assert.equal(__private__.publicRequest(request("/auth/login")), true);
   assert.equal(__private__.publicRequest(request("/functions/v1/aiguka-v9-webhook")), true);
+  assert.equal(__private__.publicRequest(request("/__aiguka/verify-meta-signature", "POST")), true);
   assert.equal(__private__.publicRequest(request("/dashboard")), false);
   assert.equal(__private__.publicRequest(request("/api/ai-providers")), false);
   assert.equal(__private__.publicRequest(request("/rest/v1/v8_pages")), false);

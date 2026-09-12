@@ -16,6 +16,11 @@ test("Core bridge headers use the public API key plus a separate database-only c
   assert.equal(headers["x-aiguka-core-bridge"], "bridge-secret-test-value");
 });
 
+test("fresh Core installations support an authenticated Edge proxy without anon table grants", () => {
+  assert.match(bootstrapSource, /proxyBase && url\.pathname\.startsWith\("\/rest\/v1\/"\)/);
+  assert.match(bootstrapSource, /headers\.set\("authorization", `Bearer \$\{apiKey\}`\)/);
+});
+
 
 test("Core URL matching never classifies the legacy project as Core", () => {
   const core = bridgePrivate.urlFromInput("https://xqcxckyrlsobdrnidtrp.supabase.co/rest/v1/v9_pages");
@@ -44,6 +49,7 @@ test("database bridge compatibility key is explicitly documented as publishable,
   assert.match(bootstrapSource, /never a Core service-role key/);
   assert.match(bootstrapSource, /AIGUKA_V9_CORE_AUTH_MODE = "database_bridge"/);
   assert.match(bootstrapSource, /installV9CoreBridgeFetch/);
+  assert.match(bootstrapSource, /configuredBridgeKey && configuredPublishableKey/);
 });
 
 

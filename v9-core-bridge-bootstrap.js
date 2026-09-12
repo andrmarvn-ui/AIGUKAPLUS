@@ -27,12 +27,14 @@ function validIso(value, fallback = new Date().toISOString()) {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
 }
 
-export function installV9CoreBridgeFetch(coreBase, bridgeKey) {
+export function installV9CoreBridgeFetch(coreBase, bridgeKey, apiKey = "") {
   if (!bridgeKey) return null;
   if (globalThis[BRIDGE_FETCH_MARK]) return globalThis[BRIDGE_FETCH_MARK];
   const originalFetch = globalThis.fetch?.bind(globalThis);
   if (!originalFetch) throw new Error("CORE_BRIDGE_FETCH_UNAVAILABLE");
-  const coreOrigin = new URL(cleanBase(coreBase)).origin;
+  const coreUrl = new URL(cleanBase(coreBase));
+  const coreOrigin = coreUrl.origin;
+  const proxyBase = coreUrl.pathname.includes("/functions/v1/") ? cleanBase(coreBase) : "";
 
   globalThis.fetch = async function v9CoreDatabaseBridgeFetch(input, init = {}) {
     const url = urlFromInput(input);
@@ -42,11 +44,18 @@ export function installV9CoreBridgeFetch(coreBase, bridgeKey) {
       : init.headers;
     const headers = new Headers(baseHeaders || {});
     headers.set("x-aiguka-core-bridge", bridgeKey);
+    if (apiKey) {
+      headers.set("apikey", apiKey);
+      headers.set("authorization", `Bearer ${apiKey}`);
+    }
+    const routedUrl = proxyBase && url.pathname.startsWith("/rest/v1/")
+      ? `${proxyBase}${url.pathname}${url.search}`
+      : url.toString();
     if (typeof Request !== "undefined" && input instanceof Request) {
-      const request = new Request(input, { headers });
+      const request = new Request(routedUrl, input);
       return originalFetch(request, { ...init, headers });
     }
-    return originalFetch(input, { ...init, headers });
+    return originalFetch(routedUrl, { ...init, headers });
   };
 
   const state = { enabled: true, coreOrigin, fetch: originalFetch };
@@ -103,8 +112,39 @@ export const v9CoreBridgeState = {
 export async function bootstrapV9CoreBridge() {
   const coreBase = cleanBase(process.env.AIGUKA_V9_CORE_URL || DEFAULT_CORE_URL);
   const serviceRoleKey = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "").trim();
+  const configuredBridgeKey = String(process.env.AIGUKA_V9_CORE_BRIDGE_KEY || "").trim();
+  const configuredPublishableKey = String(
+    process.env.AIGUKA_V9_CORE_PUBLISHABLE_KEY || DEFAULT_CORE_PUBLISHABLE_KEY,
+  ).trim();
 
   try {
+    // Fresh installations do not have (and must not need) a legacy service-role
+    // credential. Railway receives a separately rotated bridge credential and a
+    // publishable key; Postgres RLS validates the bridge header on every request.
+    if (configuredBridgeKey && configuredPublishableKey) {
+      const runtime = await verifyCore(coreBase, configuredPublishableKey, configuredBridgeKey);
+      const cutoverAt = validIso(process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT);
+      installV9CoreBridgeFetch(coreBase, configuredBridgeKey, configuredPublishableKey);
+      process.env.AIGUKA_V9_CORE_URL = coreBase;
+      process.env.AIGUKA_V9_CORE_PUBLISHABLE_KEY = configuredPublishableKey;
+      process.env.AIGUKA_V9_CORE_API_KEY = configuredPublishableKey;
+      process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT = cutoverAt;
+      // Compatibility only: existing workers read this variable as their Core API key.
+      // In database_bridge mode it contains the public publishable key, never a Core service-role key.
+      process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY = configuredPublishableKey;
+      process.env.AIGUKA_V9_CORE_AUTH_MODE = "database_bridge";
+      Object.assign(v9CoreBridgeState, {
+        ready: true,
+        mode: "database_bridge",
+        coreBase,
+        cutoverAt,
+        runtime,
+        error: null,
+      });
+      console.log(`[AIGUKA V9 Core] configured database bridge verified: ${new URL(coreBase).host}; cutover ${cutoverAt}`);
+      return v9CoreBridgeState;
+    }
+
     if (serviceRoleKey && !process.env.AIGUKA_V9_CORE_BRIDGE_KEY) {
       const runtime = await verifyCore(coreBase, serviceRoleKey);
       const cutoverAt = validIso(process.env.AIGUKA_V9_BRIDGE_CUTOVER_AT);
@@ -133,7 +173,7 @@ export async function bootstrapV9CoreBridge() {
     if (!resolvedBase || !publishableKey || !bridgeKey) throw new Error("CORE_BRIDGE_CONFIGURATION_INCOMPLETE");
 
     const runtime = await verifyCore(resolvedBase, publishableKey, bridgeKey);
-    installV9CoreBridgeFetch(resolvedBase, bridgeKey);
+    installV9CoreBridgeFetch(resolvedBase, bridgeKey, publishableKey);
     process.env.AIGUKA_V9_CORE_URL = resolvedBase;
     process.env.AIGUKA_V9_CORE_PUBLISHABLE_KEY = publishableKey;
     process.env.AIGUKA_V9_CORE_API_KEY = publishableKey;
