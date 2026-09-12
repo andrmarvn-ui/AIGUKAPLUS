@@ -1,27 +1,26 @@
 import fs from "node:fs";
 import { installFollowupAdminV8 } from "./followup-admin-v8.js";
 
-export function installBotControlUi(app, options) {
-  installFollowupAdminV8(app); // AIGUKA_FOLLOWUP_ADMIN_V8_EVENT_V1
-  const { supabaseUrl, serviceRoleKey, publishableKey } = options;
-  const key = serviceRoleKey || publishableKey;
-  const coreBase = String(process.env.AIGUKA_V9_CORE_URL || "").replace(/\/$/, "");
-  const coreKey = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || "");
-  const headers = (token = key) => ({
-    apikey: token,
-    authorization: `Bearer ${token}`,
-    "content-type": "application/json",
-    "x-aiguka-railway-test": "enabled",
-    "x-aiguka-admin-secret": "AIGUKA_RAILWAY_TEST_MODE",
-  });
+export function installBotControlUi(app, options = {}) {
+  installFollowupAdminV8(app);
+  const coreBase = String(process.env.AIGUKA_V9_CORE_URL || options.supabaseUrl || "").replace(/\/$/, "");
+  const coreKey = String(process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || options.serviceRoleKey || "");
+
+  function headers(token = coreKey) {
+    return {
+      apikey: token,
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    };
+  }
 
   async function dbRequest(base, token, path, options = {}) {
-    if (!base || !token) throw new Error("MISSING_DATABASE_SERVICE_ROLE_KEY");
+    if (!base || !token) throw new Error("V10_CORE_CONNECTION_NOT_READY");
     const response = await fetch(`${base}/rest/v1/${path}`, {
       method: options.method || "GET",
       headers: { ...headers(token), Prefer: options.prefer || "return=representation" },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: AbortSignal.timeout(options.timeout || 40000),
+      signal: AbortSignal.timeout(options.timeout || 40_000),
       cache: "no-store",
     });
     const text = await response.text();
@@ -31,47 +30,54 @@ export function installBotControlUi(app, options) {
     return data;
   }
 
-  const rest = (path, options = {}) => dbRequest(supabaseUrl, key, path, options);
   const core = (path, options = {}) => dbRequest(coreBase, coreKey, path, options);
+  const coreRpc = (name, args = {}) => core(`rpc/${name}`, { method: "POST", body: args, timeout: 45_000 });
+  const now = () => new Date().toISOString();
 
-  async function rpc(name, args = {}) {
-    return rest(`rpc/${name}`, { method: "POST", body: args });
+  function toUiMode(mode) {
+    const value = String(mode || "OFF").toUpperCase();
+    if (value === "ON") return "PRODUCTION";
+    if (value === "SUPPORT") return "OBSERVE";
+    return "OFF";
   }
 
-  async function coreRpc(name, args = {}) {
-    return core(`rpc/${name}`, { method: "POST", body: args, timeout: 45000 });
+  function toCoreMode(mode) {
+    const value = String(mode || "OFF").toUpperCase();
+    if (["ON", "LIVE", "PRODUCTION"].includes(value)) return "ON";
+    if (["SUPPORT", "OBSERVE", "TEST"].includes(value)) return "SUPPORT";
+    if (value === "OFF") return "OFF";
+    throw new Error("CHE_DO_PAGE_KHONG_HOP_LE");
+  }
+
+  function pagePolicy(page) {
+    const mode = String(page.operating_mode || "OFF").toUpperCase();
+    const settings = page.settings || {};
+    return {
+      runtime_mode: mode,
+      can_send_text: mode === "ON" && settings.aiguka_text_enabled !== false,
+      can_send_image: mode !== "OFF" && settings.aiguka_media_enabled !== false,
+      coexistence_mode: page.coexistence_mode || null,
+    };
+  }
+
+  async function activePages() {
+    return core("v9_pages?select=*&is_active=eq.true&order=page_name.asc");
+  }
+
+  async function updatePageSettings(page, patch) {
+    const settings = { ...(page.settings || {}), ...patch };
+    const rows = await core(`v9_pages?page_id=eq.${encodeURIComponent(page.page_id)}`, {
+      method: "PATCH",
+      body: { settings, updated_at: now() },
+    });
+    return rows?.[0] || { ...page, settings };
   }
 
   async function mirrorCareFeature(enabled) {
-    const settingsRows = await rest("bot_working_settings?select=*&setting_key=eq.default&limit=1");
-    const settings = settingsRows?.[0] || {};
-    const supportConfig = {
-      ...(settings.support_config || {}),
-      care_enabled: Boolean(enabled),
-      updated_by: "railway_followup_admin",
-      updated_at: new Date().toISOString(),
-    };
-    await rest("bot_working_settings?setting_key=eq.default", {
-      method: "PATCH",
-      prefer: "return=minimal",
-      body: { support_config: supportConfig, updated_at: new Date().toISOString() },
-    });
-
-    const runtimeRows = await rest("v8_config_hub?select=*&key=eq.runtime_mode&scope=eq.global&is_active=eq.true&order=updated_at.desc&limit=1");
-    const runtime = runtimeRows?.[0];
-    if (runtime) {
-      await rest(`v8_config_hub?id=eq.${encodeURIComponent(runtime.id)}`, {
-        method: "PATCH",
-        prefer: "return=minimal",
-        body: {
-          value: {
-            ...(runtime.value || {}),
-            care_enabled: Boolean(enabled),
-            aiguka_can_auto_reply: Boolean(runtime.value?.aiguka_can_send_text || enabled),
-          },
-          updated_at: new Date().toISOString(),
-        },
-      });
+    const pages = await activePages();
+    for (const page of pages || []) {
+      if (String(page.operating_mode || "OFF").toUpperCase() === "OFF") continue;
+      await updatePageSettings(page, { care_enabled: Boolean(enabled) });
     }
   }
 
@@ -79,247 +85,187 @@ export function installBotControlUi(app, options) {
 
   app.get("/bot-control/api/state", async (_req, res) => {
     try {
-      const [pages, settings, config, capabilities] = await Promise.all([
-        rest("v8_pages?select=*&order=page_name.asc"),
-        rest("bot_working_settings?select=*&setting_key=eq.default&limit=1"),
-        rest("v8_config_hub?select=*&key=eq.runtime_mode&scope=eq.global&is_active=eq.true&order=updated_at.desc&limit=1"),
-        rest("v8_page_messaging_capabilities?select=*&order=page_id.asc"),
+      const [pages, runtimeRows, followupRows] = await Promise.all([
+        activePages(),
+        core("v9_runtime_config?select=*&id=eq.1&limit=1"),
+        core("v10_followup_config?select=*&id=eq.1&limit=1"),
       ]);
-      const enriched = [];
-      for (const page of pages || []) {
-        let policy = null;
-        try {
-          const rows = await rpc("v8_resolve_runtime_policy", { p_page_id: page.page_id });
-          policy = Array.isArray(rows) ? rows[0] : rows;
-        } catch {}
-        enriched.push({ ...page, policy });
-      }
-      res.json({ ok: true, pages: enriched, settings: settings?.[0] || null, runtime: config?.[0] || null, capabilities: capabilities || [] });
+      const runtime = runtimeRows?.[0] || null;
+      const followup = followupRows?.[0] || null;
+      const primary = (pages || []).find((page) => String(page.operating_mode || "OFF").toUpperCase() !== "OFF") || pages?.[0] || null;
+      const primarySettings = primary?.settings || {};
+      const schedule = primarySettings.admin_schedule || {};
+      const supportConfig = {
+        text_enabled: Boolean(primarySettings.aiguka_text_enabled),
+        slide_enabled: Boolean(primarySettings.aiguka_media_enabled),
+        care_enabled: Boolean(followup?.enabled && followup?.delivery_enabled),
+        guide_texts: primarySettings.guide_texts || {},
+      };
+      const settings = {
+        setting_key: "v10_core",
+        timezone: schedule.timezone || primary?.timezone || "Asia/Ho_Chi_Minh",
+        work_start: schedule.work_start || "08:00",
+        work_end: schedule.work_end || "22:00",
+        is_open: schedule.is_open !== false,
+        holiday_mode: Boolean(schedule.holiday_mode),
+        staff_online_count: Number(schedule.staff_online_count || 0),
+        support_wait_minutes: Number(schedule.support_wait_minutes || 5),
+        reply_windows: Array.isArray(schedule.reply_windows) ? schedule.reply_windows : [],
+        support_config: supportConfig,
+      };
+      const enriched = (pages || []).map((page) => ({
+        ...page,
+        bot_mode: toUiMode(page.operating_mode),
+        webhook_status: String(page.operating_mode || "OFF").toUpperCase() === "OFF" ? "OFF" : "DIRECT_CORE",
+        policy: pagePolicy(page),
+      }));
+      res.json({
+        ok: true,
+        core: true,
+        pages: enriched,
+        settings,
+        runtime: runtime ? { ...runtime, value: {
+          mode: runtime.mode,
+          aiguka_can_send_text: supportConfig.text_enabled,
+          aiguka_can_send_image: supportConfig.slide_enabled,
+          care_enabled: supportConfig.care_enabled,
+          meta_is_source_of_truth: true,
+        }} : null,
+        capabilities: enriched.map((page) => ({
+          page_id: page.page_id,
+          can_send_text: page.policy.can_send_text,
+          can_send_image: page.policy.can_send_image,
+          webhook_status: page.webhook_status,
+        })),
+      });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      console.error("[AIGUKA bot-control state]", error instanceof Error ? error.message : String(error));
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/bot-control/api/runtime", async (req, res) => {
     try {
-      const body = req.body || {};
-      const value = {
-        mode: String(body.mode || "OBSERVE").toUpperCase(),
-        queue_first: body.queue_first !== false,
-        aiguka_can_send_text: Boolean(body.aiguka_can_send_text),
-        aiguka_can_send_image: Boolean(body.aiguka_can_send_image),
-        aiguka_can_auto_reply: Boolean(body.aiguka_can_auto_reply),
-        aiguka_can_create_sale_task: body.aiguka_can_create_sale_task !== false,
-        operational_mode: body.operational_mode || null,
-        support_slide_only: Boolean(body.support_slide_only),
-        meta_is_source_of_truth: true,
-        aiguka_can_queue_internal: true,
-      };
-      const rows = await rest("v8_config_hub?key=eq.runtime_mode&scope=eq.global&is_active=eq.true", {
+      const requested = String(req.body?.mode || "ACTIVE").toUpperCase();
+      const mode = requested === "OFF" ? "OFF" : "ACTIVE";
+      const rows = await core("v9_runtime_config?id=eq.1", {
         method: "PATCH",
-        body: { value, updated_at: new Date().toISOString() },
+        body: { mode, ingest_mode: mode === "OFF" ? "OFF" : "DIRECT_CORE", updated_at: now() },
       });
-      res.json({ ok: true, data: rows?.[0] || rows });
+      res.json({ ok: true, data: rows?.[0] || null });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/bot-control/api/page-mode", async (req, res) => {
     try {
-      const body = req.body || {};
-      const pageId = String(body.page_id || "").trim();
-      const requestedMode = String(body.mode || "OBSERVE").trim().toUpperCase();
-      const mode = requestedMode === "LIVE" ? "PRODUCTION" : requestedMode;
+      const pageId = String(req.body?.page_id || "").trim();
       if (!pageId) throw new Error("THIEU_PAGE_ID");
-      if (!["OFF", "OBSERVE", "TEST", "PRODUCTION"].includes(mode)) {
-        throw new Error("CHE_DO_PAGE_KHONG_HOP_LE");
-      }
-
-      const currentRows = await rest(
-        `v8_pages?select=page_id,page_name,bot_mode&page_id=eq.${encodeURIComponent(pageId)}&limit=1`,
-      );
+      const mode = toCoreMode(req.body?.mode);
+      const currentRows = await core(`v9_pages?select=*&page_id=eq.${encodeURIComponent(pageId)}&limit=1`);
       const current = currentRows?.[0];
       if (!current) throw new Error("KHONG_TIM_THAY_PAGE");
-
-      // The legacy transition RPC still checks retired V8 security/outbound
-      // workers. Keep its result as diagnostic information, but do not let a
-      // stale worker heartbeat make the Admin page read-only. Actual delivery
-      // remains guarded by the V10 authority, dispatch lease and final gate.
-      let transition = null;
-      try {
-        transition = await rpc("v8_runtime_transition_check", {
-          p_page_id: pageId,
-          p_target_mode: mode,
-        });
-      } catch {}
-
-      const savedRows = await rest(`v8_pages?page_id=eq.${encodeURIComponent(pageId)}`, {
+      const settings = {
+        ...(current.settings || {}),
+        aiguka_text_enabled: mode === "ON",
+        aiguka_media_enabled: mode !== "OFF",
+        support_text_owner: mode === "SUPPORT" ? "aicake" : current.settings?.support_text_owner || "aiguka",
+      };
+      const rows = await core(`v9_pages?page_id=eq.${encodeURIComponent(pageId)}`, {
         method: "PATCH",
-        body: { bot_mode: mode, updated_at: new Date().toISOString() },
+        body: { operating_mode: mode, settings, updated_at: now() },
       });
-      const saved = savedRows?.[0] || { ...current, bot_mode: mode };
-
-      let policy = null;
-      try {
-        const rows = await rpc("v8_resolve_runtime_policy", { p_page_id: pageId });
-        policy = Array.isArray(rows) ? rows[0] : rows;
-      } catch {}
-
-      const blockers = Array.isArray(transition?.blockers) ? transition.blockers : [];
-      try {
-        await rest("v8_admin_change_log", {
-          method: "POST",
-          body: {
-            actor: "railway_bot_control",
-            action: "save_page_mode_preference",
-            asset_type: "page",
-            asset_id: pageId,
-            before_data: { bot_mode: current.bot_mode },
-            after_data: {
-              bot_mode: saved.bot_mode || mode,
-              actual_runtime_mode: policy?.runtime_mode || null,
-              transition_warnings: blockers,
-            },
-          },
-        });
-      } catch {}
-
+      const saved = rows?.[0] || { ...current, operating_mode: mode, settings };
       res.json({
         ok: true,
         data: {
           saved: true,
-          changed: String(current.bot_mode || "").toUpperCase() !== mode,
+          changed: String(current.operating_mode || "OFF").toUpperCase() !== mode,
           page_id: pageId,
-          previous_page_mode: current.bot_mode || null,
-          new_page_mode: saved.bot_mode || mode,
-          actual_runtime_mode: policy?.runtime_mode || saved.bot_mode || mode,
-          can_send_text: policy?.can_send_text === true,
-          can_send_image: policy?.can_send_image === true,
-          warnings: blockers,
+          previous_page_mode: current.operating_mode || null,
+          new_page_mode: mode,
+          actual_runtime_mode: mode,
+          can_send_text: pagePolicy(saved).can_send_text,
+          can_send_image: pagePolicy(saved).can_send_image,
+          warnings: [],
         },
       });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/bot-control/api/features", async (req, res) => {
     try {
-      const body = req.body || {};
       const features = {
-        text_enabled: body.text_enabled === true,
-        slide_enabled: body.slide_enabled === true,
-        care_enabled: body.care_enabled === true,
-        updated_by: "railway_bot_control_admin",
-        updated_at: new Date().toISOString(),
+        text_enabled: req.body?.text_enabled === true,
+        slide_enabled: req.body?.slide_enabled === true,
+        care_enabled: req.body?.care_enabled === true,
       };
-      const settingsRows = await rest("bot_working_settings?select=*&setting_key=eq.default&limit=1");
-      const settings = settingsRows?.[0] || {};
-      const supportConfig = { ...(settings.support_config || {}), ...features };
-      const savedSettings = await rest("bot_working_settings?setting_key=eq.default", {
-        method: "PATCH",
-        body: { support_config: supportConfig, updated_at: new Date().toISOString() },
-      });
-
-      const runtimeRows = await rest("v8_config_hub?select=*&key=eq.runtime_mode&scope=eq.global&is_active=eq.true&order=updated_at.desc&limit=1");
-      const runtime = runtimeRows?.[0] || null;
-      let savedRuntime = null;
-      if (runtime) {
-        const value = {
-          ...(runtime.value || {}),
-          aiguka_can_send_text: features.text_enabled,
-          aiguka_can_send_image: features.slide_enabled,
-          aiguka_can_auto_reply: features.text_enabled || features.care_enabled,
+      const pages = await activePages();
+      for (const page of pages || []) {
+        if (String(page.operating_mode || "OFF").toUpperCase() === "OFF") continue;
+        await updatePageSettings(page, {
+          aiguka_text_enabled: features.text_enabled,
+          aiguka_media_enabled: features.slide_enabled,
           care_enabled: features.care_enabled,
-          support_slide_only: features.slide_enabled && !features.text_enabled,
-          meta_is_source_of_truth: true,
-        };
-        const rows = await rest(`v8_config_hub?id=eq.${encodeURIComponent(runtime.id)}`, {
-          method: "PATCH",
-          body: { value, updated_at: new Date().toISOString() },
-        });
-        savedRuntime = rows?.[0] || null;
-      }
-      if (coreBase && coreKey) {
-        await core("v10_followup_config?id=eq.1", {
-          method: "PATCH",
-          prefer: "return=minimal",
-          body: {
-            enabled: features.care_enabled,
-            delivery_enabled: features.care_enabled,
-            updated_by: "railway_bot_control_admin",
-            updated_at: new Date().toISOString(),
-          },
         });
       }
-      res.json({ ok: true, features, settings: savedSettings?.[0] || null, runtime: savedRuntime });
+      await core("v10_followup_config?id=eq.1", {
+        method: "PATCH",
+        prefer: "return=minimal",
+        body: {
+          enabled: features.care_enabled,
+          delivery_enabled: features.care_enabled,
+          updated_by: "railway_bot_control_v10",
+          updated_at: now(),
+        },
+      });
+      res.json({ ok: true, features });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/bot-control/api/guides", async (req, res) => {
     try {
-      const body = req.body || {};
-      if (!body.guide_texts || typeof body.guide_texts !== "object" || Array.isArray(body.guide_texts)) {
-        throw new Error("NOI_DUNG_HUONG_DAN_KHONG_HOP_LE");
-      }
+      const source = req.body?.guide_texts;
+      if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("NOI_DUNG_HUONG_DAN_KHONG_HOP_LE");
       const clean = (value) => String(value || "").trim().slice(0, 800);
-      const guideTexts = {
-        on: clean(body.guide_texts.on),
-        support: clean(body.guide_texts.support),
-        off: clean(body.guide_texts.off),
-      };
-      const settingsRows = await rest("bot_working_settings?select=*&setting_key=eq.default&limit=1");
-      const settings = settingsRows?.[0] || {};
-      const supportConfig = {
-        ...(settings.support_config || {}),
-        guide_texts: guideTexts,
-        guide_texts_updated_by: "railway_bot_control_admin",
-        guide_texts_updated_at: new Date().toISOString(),
-      };
-      const rows = await rest("bot_working_settings?setting_key=eq.default", {
-        method: "PATCH",
-        body: { support_config: supportConfig, updated_at: new Date().toISOString() },
-      });
-      res.json({ ok: true, guide_texts: guideTexts, settings: rows?.[0] || null });
+      const guideTexts = { on: clean(source.on), support: clean(source.support), off: clean(source.off) };
+      const pages = await activePages();
+      for (const page of pages || []) await updatePageSettings(page, { guide_texts: guideTexts });
+      res.json({ ok: true, guide_texts: guideTexts });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/bot-control/api/schedule", async (req, res) => {
     try {
       const body = req.body || {};
-      const payload = {
+      const schedule = {
         timezone: body.timezone || "Asia/Ho_Chi_Minh",
         work_start: body.work_start || "08:00",
         work_end: body.work_end || "22:00",
         is_open: body.is_open !== false,
         holiday_mode: Boolean(body.holiday_mode),
         staff_online_count: Number(body.staff_online_count || 0),
-        admin_pause_minutes: Number(body.admin_pause_minutes || 10),
-        customer_wait_minutes: Number(body.customer_wait_minutes || 5),
-        working_wait_minutes: Number(body.working_wait_minutes || 5),
-        outside_wait_minutes: Number(body.outside_wait_minutes || 5),
-        bot_mode: body.bot_mode || "scheduled",
         support_wait_minutes: Number(body.support_wait_minutes || body.working_wait_minutes || 5),
         reply_windows: Array.isArray(body.reply_windows) ? body.reply_windows : [],
-        working_windows: Array.isArray(body.working_windows) ? body.working_windows : [],
-        after_hours_windows: Array.isArray(body.after_hours_windows) ? body.after_hours_windows : [],
-        updated_at: new Date().toISOString(),
+        updated_at: now(),
       };
-      const rows = await rest("bot_working_settings?setting_key=eq.default", { method: "PATCH", body: payload });
-      res.json({ ok: true, data: rows?.[0] || rows });
+      const pages = await activePages();
+      for (const page of pages || []) await updatePageSettings(page, { admin_schedule: schedule });
+      res.json({ ok: true, data: schedule });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.get("/bot-control/api/follow-up/state", async (_req, res) => {
     try {
-      if (!coreBase || !coreKey) throw new Error("V10_CORE_CONNECTION_NOT_READY");
       const [configRows, heartbeatRows, logs, pages] = await Promise.all([
         core("v10_followup_config?select=*&id=eq.1&limit=1"),
         core("v9_worker_heartbeats?select=worker_name,worker_version,status,mode,details,last_error,last_seen_at,updated_at&worker_name=eq.aiguka-v10-followup&limit=1"),
@@ -338,21 +284,14 @@ export function installBotControlUi(app, options) {
         if (failedStatuses.has(row.status)) acc.failed += 1;
         return acc;
       }, { total: 0, sent: 0, pending: 0, suppressed: 0, failed: 0 });
-      res.json({
-        ok: true,
-        config: configRows?.[0] || null,
-        worker: heartbeatRows?.[0] || null,
-        stats,
-        logs: enrichedLogs.slice(0, 100),
-      });
+      res.json({ ok: true, config: configRows?.[0] || null, worker: heartbeatRows?.[0] || null, stats, logs: enrichedLogs.slice(0, 100) });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/bot-control/api/follow-up/config", async (req, res) => {
     try {
-      if (!coreBase || !coreKey) throw new Error("V10_CORE_CONNECTION_NOT_READY");
       const body = req.body || {};
       const integer = (name, fallback, min, max) => {
         const value = Number(body[name] ?? fallback);
@@ -370,25 +309,24 @@ export function installBotControlUi(app, options) {
         max_age_hours: integer("max_age_hours", 20, 1, 23),
         max_per_run: integer("max_per_run", 20, 1, 100),
         text_only: true,
-        updated_by: "railway_followup_admin",
-        updated_at: new Date().toISOString(),
+        updated_by: "railway_followup_admin_v10",
+        updated_at: now(),
       };
       if (payload.day_start_hour === payload.evening_start_hour) throw new Error("FOLLOWUP_DAY_AND_EVENING_START_MUST_DIFFER");
       const rows = await core("v10_followup_config?id=eq.1", { method: "PATCH", body: payload });
       await mirrorCareFeature(payload.enabled && payload.delivery_enabled);
       res.json({ ok: true, config: rows?.[0] || null });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
   app.post("/bot-control/api/follow-up/run", async (_req, res) => {
     try {
-      if (!coreBase || !coreKey) throw new Error("V10_CORE_CONNECTION_NOT_READY");
       const result = await coreRpc("v10_enqueue_due_followups", { p_limit: null, p_force: true });
       res.json({ ok: true, result });
     } catch (error) {
-      res.status(500).json({ ok: false, error: error.message });
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
 
