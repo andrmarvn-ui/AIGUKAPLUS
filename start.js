@@ -102,7 +102,9 @@ if (reportingReady && metaInsightsEnabled && process.env.META_ACCESS_TOKEN && pr
 if (v9CoreReady) {
   // The webhook inbox bridge is still required: Meta events currently land in the
   // durable legacy inbox before Core ingestion. It has no outbound authority.
-  startDetached("./v9-legacy-inbox-bridge.js");
+  const legacyInboxBridgeEnabled = String(process.env.AIGUKA_V9_LEGACY_INBOX_BRIDGE_ENABLED || "false").trim().toLowerCase() === "true";
+  if (legacyInboxBridgeEnabled) startDetached("./v9-legacy-inbox-bridge.js");
+  else console.log("[AIGUKA V10] legacy inbox bridge disabled; direct V9 webhook is authoritative");
   startDetached("./v10-mode-compat-worker.js");
   await safeImport("./v10-decision-queue-janitor.js", true);
   startDetached("./v10-comment-private-reply-recovery-worker.js");
