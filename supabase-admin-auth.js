@@ -3,6 +3,7 @@ import express from "express";
 
 const ACCESS_COOKIE = "aiguka_access_token";
 const REFRESH_COOKIE = "aiguka_refresh_token";
+const LOCAL_OWNER_COOKIE = "aiguka_local_owner";
 const DEFAULT_ACCESS_TTL_SECONDS = 60 * 60;
 const DEFAULT_REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30;
 const INTERNAL_TOKEN = process.env.AIGUKA_INTERNAL_HTTP_TOKEN || crypto.randomBytes(32).toString("hex");
@@ -76,6 +77,7 @@ function cookieOptions(req, maxAgeSeconds) {
 function clearSession(res, req) {
   res.clearCookie(ACCESS_COOKIE, cookieOptions(req, 0));
   res.clearCookie(REFRESH_COOKIE, cookieOptions(req, 0));
+  res.clearCookie(LOCAL_OWNER_COOKIE, cookieOptions(req, 0));
 }
 
 function saveSession(res, req, session) {
@@ -89,6 +91,66 @@ function saveSession(res, req, session) {
     String(session.refresh_token || ""),
     cookieOptions(req, DEFAULT_REFRESH_TTL_SECONDS),
   );
+}
+
+function localOwnerEmail() {
+  return String(process.env.AIGUKA_LOCAL_ADMIN_EMAIL || "").trim().toLowerCase();
+}
+
+function localOwnerConfigured() {
+  return Boolean(
+    localOwnerEmail()
+    && String(process.env.AIGUKA_LOCAL_ADMIN_PASSWORD_SCRYPT || "").trim()
+    && String(process.env.AIGUKA_LOCAL_ADMIN_SESSION_SECRET || "").trim(),
+  );
+}
+
+function safeEqualBuffer(left, right) {
+  return left.length === right.length && left.length > 0 && crypto.timingSafeEqual(left, right);
+}
+
+function verifyLocalOwnerPassword(email, password) {
+  if (!localOwnerConfigured()) return false;
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (normalizedEmail !== localOwnerEmail()) return false;
+  const encoded = String(process.env.AIGUKA_LOCAL_ADMIN_PASSWORD_SCRYPT || "");
+  const [scheme, saltHex, digestHex] = encoded.split("$");
+  if (scheme !== "scrypt" || !/^[0-9a-f]{32}$/i.test(saltHex || "") || !/^[0-9a-f]{64}$/i.test(digestHex || "")) return false;
+  try {
+    const actual = crypto.scryptSync(String(password || ""), Buffer.from(saltHex, "hex"), 32, { N: 16384, r: 8, p: 1 });
+    return safeEqualBuffer(actual, Buffer.from(digestHex, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+function localOwnerCookieValue(email) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const encodedEmail = Buffer.from(normalizedEmail, "utf8").toString("base64url");
+  const secret = String(process.env.AIGUKA_LOCAL_ADMIN_SESSION_SECRET || "");
+  const signature = crypto.createHmac("sha256", secret).update(encodedEmail).digest("base64url");
+  return `${encodedEmail}.${signature}`;
+}
+
+function verifyLocalOwnerCookie(value) {
+  if (!localOwnerConfigured()) return null;
+  const [encodedEmail, suppliedSignature] = String(value || "").split(".");
+  if (!encodedEmail || !suppliedSignature) return null;
+  let email = "";
+  try { email = Buffer.from(encodedEmail, "base64url").toString("utf8").trim().toLowerCase(); }
+  catch { return null; }
+  if (email !== localOwnerEmail()) return null;
+  const secret = String(process.env.AIGUKA_LOCAL_ADMIN_SESSION_SECRET || "");
+  const expectedSignature = crypto.createHmac("sha256", secret).update(encodedEmail).digest("base64url");
+  const left = Buffer.from(suppliedSignature);
+  const right = Buffer.from(expectedSignature);
+  return safeEqualBuffer(left, right) ? email : null;
+}
+
+function saveLocalOwnerSession(res, req, email) {
+  res.cookie(LOCAL_OWNER_COOKIE, localOwnerCookieValue(email), cookieOptions(req, DEFAULT_REFRESH_TTL_SECONDS));
+  res.clearCookie(ACCESS_COOKIE, cookieOptions(req, 0));
+  res.clearCookie(REFRESH_COOKIE, cookieOptions(req, 0));
 }
 
 async function authRequest(supabaseUrl, publishableKey, path, request = {}) {
@@ -138,7 +200,7 @@ function authorizedUser(user) {
 }
 
 function loginHtml(next, error = "") {
-  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Đăng nhập AIGUKA</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f7fb;color:#172033;font:14px Arial}.card{width:min(390px,calc(100vw - 32px));background:#fff;border:1px solid #d9e2ef;border-radius:14px;padding:24px;box-shadow:0 16px 45px #18315318}h1{margin:0 0 8px;font-size:24px}p{color:#667085}label{display:block;font-weight:700;margin-top:14px}input{box-sizing:border-box;width:100%;padding:11px;margin-top:6px;border:1px solid #b9c5d6;border-radius:8px}button{width:100%;margin-top:18px;padding:11px;border:0;border-radius:8px;background:#155eef;color:#fff;font-weight:700;cursor:pointer}.error{padding:10px;border-radius:8px;background:#fee4e2;color:#912018}</style></head><body><form class="card" method="post" action="/auth/login"><h1>AIGUKA Admin</h1><p>Đăng nhập bằng tài khoản Supabase được cấp quyền quản trị.</p>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}<input type="hidden" name="next" value="${escapeHtml(safeNext(next))}"><label>Email<input name="email" type="email" autocomplete="username" required autofocus></label><label>Mật khẩu<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Đăng nhập</button></form></body></html>`;
+  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Đăng nhập AIGUKA</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f7fb;color:#172033;font:14px Arial}.card{width:min(390px,calc(100vw - 32px));background:#fff;border:1px solid #d9e2ef;border-radius:14px;padding:24px;box-shadow:0 16px 45px #18315318}h1{margin:0 0 8px;font-size:24px}p{color:#667085}label{display:block;font-weight:700;margin-top:14px}input{box-sizing:border-box;width:100%;padding:11px;margin-top:6px;border:1px solid #b9c5d6;border-radius:8px}button{width:100%;margin-top:18px;padding:11px;border:0;border-radius:8px;background:#155eef;color:#fff;font-weight:700;cursor:pointer}.error{padding:10px;border-radius:8px;background:#fee4e2;color:#912018}</style></head><body><form class="card" method="post" action="/auth/login"><h1>AIGUKA Admin</h1><p>Đăng nhập bằng tài khoản quản trị AIGUKA hoặc Supabase được cấp quyền.</p>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}<input type="hidden" name="next" value="${escapeHtml(safeNext(next))}"><label>Email<input name="email" type="email" autocomplete="username" required autofocus></label><label>Mật khẩu<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Đăng nhập</button></form></body></html>`;
 }
 
 export function installSupabaseAdminAuth(app, options = {}) {
@@ -157,14 +219,23 @@ export function installSupabaseAdminAuth(app, options = {}) {
   app.post("/auth/login", form, async (req, res) => {
     res.setHeader("cache-control", "no-store");
     const next = safeNext(req.body?.next);
+    const submittedEmail = String(req.body?.email || "").trim();
+    const submittedPassword = String(req.body?.password || "");
+
+    if (verifyLocalOwnerPassword(submittedEmail, submittedPassword)) {
+      saveLocalOwnerSession(res, req, submittedEmail);
+      res.redirect(303, next);
+      return;
+    }
+
     if (!configured) {
-      res.status(503).type("html").send(loginHtml(next, "Supabase Auth chưa được cấu hình."));
+      res.status(503).type("html").send(loginHtml(next, "Supabase Auth chưa được cấu hình và tài khoản quản trị AIGUKA không hợp lệ."));
       return;
     }
     try {
       const result = await authRequest(supabaseUrl, publishableKey, "/auth/v1/token?grant_type=password", {
         method: "POST",
-        body: JSON.stringify({ email: String(req.body?.email || "").trim(), password: String(req.body?.password || "") }),
+        body: JSON.stringify({ email: submittedEmail, password: submittedPassword }),
       });
       if (!result.response.ok || !result.data?.access_token) {
         res.status(401).type("html").send(loginHtml(next, "Email hoặc mật khẩu không đúng."));
@@ -198,13 +269,21 @@ export function installSupabaseAdminAuth(app, options = {}) {
 
   app.use(async (req, res, next) => {
     if (publicRequest(req) || internalRequest(req)) return next();
+
+    const cookies = parseCookies(req.headers.cookie);
+    const localEmail = verifyLocalOwnerCookie(cookies[LOCAL_OWNER_COOKIE]);
+    if (localEmail) {
+      req.aigukaUser = { id: "local-owner", email: localEmail, app_metadata: { role: "owner" } };
+      req.aigukaAccessToken = "";
+      return next();
+    }
+
     if (!configured) {
       res.setHeader("cache-control", "no-store");
       res.status(503).json({ ok: false, error: "SUPABASE_AUTH_NOT_CONFIGURED" });
       return;
     }
     try {
-      const cookies = parseCookies(req.headers.cookie);
       let accessToken = cookies[ACCESS_COOKIE];
       let user = accessToken ? await getUser(supabaseUrl, publishableKey, accessToken) : null;
       if (!user && cookies[REFRESH_COOKIE]) {
@@ -243,9 +322,12 @@ export function installSupabaseAdminAuth(app, options = {}) {
 export const __private__ = {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
+  LOCAL_OWNER_COOKIE,
   authorizedUser,
   internalRequest,
   parseCookies,
   publicRequest,
   safeNext,
+  verifyLocalOwnerCookie,
+  verifyLocalOwnerPassword,
 };
