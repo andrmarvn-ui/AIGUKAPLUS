@@ -15,6 +15,17 @@ function coreReady() {
   return Boolean(CORE_URL && CORE_KEY && META_APP_SECRET);
 }
 
+function origin(value) {
+  try { return new URL(value).origin; } catch { return ""; }
+}
+
+function legacyFallbackAllowed() {
+  if (String(process.env.AIGUKA_META_LEGACY_FALLBACK || "").trim().toLowerCase() === "true") return true;
+  const legacyOrigin = origin(LEGACY_URL);
+  const coreOrigin = origin(CORE_URL);
+  return Boolean(legacyOrigin && coreOrigin && legacyOrigin !== coreOrigin);
+}
+
 function deriveKey() {
   if (!META_APP_SECRET) throw new Error("MISSING_META_APP_SECRET");
   return crypto.scryptSync(META_APP_SECRET, "aiguka-meta-oauth-v1", 32);
@@ -184,11 +195,13 @@ export async function loadActiveMetaConnection() {
     try {
       const core = await loadCoreConnection();
       if (core) return core;
+      if (!legacyFallbackAllowed()) return null;
     } catch (error) {
-      console.error(`[AIGUKA Meta store] Core load failed, using legacy fallback: ${error.message}`);
+      if (!legacyFallbackAllowed()) throw error;
+      console.error(`[AIGUKA Meta store] Core load failed, using distinct legacy fallback: ${error.message}`);
     }
   }
-  return loadLegacyConnection();
+  return legacyFallbackAllowed() ? loadLegacyConnection() : null;
 }
 
 export async function listMetaConnections() {
@@ -213,11 +226,13 @@ export async function listMetaConnections() {
           });
         });
       }
+      if (!legacyFallbackAllowed()) return [];
     } catch (error) {
-      console.error(`[AIGUKA Meta store] Core list failed, using legacy fallback: ${error.message}`);
+      if (!legacyFallbackAllowed()) throw error;
+      console.error(`[AIGUKA Meta store] Core list failed, using distinct legacy fallback: ${error.message}`);
     }
   }
-  if (!legacyReady()) return [];
+  if (!legacyReady() || !legacyFallbackAllowed()) return [];
   const rows = await request(
     LEGACY_URL,
     LEGACY_KEY,
@@ -228,5 +243,5 @@ export async function listMetaConnections() {
 }
 
 export function metaOAuthStoreConfigured() {
-  return coreReady() || legacyReady();
+  return coreReady() || (legacyReady() && legacyFallbackAllowed());
 }
