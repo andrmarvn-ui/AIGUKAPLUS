@@ -8,6 +8,11 @@ const ADMIN_LINKS = Object.freeze([
     description: "Trang quản trị tổng hợp và các chức năng hệ thống.",
   },
   {
+    href: "/facebook-connect",
+    label: "Kết nối Facebook / Page",
+    description: "Đăng nhập Meta, cấp quyền Page và kiểm tra trạng thái kết nối dùng bởi AIGUKA.",
+  },
+  {
     href: "/bot-control",
     label: "Điều khiển BOT & lịch",
     description: "Bật, tắt, hỗ trợ, lịch làm việc và quyền gửi tin/slide.",
