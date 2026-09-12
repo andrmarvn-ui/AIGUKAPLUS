@@ -5,7 +5,10 @@ async function check() {
   await sleep(1800);
   try {
     const response = await fetch(`http://127.0.0.1:${PORT}/__aiguka/db-check`, {
-      headers: { "x-aiguka-selfcheck": "1" },
+      headers: {
+        "x-aiguka-selfcheck": "1",
+        "x-aiguka-internal-auth": String(process.env.AIGUKA_INTERNAL_HTTP_TOKEN || ""),
+      },
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
     });
