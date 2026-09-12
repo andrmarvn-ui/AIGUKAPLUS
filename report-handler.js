@@ -1,1 +1,1 @@
-export { installReportRoutes } from "./report-handler-v10.js";
+export { installReportRoutes } from "./report-handler-v11.js";
