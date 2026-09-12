@@ -2,7 +2,6 @@ const GRAPH_VERSION = String(process.env.META_GRAPH_VERSION || "v23.0").trim();
 const APP_ID = String(process.env.META_APP_ID || "").trim();
 const APP_SECRET = String(process.env.META_APP_SECRET || "").trim();
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").trim().replace(/\/$/, "");
-const PAGE_TOKEN = String(process.env.PAGE_ACCESS_TOKEN || process.env.PANCAKE_PAGE_ACCESS_TOKEN || "").trim();
 const VERIFY_TOKEN = String(process.env.META_WEBHOOK_VERIFY_TOKEN || "AIGUKA_V8_META_VERIFY").trim();
 const CALLBACK_URL = String(
   process.env.META_WEBHOOK_CALLBACK_URL
@@ -75,23 +74,61 @@ async function ensureAppWebhook(appToken) {
   return { changed: true };
 }
 
-async function ensurePageSubscription() {
-  if (!PAGE_TOKEN) {
-    console.warn("[AIGUKA Meta webhook] page subscription skipped: PAGE_ACCESS_TOKEN missing");
-    return null;
+async function pageTokenCandidates() {
+  const tokens = new Set([
+    String(process.env.PAGE_ACCESS_TOKEN || "").trim(),
+    String(process.env.PANCAKE_PAGE_ACCESS_TOKEN || "").trim(),
+  ].filter(Boolean));
+
+  const userToken = String(process.env.META_ACCESS_TOKEN || "").trim();
+  if (userToken) {
+    tokens.add(userToken);
+    try {
+      const accounts = await graph(`/me/accounts?fields=id,name,access_token&limit=200&access_token=${encodeURIComponent(userToken)}`);
+      for (const page of Array.isArray(accounts?.data) ? accounts.data : []) {
+        const token = String(page?.access_token || "").trim();
+        if (token) tokens.add(token);
+      }
+    } catch (error) {
+      console.warn(`[AIGUKA Meta webhook] could not derive page tokens from META_ACCESS_TOKEN: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
-  const token = encodeURIComponent(PAGE_TOKEN);
-  const profile = await graph(`/me?fields=id,name&access_token=${token}`);
+  return [...tokens];
+}
+
+async function subscribeWithPageToken(pageToken) {
+  const profile = await graph(`/me?fields=id,name&access_token=${encodeURIComponent(pageToken)}`);
   const pageId = String(profile?.id || "").trim();
   if (!pageId) throw new Error("META_PAGE_ID_MISSING");
-
   const body = new URLSearchParams({
     subscribed_fields: SUBSCRIBED_FIELDS.join(","),
-    access_token: PAGE_TOKEN,
+    access_token: pageToken,
   });
   await graph(`/${encodeURIComponent(pageId)}/subscribed_apps`, { method: "POST", body });
-  console.log(`[AIGUKA Meta webhook] page subscription healthy: ${profile?.name || pageId}`);
   return { pageId, pageName: profile?.name || null };
+}
+
+async function ensurePageSubscription() {
+  const candidates = await pageTokenCandidates();
+  if (!candidates.length) {
+    throw new Error("PAGE_ACCESS_TOKEN_MISSING");
+  }
+
+  const errors = [];
+  for (let index = 0; index < candidates.length; index += 1) {
+    const token = candidates[index];
+    try {
+      const profile = await subscribeWithPageToken(token);
+      process.env.PAGE_ACCESS_TOKEN = token;
+      console.log(`[AIGUKA Meta webhook] page subscription healthy: ${profile.pageName || profile.pageId}`);
+      return profile;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(message);
+      console.warn(`[AIGUKA Meta webhook] page token candidate ${index + 1} rejected: ${message}`);
+    }
+  }
+  throw new Error(`PAGE_SUBSCRIPTION_FAILED:${errors[errors.length - 1] || "unknown"}`);
 }
 
 async function main() {
@@ -104,6 +141,6 @@ async function main() {
   await ensurePageSubscription();
 }
 
-main().catch((error) => {
+await main().catch((error) => {
   console.error(`[AIGUKA Meta webhook] bootstrap failed: ${error instanceof Error ? error.message : String(error)}`);
 });
