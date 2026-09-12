@@ -63,6 +63,10 @@ console.log("[AIGUKA startup] final V10 HTTP server initialized; verifying V10 A
 await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
 
+// Keep the Meta app/page webhook pointed at the active V9 Edge ingress after a
+// Railway/Supabase cutover. This is idempotent and never logs access tokens.
+startDetached("./meta-webhook-bootstrap.js");
+
 const v9CoreModule = await safeImport("./v9-core-fetch-router.js");
 
 const v9CoreReady = v9CoreBridgeState.ready === true
