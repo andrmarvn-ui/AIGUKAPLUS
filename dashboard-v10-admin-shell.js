@@ -3,9 +3,9 @@ import { enhanceSmartLeadUi } from "./dashboard-smart-lead-ui.js";
 
 const ADMIN_LINKS = Object.freeze([
   {
-    href: "/admin-v8",
+    href: "/admin",
     label: "Tổng quan quản trị",
-    description: "Trang quản trị tổng hợp và các chức năng hệ thống cũ.",
+    description: "Trang quản trị tổng hợp và các chức năng hệ thống.",
   },
   {
     href: "/bot-control",
@@ -100,9 +100,14 @@ function sendHtml(res, html) {
 export function installV10AdminDashboard(app) {
   const dashboardHtml = enhanceV10DashboardHtml(reportDashboard.dashboardHtml());
   const sendDashboard = (_req, res) => sendHtml(res, dashboardHtml);
+  const sendAdminHub = (_req, res) => sendHtml(res, adminHubHtml());
+  const redirectLegacyAdmin = (_req, res) => res.redirect(302, "/admin");
   app.get("/", sendDashboard);
   app.get("/dashboard", sendDashboard);
-  app.get("/admin", (_req, res) => sendHtml(res, adminHubHtml()));
+  app.get("/admin", sendAdminHub);
+  for (const path of ["/admin-v8", "/admin-v9", "/admin-v10", "/admin-v19", "/aiguka-v8-admin"]) {
+    app.get(path, redirectLegacyAdmin);
+  }
 }
 
 export const __private__ = { ADMIN_LINKS, adminHubHtml, adminStripHtml };
