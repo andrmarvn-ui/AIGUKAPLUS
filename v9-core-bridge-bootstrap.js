@@ -45,8 +45,11 @@ export function installV9CoreBridgeFetch(coreBase, bridgeKey, apiKey = "") {
     const headers = new Headers(baseHeaders || {});
     headers.set("x-aiguka-core-bridge", bridgeKey);
     if (apiKey) {
-      headers.set("apikey", apiKey);
-      headers.set("authorization", `Bearer ${apiKey}`);
+      // Do not overwrite an explicit caller credential. Reporting/legacy calls may
+      // intentionally use a service-role key on the same Supabase origin, while
+      // Core calls use the publishable key plus the bridge header installed here.
+      if (!headers.has("apikey")) headers.set("apikey", apiKey);
+      if (!headers.has("authorization")) headers.set("authorization", `Bearer ${apiKey}`);
     }
     const routedUrl = proxyBase && url.pathname.startsWith("/rest/v1/")
       ? `${proxyBase}${url.pathname}${url.search}`
