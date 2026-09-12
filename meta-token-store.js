@@ -80,18 +80,19 @@ async function request(base, key, path, options = {}) {
   return data;
 }
 
-function publicConnection({ facebookUserId, facebookUserName, scopes, adAccounts, updatedAt, active = true }) {
+function publicConnection({ facebookUserId, facebookUserName, scopes, adAccounts, pages, updatedAt, active = true }) {
   return {
     facebook_user_id: facebookUserId,
     facebook_user_name: facebookUserName,
     granted_scopes: scopes || [],
     ad_accounts: adAccounts || [],
+    pages: pages || [],
     active,
     updated_at: updatedAt,
   };
 }
 
-async function saveCoreConnection({ facebookUserId, facebookUserName, accessToken, scopes, adAccounts }) {
+async function saveCoreConnection({ facebookUserId, facebookUserName, accessToken, scopes, adAccounts, pages }) {
   const encrypted = encryptToken(accessToken);
   const now = new Date().toISOString();
   return request(CORE_URL, CORE_KEY, "/rest/v1/v9_integrations?on_conflict=integration_key", {
@@ -108,6 +109,7 @@ async function saveCoreConnection({ facebookUserId, facebookUserName, accessToke
         facebook_user_name: facebookUserName || null,
         granted_scopes: scopes || [],
         ad_accounts: adAccounts || [],
+        pages: pages || [],
       },
       secret_version: 1,
       last_verified_at: now,
@@ -134,6 +136,7 @@ async function loadCoreConnection() {
     accessToken: decryptToken(row.encrypted_payload || {}),
     scopes: config.granted_scopes || [],
     adAccounts: config.ad_accounts || [],
+    pages: config.pages || [],
     updatedAt: row.updated_at,
     source: "v9_core",
   };
@@ -179,6 +182,7 @@ async function loadLegacyConnection() {
     accessToken: decryptToken(row),
     scopes: row.granted_scopes || [],
     adAccounts: row.ad_accounts || [],
+    pages: [],
     updatedAt: row.updated_at,
     source: "v8_legacy",
   };
@@ -221,6 +225,7 @@ export async function listMetaConnections() {
             facebookUserName: config.facebook_user_name,
             scopes: config.granted_scopes,
             adAccounts: config.ad_accounts,
+            pages: config.pages,
             updatedAt: row.updated_at,
             active: row.status === "ready",
           });
@@ -239,7 +244,7 @@ export async function listMetaConnections() {
     "/rest/v1/v8_meta_oauth_connections?select=facebook_user_id,facebook_user_name,granted_scopes,ad_accounts,active,updated_at&order=updated_at.desc",
     { method: "GET" },
   );
-  return Array.isArray(rows) ? rows : [];
+  return Array.isArray(rows) ? rows.map((row) => ({ ...row, pages: [] })) : [];
 }
 
 export function metaOAuthStoreConfigured() {
