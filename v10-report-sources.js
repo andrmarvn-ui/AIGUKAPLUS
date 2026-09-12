@@ -134,29 +134,36 @@ export function createV10ReportSources(options = {}) {
   const reportingKey = clean(options.reportingKey || process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || options.publishableKey);
   const coreBase = clean(options.coreBase || process.env.AIGUKA_V9_CORE_URL);
   const coreKey = clean(options.coreKey || process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY);
+  const reportRpcNames = new Set([
+    "v10_report_filter_registry",
+    "v10_report_customer_metrics",
+    "v10_report_customer_leads",
+  ]);
+
+  // Reporting RPCs are SECURITY DEFINER and deliberately executable only by the
+  // server-side service role. The V9 Core bridge uses a publishable key plus a
+  // bridge header, so routing these RPCs through coreKey yields RESOURCE_NOT_ALLOWED.
+  // Keep the bridge for customer workers; use the isolated server reporting
+  // credential for read-only report RPCs.
+  const reportRpc = (name, args = {}, timeoutMs = 45_000) => rpc(reportingBase, reportingKey, name, args, timeoutMs);
+  const routedRpc = (base, key, name, args = {}, timeoutMs = 45_000) => (
+    reportRpcNames.has(String(name))
+      ? reportRpc(name, args, timeoutMs)
+      : rpc(base, key, name, args, timeoutMs)
+  );
 
   async function staticFilters() {
-    try {
-      const result = await rpc(reportingBase, reportingKey, "v10_report_filter_registry");
-      return {
-        ok: true,
-        data: result?.data || {},
-        source: result?.source || "v10_static_registry_and_mapping",
-        warnings: [],
-      };
-    } catch (error) {
-      const fallback = await rpc(reportingBase, reportingKey, "v8_report_filters_test");
-      return {
-        ok: true,
-        data: fallback?.data || {},
-        source: "legacy_filter_registry_fallback",
-        warnings: [`V10_FILTER_REGISTRY:${error.message}`],
-      };
-    }
+    const result = await reportRpc("v10_report_filter_registry");
+    return {
+      ok: true,
+      data: result?.data || {},
+      source: result?.source || "v10_static_registry_and_mapping",
+      warnings: [],
+    };
   }
 
   async function customerMetrics(query = {}, filters = {}) {
-    const result = await rpc(coreBase, coreKey, "v10_report_customer_metrics", {
+    const result = await reportRpc("v10_report_customer_metrics", {
       p_from: queryValue(query, "from"),
       p_to: queryValue(query, "to"),
       p_page_id: queryValue(query, "page_id"),
@@ -173,9 +180,21 @@ export function createV10ReportSources(options = {}) {
     };
   }
 
-  return { staticFilters, customerMetrics, rpc };
+  async function customerLeads(query = {}) {
+    return reportRpc("v10_report_customer_leads", {
+      p_from: queryValue(query, "from"),
+      p_to: queryValue(query, "to"),
+      p_page_id: queryValue(query, "page_id"),
+      p_ad_id: queryValue(query, "ad_id"),
+      p_search: queryValue(query, "search"),
+      p_limit: Math.min(10000, Math.max(Number(query?.limit || 250), 1)),
+      p_offset: Math.max(Number(query?.offset || 0), 0),
+    }, 25_000);
+  }
+
+  return { staticFilters, customerMetrics, customerLeads, rpc: routedRpc };
 }
 
 export const __private__ = { attachDimensions, aggregateByAd, aggregateDaily, matchesMetric };
 
-// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V1
+// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V2_SERVICE_ROLE_ROUTING
