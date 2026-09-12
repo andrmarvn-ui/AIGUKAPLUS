@@ -1,3 +1,4 @@
+// Production cutover: fresh Supabase Core via the authenticated Edge proxy.
 // Protect database pressure and customer-facing Meta transport before any worker.
 await import("./patch-supabase-load-shed-fetch.js");
 
