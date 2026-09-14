@@ -132,25 +132,35 @@ function aggregateDaily(rows) {
 export function createV10ReportSources(options = {}) {
   const reportingBase = clean(options.reportingBase || process.env.AIGUKA_V9_REPORTING_URL || process.env.SUPABASE_URL);
   const reportingKey = clean(options.reportingKey || process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || options.publishableKey);
-  const coreBase = clean(options.coreBase || process.env.AIGUKA_V9_CORE_URL);
+  const coreBase = clean(options.coreBase || process.env.AIGUKA_V9_CORE_URL || reportingBase);
   const coreKey = clean(options.coreKey || process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY);
-  const reportRpcNames = new Set([
-    "v10_report_filter_registry",
-    "v10_report_customer_metrics",
-    "v10_report_customer_leads",
+  const bridgeBase = clean(process.env.AIGUKA_V9_CORE_URL || coreBase || reportingBase);
+  const bridgePublicKey = clean(
+    process.env.AIGUKA_V9_CORE_PUBLISHABLE_KEY
+    || process.env.SUPABASE_PUBLISHABLE_KEY
+    || process.env.SUPABASE_ANON_KEY
+    || options.publishableKey,
+  );
+  const bridgeKey = clean(process.env.AIGUKA_V9_CORE_BRIDGE_KEY);
+  const bridgeNames = new Map([
+    ["v10_report_filter_registry", "v10_bridge_report_filter_registry"],
+    ["v10_report_customer_metrics", "v10_bridge_report_customer_metrics"],
+    ["v10_report_customer_leads", "v10_bridge_report_customer_leads"],
   ]);
 
-  // Reporting RPCs are SECURITY DEFINER and deliberately executable only by the
-  // server-side service role. The V9 Core bridge uses a publishable key plus a
-  // bridge header, so routing these RPCs through coreKey yields RESOURCE_NOT_ALLOWED.
-  // Keep the bridge for customer workers; use the isolated server reporting
-  // credential for read-only report RPCs.
-  const reportRpc = (name, args = {}, timeoutMs = 45_000) => rpc(reportingBase, reportingKey, name, args, timeoutMs);
-  const routedRpc = (base, key, name, args = {}, timeoutMs = 45_000) => (
-    reportRpcNames.has(String(name))
-      ? reportRpc(name, args, timeoutMs)
-      : rpc(base, key, name, args, timeoutMs)
-  );
+  async function bridgeRpc(name, args = {}, timeoutMs = 45_000) {
+    if (!bridgeBase || !bridgePublicKey || !bridgeKey) throw new Error(`V10_CORE_BRIDGE_NOT_CONFIGURED:${name}`);
+    return rpc(bridgeBase, bridgePublicKey, name, { p_bridge_key: bridgeKey, ...args }, timeoutMs);
+  }
+
+  async function reportRpc(name, args = {}, timeoutMs = 45_000) {
+    const wrapper = bridgeNames.get(String(name));
+    if (wrapper) return bridgeRpc(wrapper, args, timeoutMs);
+    if (reportingBase && reportingKey) return rpc(reportingBase, reportingKey, name, args, timeoutMs);
+    return rpc(coreBase, coreKey, name, args, timeoutMs);
+  }
+
+  const routedRpc = (_base, _key, name, args = {}, timeoutMs = 45_000) => reportRpc(name, args, timeoutMs);
 
   async function staticFilters() {
     const result = await reportRpc("v10_report_filter_registry");
@@ -197,4 +207,4 @@ export function createV10ReportSources(options = {}) {
 
 export const __private__ = { attachDimensions, aggregateByAd, aggregateDaily, matchesMetric };
 
-// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V2_SERVICE_ROLE_ROUTING
+// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V3_BRIDGE_AUTH
