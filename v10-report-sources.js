@@ -1,3 +1,5 @@
+import { createV10AdminBridgeClient } from "./v10-admin-bridge-client.js";
+
 const clean = (value) => String(value ?? "").trim();
 const normalizeAccountId = (value) => clean(value).replace(/^act_/, "");
 const number = (value) => {
@@ -134,28 +136,16 @@ export function createV10ReportSources(options = {}) {
   const reportingKey = clean(options.reportingKey || process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || options.publishableKey);
   const coreBase = clean(options.coreBase || process.env.AIGUKA_V9_CORE_URL || reportingBase);
   const coreKey = clean(options.coreKey || process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY);
-  const bridgeBase = clean(process.env.AIGUKA_V9_CORE_URL || coreBase || reportingBase);
-  const bridgePublicKey = clean(
-    process.env.AIGUKA_V9_CORE_PUBLISHABLE_KEY
-    || process.env.SUPABASE_PUBLISHABLE_KEY
-    || process.env.SUPABASE_ANON_KEY
-    || options.publishableKey,
-  );
-  const bridgeKey = clean(process.env.AIGUKA_V9_CORE_BRIDGE_KEY);
-  const bridgeNames = new Map([
-    ["v10_report_filter_registry", "v10_bridge_report_filter_registry"],
-    ["v10_report_customer_metrics", "v10_bridge_report_customer_metrics"],
-    ["v10_report_customer_leads", "v10_bridge_report_customer_leads"],
+  const adminBridge = createV10AdminBridgeClient({ supabaseUrl: coreBase || reportingBase });
+  const reportOps = new Map([
+    ["v10_report_filter_registry", "report.filters"],
+    ["v10_report_customer_metrics", "report.metrics"],
+    ["v10_report_customer_leads", "report.leads"],
   ]);
 
-  async function bridgeRpc(name, args = {}, timeoutMs = 45_000) {
-    if (!bridgeBase || !bridgePublicKey || !bridgeKey) throw new Error(`V10_CORE_BRIDGE_NOT_CONFIGURED:${name}`);
-    return rpc(bridgeBase, bridgePublicKey, name, { p_bridge_key: bridgeKey, ...args }, timeoutMs);
-  }
-
   async function reportRpc(name, args = {}, timeoutMs = 45_000) {
-    const wrapper = bridgeNames.get(String(name));
-    if (wrapper) return bridgeRpc(wrapper, args, timeoutMs);
+    const op = reportOps.get(String(name));
+    if (op) return adminBridge.call(op, args, timeoutMs);
     if (reportingBase && reportingKey) return rpc(reportingBase, reportingKey, name, args, timeoutMs);
     return rpc(coreBase, coreKey, name, args, timeoutMs);
   }
@@ -207,4 +197,4 @@ export function createV10ReportSources(options = {}) {
 
 export const __private__ = { attachDimensions, aggregateByAd, aggregateDaily, matchesMetric };
 
-// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V3_BRIDGE_AUTH
+// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V4_EDGE_BRIDGE
