@@ -1,4 +1,5 @@
 const clean = (value) => String(value ?? "").trim();
+const BRIDGE_FETCH_MARK = Symbol.for("aiguka.v9.core.database.bridge.fetch");
 
 export function createV10AdminBridgeClient(options = {}) {
   const base = clean(process.env.AIGUKA_V9_CORE_URL || options.supabaseUrl || process.env.SUPABASE_URL).replace(/\/$/, "");
@@ -7,7 +8,12 @@ export function createV10AdminBridgeClient(options = {}) {
 
   async function call(op, args = {}, timeoutMs = 45_000) {
     if (!endpoint || !bridgeKey) throw new Error(`V10_ADMIN_BRIDGE_NOT_CONFIGURED:${op}`);
-    const response = await fetch(endpoint, {
+    // The V9 database bridge globally wraps fetch() for same-origin PostgREST calls
+    // and injects the restricted Core API key. This Edge Function is authenticated
+    // by its own high-entropy bridge header, so use the preserved raw fetch to avoid
+    // the database-key resource allowlist being applied to /functions/v1/.
+    const rawFetch = globalThis[BRIDGE_FETCH_MARK]?.fetch || globalThis.fetch.bind(globalThis);
+    const response = await rawFetch(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/json",
