@@ -1,5 +1,3 @@
-import { createV10AdminBridgeClient } from "./v10-admin-bridge-client.js";
-
 const clean = (value) => String(value ?? "").trim();
 const normalizeAccountId = (value) => clean(value).replace(/^act_/, "");
 const number = (value) => {
@@ -134,18 +132,16 @@ function aggregateDaily(rows) {
 export function createV10ReportSources(options = {}) {
   const reportingBase = clean(options.reportingBase || process.env.AIGUKA_V9_REPORTING_URL || process.env.SUPABASE_URL);
   const reportingKey = clean(options.reportingKey || process.env.AIGUKA_V9_REPORTING_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || options.publishableKey);
-  const coreBase = clean(options.coreBase || process.env.AIGUKA_V9_CORE_URL || reportingBase);
-  const coreKey = clean(options.coreKey || process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY);
-  const adminBridge = createV10AdminBridgeClient({ supabaseUrl: coreBase || reportingBase });
-  const reportOps = new Map([
-    ["v10_report_filter_registry", "report.filters"],
-    ["v10_report_customer_metrics", "report.metrics"],
-    ["v10_report_customer_leads", "report.leads"],
+  const coreBase = clean(options.coreBase || process.env.AIGUKA_V9_CORE_URL);
+  const coreKey = clean(options.coreKey || process.env.AIGUKA_V9_CORE_SERVICE_ROLE_KEY || process.env.AIGUKA_V9_CORE_PUBLISHABLE_KEY);
+  const reportRpcNames = new Set([
+    "v10_report_filter_registry",
+    "v10_report_customer_metrics",
+    "v10_report_customer_leads",
   ]);
 
   async function reportRpc(name, args = {}, timeoutMs = 45_000) {
-    const op = reportOps.get(String(name));
-    if (op) return adminBridge.call(op, args, timeoutMs);
+    if (reportRpcNames.has(String(name))) return rpc(coreBase, coreKey, name, args, timeoutMs);
     if (reportingBase && reportingKey) return rpc(reportingBase, reportingKey, name, args, timeoutMs);
     return rpc(coreBase, coreKey, name, args, timeoutMs);
   }
@@ -197,4 +193,4 @@ export function createV10ReportSources(options = {}) {
 
 export const __private__ = { attachDimensions, aggregateByAd, aggregateDaily, matchesMetric };
 
-// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V4_EDGE_BRIDGE
+// AIGUKA_V10_REPORT_CONTACT_SCAN_META_METRIC_V5_CORE_PROXY
