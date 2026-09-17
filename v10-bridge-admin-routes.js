@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import express from "express";
+import express from "node:express";
 
 const clean = (value) => String(value ?? "").trim();
 const nowIso = () => new Date().toISOString();
@@ -31,6 +31,7 @@ export function installV10BridgeAdminRoutes(app, options = {}) {
   const json = express.json({ limit: "6mb" });
   app.use("/api/ai-providers", json);
   app.use("/learning-reviewed/api", json);
+  app.use("/__aiguka/provider-migration", json);
 
   async function rpc(name, args = {}, timeoutMs = 45_000) {
     const response = await fetch(`${base}/rest/v1/rpc/${name}`, {
@@ -241,6 +242,58 @@ export function installV10BridgeAdminRoutes(app, options = {}) {
       const result = await rpc("v10_bridge_ai_provider_upsert", { p_provider_key: providerKey, p_row: row });
       res.json({ ok: true, created: !existing, data: publicProvider(result?.data || {}), source: "v10_core_bridge" });
     } catch (error) { res.status(422).json({ ok: false, error: safeError(error) }); }
+  });
+
+  app.post("/__aiguka/provider-migration", async (req, res) => {
+    const expected = clean(process.env.AIGUKA_PROVIDER_MIGRATION_TOKEN);
+    const supplied = clean(req.headers["x-aiguka-provider-migration"]);
+    if (!expected || !supplied || expected.length !== supplied.length || !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) {
+      res.status(401).json({ ok: false, error: "MIGRATION_UNAUTHORIZED" });
+      return;
+    }
+    try {
+      const rows = Array.isArray(req.body?.providers) ? req.body.providers : [];
+      let restored = 0;
+      let kept = 0;
+      let invalid = 0;
+      for (const input of rows.slice(0, 100)) {
+        const providerKey = clean(input?.provider_key).toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+        const secret = clean(input?.api_key);
+        if (!providerKey || !secret || !clean(input?.provider_name)) { invalid += 1; continue; }
+        const existing = await getProvider(providerKey);
+        if (existing?.api_key_ciphertext) { kept += 1; continue; }
+        const settings = {
+          ...(input.settings && typeof input.settings === "object" ? input.settings : {}),
+          restored_from_legacy: true,
+          restored_at: nowIso(),
+          smoke_test: null,
+          cooldown_until: null,
+          runtime_cooldown_until: null,
+          runtime_state: "configured",
+          runtime_error_class: null,
+        };
+        const row = {
+          provider_name: clean(input.provider_name),
+          provider_type: clean(input.provider_type) || "openai_compatible",
+          base_url: clean(input.base_url),
+          model_name: clean(input.model_name),
+          api_key_ciphertext: encryptProviderKey(secret),
+          api_key_hint: clean(input.api_key_hint) || `••••${secret.slice(-4)}`,
+          is_enabled: input.is_enabled === true,
+          connection_status: "configured",
+          settings,
+          last_verified_at: null,
+          last_error: null,
+          updated_at: nowIso(),
+        };
+        await rpc("v10_bridge_ai_provider_upsert", { p_provider_key: providerKey, p_row: row });
+        restored += 1;
+      }
+      console.log(`[AIGUKA provider migration intake] restored=${restored}, kept_existing=${kept}, invalid=${invalid}`);
+      res.json({ ok: true, restored, kept_existing: kept, invalid });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: safeError(error) });
+    }
   });
 
   app.post("/api/ai-providers/:providerKey/test", async (req, res) => {
