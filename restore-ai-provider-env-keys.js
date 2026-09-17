@@ -18,24 +18,25 @@ const knowledgeKey = clean(
   || process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
-function firstEnv(names) {
-  for (const name of names) {
-    const value = clean(process.env[name]);
-    if (value) return { name, value };
-  }
-  return null;
-}
-
 const ENV_ALIASES = {
   gemini: ["GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  google: ["GEMINI_API_KEY_2", "GEMINI_API_KEY2", "GEMINI2_API_KEY", "GOOGLE_GEMINI_API_KEY_2"],
   geminiplus: ["GEMINI_API_KEY_2", "GEMINI_API_KEY2", "GEMINI2_API_KEY", "GOOGLE_GEMINI_API_KEY_2"],
-  nvidia: ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY", "OPENROUTER_KEY"],
   kimi: ["KIMI_API_KEY", "MOONSHOT_API_KEY", "KIMI_K2_API_KEY"],
   grok: ["XAI_API_KEY", "GROK_API_KEY"],
   openai: ["OPENAI_API_KEY"],
+  nvidia: ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"],
 };
+
+function firstEnv(names) {
+  for (const name of names || []) {
+    const value = clean(process.env[name]);
+    if (value) return { name, value };
+  }
+  return null;
+}
 
 async function rpc(name, args = {}) {
   const response = await fetch(`${coreBase}/rest/v1/rpc/${name}`, {
@@ -46,7 +47,7 @@ async function rpc(name, args = {}) {
       "content-type": "application/json",
     },
     body: JSON.stringify({ p_bridge_key: bridgeKey, ...args }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(30_000),
     cache: "no-store",
   });
   const raw = await response.text();
@@ -92,18 +93,6 @@ function decryptLegacy(row, serviceKey, base) {
   return "";
 }
 
-function canonicalLegacyProvider(row) {
-  const text = `${clean(row?.provider_key)} ${clean(row?.provider_name)} ${clean(row?.provider_alias)} ${clean(row?.base_url)}`.toLowerCase();
-  if (text.includes("openrouter")) return "openrouter";
-  if (text.includes("nvidia")) return "nvidia";
-  if (text.includes("moonshot") || text.includes("kimi")) return "kimi";
-  if (text.includes("x.ai") || text.includes("grok") || /\bxai\b/.test(text)) return "grok";
-  if (text.includes("deepseek")) return "deepseek";
-  if (text.includes("openai")) return "openai";
-  if (text.includes("gemini")) return /(plus|secondary|second|gemini.?2)/.test(text) ? "geminiplus" : "gemini";
-  return "";
-}
-
 function legacySources() {
   const candidates = [
     { label: "knowledge", base: normalizedBase(process.env.AIGUKA_V9_KNOWLEDGE_URL), key: clean(process.env.AIGUKA_V9_KNOWLEDGE_SERVICE_ROLE_KEY) },
@@ -120,10 +109,10 @@ function legacySources() {
   });
 }
 
-async function readLegacyRows(source) {
-  const response = await fetch(`${source.base}/rest/v1/v8_ai_providers?select=*`, {
+async function readTable(source, table) {
+  const response = await fetch(`${source.base}/rest/v1/${table}?select=*`, {
     headers: { apikey: source.key, authorization: `Bearer ${source.key}` },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(20_000),
     cache: "no-store",
   });
   if (!response.ok) return [];
@@ -131,62 +120,146 @@ async function readLegacyRows(source) {
   return Array.isArray(data) ? data : [];
 }
 
-async function patchSecret(providerKey, secret, sourceLabel) {
-  await rpc("v10_bridge_ai_provider_patch", {
-    p_provider_key: providerKey,
-    p_patch: {
-      api_key_ciphertext: encryptForCurrent(secret),
-      api_key_hint: `••••${secret.slice(-4)}`,
-      connection_status: "configured",
-      last_error: null,
-      updated_at: nowIso(),
-    },
-  });
-  console.log(`[AIGUKA key recovery] restored ${providerKey} from ${sourceLabel} without exposing the secret`);
+async function readLegacyRows(source) {
+  const modern = await readTable(source, "ai_providers").catch(() => []);
+  if (modern.length) return { table: "ai_providers", rows: modern };
+  const legacy = await readTable(source, "v8_ai_providers").catch(() => []);
+  return { table: "v8_ai_providers", rows: legacy };
+}
+
+function providerKeyOf(row) {
+  return clean(row?.provider_key).toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+}
+
+function compatibleSettings(oldRow, currentRow) {
+  const oldSettings = oldRow?.settings && typeof oldRow.settings === "object" ? oldRow.settings : {};
+  const currentSettings = currentRow?.settings && typeof currentRow.settings === "object" ? currentRow.settings : {};
+  const mode = clean(oldRow?.mode || oldSettings.mode || (oldRow?.is_enabled ? "PRODUCTION" : "OFF")).toUpperCase();
+  return {
+    ...oldSettings,
+    ...currentSettings,
+    mode: ["OFF", "TEST", "PRODUCTION"].includes(mode) ? mode : (oldRow?.is_enabled ? "PRODUCTION" : "OFF"),
+    available_models: Array.isArray(oldRow?.available_models)
+      ? oldRow.available_models
+      : (Array.isArray(oldSettings.available_models) ? oldSettings.available_models : currentSettings.available_models),
+    last_success_at: oldRow?.last_success_at || oldSettings.last_success_at || currentSettings.last_success_at || null,
+    migrated_from_legacy_provider_store: true,
+    migrated_at: nowIso(),
+  };
+}
+
+async function upsertProvider(oldRow, currentRow, secret, sourceLabel) {
+  const providerKey = providerKeyOf(oldRow);
+  if (!providerKey) return false;
+
+  const existingCiphertext = clean(currentRow?.api_key_ciphertext);
+  const ciphertext = existingCiphertext || (secret ? encryptForCurrent(secret) : "");
+  if (!ciphertext) return false;
+
+  const hint = clean(currentRow?.api_key_hint || oldRow?.api_key_hint)
+    || (secret ? `••••${secret.slice(-4)}` : "");
+  const settings = compatibleSettings(oldRow, currentRow);
+
+  const row = {
+    provider_name: clean(oldRow?.provider_name || currentRow?.provider_name || providerKey),
+    provider_type: clean(oldRow?.provider_type || currentRow?.provider_type || "openai_compatible"),
+    base_url: clean(oldRow?.base_url || currentRow?.base_url || ""),
+    model_name: clean(oldRow?.model_name || currentRow?.model_name || ""),
+    api_key_ciphertext: ciphertext,
+    api_key_hint: hint || null,
+    is_enabled: oldRow?.is_enabled === true,
+    connection_status: existingCiphertext
+      ? clean(currentRow?.connection_status || oldRow?.connection_status || "configured")
+      : "configured",
+    settings,
+    last_verified_at: oldRow?.last_verified_at || oldRow?.last_checked_at || currentRow?.last_verified_at || null,
+    last_error: existingCiphertext ? (currentRow?.last_error || null) : null,
+    updated_at: nowIso(),
+  };
+
+  await rpc("v10_bridge_ai_provider_upsert", { p_provider_key: providerKey, p_row: row });
+  console.log(`[AIGUKA key migration] ${providerKey}: ${existingCiphertext ? "kept current key" : `restored key from ${sourceLabel}`}`);
+  return true;
 }
 
 async function run() {
   if (!coreBase || !publicKey || !bridgeKey || !knowledgeBase || !knowledgeKey) {
-    console.warn("[AIGUKA key recovery] skipped: Core/encryption configuration incomplete");
+    console.warn("[AIGUKA key migration] skipped: Core/encryption configuration incomplete");
     return;
   }
 
-  // Install the same authenticated Core fetch bridge used by production before
-  // calling protected V10 RPCs. Captured legacy credentials above remain intact.
+  // Prestart runs in its own process. Install the authenticated Core fetch bridge
+  // before protected V10 RPC calls so the transfer targets the live production Core.
   const bridge = await import("./v9-core-bridge-bootstrap.js");
   await bridge.bootstrapV9CoreBridge();
 
   const list = await rpc("v10_bridge_ai_provider_list");
-  const rows = Array.isArray(list?.data) ? list.data : [];
-  const current = new Map(rows.map((row) => [clean(row?.provider_key).toLowerCase(), row]));
-  const restored = new Set();
+  const currentRows = Array.isArray(list?.data) ? list.data : [];
+  const current = new Map(currentRows.map((row) => [providerKeyOf(row), row]));
 
-  // First recover encrypted provider keys from any still-connected legacy/Knowledge database.
+  let best = null;
   for (const source of legacySources()) {
-    const legacyRows = await readLegacyRows(source).catch(() => []);
-    for (const oldRow of legacyRows) {
-      const providerKey = canonicalLegacyProvider(oldRow);
-      if (!providerKey || !current.has(providerKey) || current.get(providerKey)?.api_key_ciphertext || restored.has(providerKey)) continue;
-      const secret = decryptLegacy(oldRow, source.key, source.base);
-      if (!secret) continue;
-      await patchSecret(providerKey, secret, `${source.label} provider store`);
-      restored.add(providerKey);
+    const result = await readLegacyRows(source);
+    if (!best || result.rows.length > best.rows.length) best = { ...result, source };
+  }
+
+  if (!best?.rows?.length) {
+    console.warn("[AIGUKA key migration] no legacy provider rows reachable; falling back to Railway env only");
+    let restoredFromEnv = 0;
+    for (const [providerKey, row] of current.entries()) {
+      if (clean(row?.api_key_ciphertext)) continue;
+      const envSecret = firstEnv(ENV_ALIASES[providerKey]);
+      if (!envSecret) continue;
+      const synthetic = { ...row, provider_key: providerKey };
+      if (await upsertProvider(synthetic, row, envSecret.value, envSecret.name)) restoredFromEnv += 1;
+    }
+    console.log(`[AIGUKA key migration] completed from Railway env: ${restoredFromEnv}`);
+    return;
+  }
+
+  let migrated = 0;
+  let decrypted = 0;
+  let preserved = 0;
+  let failed = 0;
+
+  for (const oldRow of best.rows) {
+    const providerKey = providerKeyOf(oldRow);
+    if (!providerKey) continue;
+    const currentRow = current.get(providerKey) || null;
+
+    if (clean(currentRow?.api_key_ciphertext)) {
+      if (await upsertProvider(oldRow, currentRow, "", `${best.source.label}/${best.table}`)) {
+        migrated += 1;
+        preserved += 1;
+      }
+      continue;
+    }
+
+    let secret = decryptLegacy(oldRow, best.source.key, best.source.base);
+    let sourceLabel = `${best.source.label}/${best.table}`;
+    if (!secret) {
+      const envSecret = firstEnv(ENV_ALIASES[providerKey]);
+      if (envSecret) {
+        secret = envSecret.value;
+        sourceLabel = envSecret.name;
+      }
+    }
+    if (!secret) {
+      console.warn(`[AIGUKA key migration] ${providerKey}: encrypted key could not be recovered`);
+      failed += 1;
+      continue;
+    }
+
+    if (await upsertProvider(oldRow, currentRow, secret, sourceLabel)) {
+      migrated += 1;
+      decrypted += 1;
     }
   }
 
-  // Then fill any remaining gaps from Railway environment variables.
-  for (const [providerKey, row] of current.entries()) {
-    if (!providerKey || row?.api_key_ciphertext || restored.has(providerKey)) continue;
-    const envSecret = firstEnv(ENV_ALIASES[providerKey] || []);
-    if (!envSecret) continue;
-    await patchSecret(providerKey, envSecret.value, envSecret.name);
-    restored.add(providerKey);
-  }
-
-  console.log(`[AIGUKA key recovery] completed: ${restored.size} missing provider key(s) restored`);
+  console.log(`[AIGUKA key migration] completed: legacy_rows=${best.rows.length}, migrated=${migrated}, restored_keys=${decrypted}, kept_current_keys=${preserved}, failed=${failed}, source=${best.source.label}/${best.table}`);
 }
 
-run().catch((error) => {
-  console.error(`[AIGUKA key recovery] failed safely: ${error instanceof Error ? error.message : String(error)}`);
+await run().catch((error) => {
+  console.error(`[AIGUKA key migration] failed safely: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 0;
 });
