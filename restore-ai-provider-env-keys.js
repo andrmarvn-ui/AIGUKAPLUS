@@ -151,6 +151,11 @@ async function run() {
     return;
   }
 
+  // Install the same authenticated Core fetch bridge used by production before
+  // calling protected V10 RPCs. Captured legacy credentials above remain intact.
+  const bridge = await import("./v9-core-bridge-bootstrap.js");
+  await bridge.bootstrapV9CoreBridge();
+
   const list = await rpc("v10_bridge_ai_provider_list");
   const rows = Array.isArray(list?.data) ? list.data : [];
   const current = new Map(rows.map((row) => [clean(row?.provider_key).toLowerCase(), row]));
