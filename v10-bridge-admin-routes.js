@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import express from "node:express";
+import express from "express";
 
 const clean = (value) => String(value ?? "").trim();
 const nowIso = () => new Date().toISOString();
