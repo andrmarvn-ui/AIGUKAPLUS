@@ -62,6 +62,11 @@ await safeImport("./v10-server-release.js", true);
 console.log("[AIGUKA startup] final V10 HTTP server initialized; verifying V10 AI release contract");
 await safeImport("./v10-live-release.js", true);
 console.log("[AIGUKA startup] V10 AI-sovereign release contract verified");
+
+// Restore legacy provider definitions + encrypted API keys only after the Core bridge
+// and its fetch routing are live. This avoids the prestart BRIDGE_UNAUTHORIZED failure.
+await safeImport("./v10-restore-legacy-ai-providers.js");
+
 startDetached("./v10-runtime-selfcheck.js");
 
 // Keep the Meta app/page webhook pointed at the active V9 Edge ingress after a
