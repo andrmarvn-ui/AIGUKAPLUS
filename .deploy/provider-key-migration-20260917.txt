@@ -1,0 +1,1 @@
+Trigger Railway rebuild from current main so the legacy AI provider/key migration runs against production Core.
